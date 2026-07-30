@@ -103,7 +103,7 @@ systemctl is-active minio.service
 curl -fsS http://127.0.0.1:9000/minio/health/live
 ```
 
-MinIO API 使用 `127.0.0.1:9000`，Console 使用 `127.0.0.1:9001`；Bucket、账号、策略和备份见 [`minio-start.md`](./minio-start.md)。
+MinIO API 使用 `127.0.0.1:9000`，Console 使用 `127.0.0.1:9001`；Console 的 code-server 地址是 `https://coder.vdian.net/GC5026/proxy/9001/`。Bucket、账号、策略和备份见 [`minio-start.md`](./minio-start.md)。
 
 ### Ray Head
 

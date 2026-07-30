@@ -106,6 +106,7 @@ MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
 MINIO_VOLUMES=/data/ai/chenzhangyue/code/train/platform-data/minio/data
 MINIO_OPTS="--address 127.0.0.1:9000 --console-address 127.0.0.1:9001"
+MINIO_BROWSER_REDIRECT_URL=https://coder.vdian.net/GC5026/proxy/9001/
 EOF
 chmod 0600 /etc/minio/minio.env
 chown root:root /etc/minio/minio.env
@@ -215,9 +216,23 @@ mc admin policy create local mlflow-artifacts-policy /tmp/mlflow-policy.json
 mc admin policy attach local mlflow-artifacts-policy --user mlflow
 ```
 
-训练数据账号使用同样的方式创建，但把资源限制为 `arn:aws:s3:::training-data` 和 `arn:aws:s3:::training-data/*`。如果训练任务只读数据，可以把 `s3:PutObject`、`s3:DeleteObject` 从策略中移除。创建完成后，将策略绑定到 `training-data` 用户：
+训练数据账号只访问 `training-data`。将以下内容保存为临时文件 `/tmp/training-data-policy.json`，如果训练任务只读数据，可以把 `s3:PutObject`、`s3:DeleteObject` 从策略中移除：
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect":"Allow","Action":["s3:ListAllMyBuckets"],"Resource":["arn:aws:s3:::*"]},
+    {"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::training-data"]},
+    {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::training-data/*"]}
+  ]
+}
+```
+
+创建完成后，将策略绑定到 `training-data` 用户。密码从 root-only 环境文件读取，因此这段命令可以在新的 shell 中执行：
 
 ```bash
+TRAINING_DATA_PASSWORD=$(sed -n 's/^AWS_SECRET_ACCESS_KEY=//p' /etc/minio/training-data-s3.env)
 mc admin user add local training-data "$TRAINING_DATA_PASSWORD"
 mc admin policy create local training-data-policy /tmp/training-data-policy.json
 mc admin policy attach local training-data-policy --user training-data
@@ -300,7 +315,25 @@ data:
 
 ## 10. Console 与远程访问
 
-本机浏览器可打开 `http://127.0.0.1:9001`。远程机器通过 SSH 隧道访问：
+当前 Console 通过 code-server 暴露时，公开地址是 `https://coder.vdian.net/GC5026/proxy/9001/`。
+MinIO 必须设置 `MINIO_BROWSER_REDIRECT_URL`，否则返回的 HTML 会使用 `<base href="/">`，
+浏览器加载不到代理路径下的 JS、CSS 和 API。修改后执行 `systemctl restart minio.service`。
+
+MinIO Console 使用普通 `proxy`，不要使用 `absproxy`：普通 `proxy` 会把 `/proxy/9001/`
+前缀剥掉后再转发给 MinIO；`absproxy` 会把完整路径透传给后端，而 MinIO Console 并不
+支持这种挂载方式。
+
+访问 Console 前还必须先完成 code-server 登录：
+
+```text
+https://coder.vdian.net/GC5026/login
+```
+
+登录 Cookie 应为 `code-server-session`，Path 为 `/GC5026`。如果 Console 首页返回但
+`manifest.json`、JS 或 API 返回 `401`，请在浏览器开发者工具 Network 中确认请求是否带有
+该 Cookie；只登录 Coder 平台或 MinIO Console 不等于登录 code-server。
+
+本机浏览器也可打开 `http://127.0.0.1:9001`。远程机器通过 SSH 隧道访问：
 
 ```bash
 ssh -N \

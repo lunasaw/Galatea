@@ -77,6 +77,9 @@ Environment="VSCODE_PROXY_URI=https://coder.vdian.net/GC5026/absproxy/{{port}}/"
 - `abs-proxy-base-path` 参与 `absproxy` 向后端转发时的路径构造。
 - `VSCODE_PROXY_URI` 主要控制 code-server 的 Ports 面板生成什么外部链接；它不替后端应用配置 base path，也不会改变应用返回的 HTML。
 
+`VSCODE_PROXY_URI` 是通用模板，当前模板使用 `absproxy` 是为了 JupyterLab；它不表示
+所有被代理的端口都必须使用 `absproxy`。MinIO Console 是一个例外，见第 5.3 节。
+
 ## 3. 两种代理的核心区别
 
 | 项目 | 普通 `proxy` | `absproxy` |
@@ -255,6 +258,75 @@ https://coder.vdian.net/GC5026/absproxy/8888/
 
 Jupyter 自身的 token/password 认证仍然存在。通过 code-server 认证不等于自动通过
 Jupyter 认证；Jupyter 重启后，自动生成的随机 token 也会变化。
+
+### 5.3 MinIO Console 配置
+
+MinIO Console 当前必须使用普通 `proxy`，不要使用 `absproxy`：
+
+```text
+https://coder.vdian.net/GC5026/proxy/9001/
+```
+
+原因是普通 `proxy` 会把 `/proxy/9001` 前缀剥掉，MinIO 收到根路径 `/`、`/manifest.json`、
+`/static/...` 和 `/api/v1/...`；`absproxy` 会把完整的
+`/GC5026/absproxy/9001/...` 路径透传给 MinIO，而 MinIO Console 不支持这种挂载方式。
+
+MinIO 的环境文件必须设置与公开地址一致的 Console URL：
+
+```ini
+# /etc/minio/minio.env
+MINIO_BROWSER_REDIRECT_URL=https://coder.vdian.net/GC5026/proxy/9001/
+```
+
+修改后重启 MinIO：
+
+```bash
+sudo systemctl restart minio.service
+curl -fsS http://127.0.0.1:9001/ | grep -o '<base href="[^"]*"'
+```
+
+预期为：
+
+```html
+<base href="/GC5026/proxy/9001/">
+```
+
+### 5.4 code-server 登录 Cookie 与 `401`
+
+`proxy` 和 `absproxy` 都受 code-server `auth: password` 保护。访问根路径时，未认证请求
+会重定向到 `/GC5026/login`；访问静态资源、`manifest.json` 或 API 时，未认证请求直接
+返回 `401 Unauthorized`。因此“页面 HTML 已返回”不代表后续资源请求已经通过认证。
+
+登录成功后，浏览器应保存以下 Cookie：
+
+```text
+名称：code-server-session
+Domain：coder.vdian.net
+Path：/GC5026
+```
+
+排查时打开浏览器开发者工具的 Network，检查失败的
+`/GC5026/proxy/9001/manifest.json` 请求是否带有：
+
+```http
+Cookie: code-server-session=...
+```
+
+如果没有 Cookie，先清除 `coder.vdian.net` 的旧 Cookie，再在同一域名下打开
+`https://coder.vdian.net/GC5026/login` 完成 code-server 登录；仅登录 Coder 平台或
+MinIO Console 不等于登录 code-server。不要把 code-server 密码写入 URL、Notebook 或文档。
+
+使用有效 Cookie 时，可以从服务器侧验证认证和代理链路：
+
+```bash
+curl -sk -b /path/to/cookies.txt \
+  -o /dev/null \
+  -w '%{http_code} %{content_type}\n' \
+  https://coder.vdian.net/GC5026/proxy/9001/manifest.json
+```
+
+预期为 `200 application/json`。没有 Cookie 时预期为 `401 application/json`，这是
+code-server 的正常安全行为，不应通过关闭认证来“修复”。
 
 ## 6. 修改配置后的生效方式
 

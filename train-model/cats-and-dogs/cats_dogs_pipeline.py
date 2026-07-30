@@ -186,19 +186,20 @@ class DataGenerators:
     test: Any
     batch_size: int
     augmentation: dict[str, Any]
+    input_scaling: str = "pixel_value / 255.0"
 
 
 @dataclass
 class ExperimentResult:
     run_id: str
-    model_uri: str
+    model_uri: str | None
     artifact_uri: str
     model: Model
     history: pd.DataFrame
     test_metrics: dict[str, float]
     predictions: pd.DataFrame
     confusion_matrix: np.ndarray
-    quality_gate_passed: bool
+    quality_gate_passed: bool | None
 
 
 def _command_output(arguments: list[str], cwd: Path) -> str | None:
@@ -475,6 +476,7 @@ def create_generators(
         test=test,
         batch_size=batch_size,
         augmentation=policy,
+        input_scaling="pixel_value / 255.0",
     )
 
 
@@ -663,13 +665,17 @@ def plot_confusion_matrix(matrix: np.ndarray) -> plt.Figure:
     return figure
 
 
-def _log_training_plots(history: pd.DataFrame, matrix: np.ndarray) -> None:
+def _log_training_plots(
+    history: pd.DataFrame,
+    matrix: np.ndarray | None = None,
+) -> None:
     figure = plot_training_history(history)
     mlflow.log_figure(figure, "plots/training-curves.png")
     plt.close(figure)
-    figure = plot_confusion_matrix(matrix)
-    mlflow.log_figure(figure, "plots/test-confusion-matrix.png")
-    plt.close(figure)
+    if matrix is not None:
+        figure = plot_confusion_matrix(matrix)
+        mlflow.log_figure(figure, "plots/test-confusion-matrix.png")
+        plt.close(figure)
 
 
 def _run_parameters(
@@ -687,11 +693,14 @@ def _run_parameters(
         "model.output_classes": len(CLASS_NAMES),
         "training.epochs_requested": config.epochs,
         "training.batch_size": generators.batch_size,
-        "training.learning_rate": config.learning_rate,
+        "training.learning_rate": float(
+            tf.keras.backend.get_value(model.optimizer.learning_rate)
+        ),
         "training.optimizer": type(model.optimizer).__name__,
         "training.loss": "sparse_categorical_crossentropy",
         "training.seed": config.seed,
         "training.early_stopping_patience": config.early_stopping_patience,
+        "training.input_scaling": generators.input_scaling,
         "data.dataset_version": dataset.dataset_version,
         "data.content_sha256": dataset.content_digest,
         "data.split_sha256": dataset.split_digest,
@@ -717,13 +726,28 @@ def run_tracked_training(
     model: Model,
     *,
     variant: str,
+    evaluate_test: bool = True,
+    log_model: bool = True,
+    selection_metric: str = "val_loss",
+    extra_parameters: dict[str, Any] | None = None,
+    extra_tags: dict[str, Any] | None = None,
+    run_name_suffix: str = "",
+    extra_source_paths: list[Path] | None = None,
 ) -> ExperimentResult:
-    """Train, evaluate, log all lineage and outputs, then verify Artifact recovery."""
+    """Train and log one auditable Run, optionally reserving test evaluation."""
 
     if mlflow.active_run() is not None:
         raise RuntimeError("Close the active MLflow Run before starting a model variant")
-    if variant not in {"baseline", "augmented", "smoke"}:
+    if variant not in {
+        "baseline",
+        "augmented",
+        "smoke",
+        "tuning-trial",
+        "tuning-champion",
+    }:
         raise ValueError(f"Unsupported tracked variant: {variant}")
+    if selection_metric not in {"val_loss", "val_accuracy"}:
+        raise ValueError(f"Unsupported selection metric: {selection_metric}")
 
     git_commit = _command_output(["git", "rev-parse", "HEAD"], config.repo_root)
     git_status = _command_output(["git", "status", "--porcelain"], config.repo_root)
@@ -738,9 +762,12 @@ def run_tracked_training(
         "execution.type": "notebook",
         "lifecycle.stage": "development",
     }
+    tags.update(extra_tags or {})
     parameters = _run_parameters(config, dataset, generators, model, variant)
-    run_name = f"{config.run_group_id}-{variant}"
+    parameters.update(extra_parameters or {})
+    run_name = f"{config.run_group_id}-{variant}{run_name_suffix}"
     phase = "run-setup"
+    selection_mode = "min" if selection_metric == "val_loss" else "max"
 
     mlflow.set_tracking_uri(config.tracking_uri)
     with mlflow.start_run(
@@ -774,6 +801,9 @@ def run_tracked_training(
             mlflow.log_artifact(str(MODULE_PATH), artifact_path="source")
             if config.notebook_path.is_file():
                 mlflow.log_artifact(str(config.notebook_path), artifact_path="source")
+            for source_path in extra_source_paths or []:
+                if source_path.is_file() and source_path.resolve() != MODULE_PATH:
+                    mlflow.log_artifact(str(source_path), artifact_path="source")
             mlflow.log_dict(_environment_report(), "environment/runtime.json")
             _log_dataset_inputs(dataset)
 
@@ -787,14 +817,15 @@ def run_tracked_training(
                     _EpochTelemetryCallback(),
                     tf.keras.callbacks.TerminateOnNaN(),
                     tf.keras.callbacks.EarlyStopping(
-                        monitor="val_loss",
+                        monitor=selection_metric,
+                        mode=selection_mode,
                         patience=config.early_stopping_patience,
                         restore_best_weights=True,
                     ),
                     tf.keras.callbacks.ModelCheckpoint(
                         filepath=str(checkpoint_path),
-                        monitor="val_loss",
-                        mode="min",
+                        monitor=selection_metric,
+                        mode=selection_mode,
                         save_best_only=True,
                     ),
                 ],
@@ -804,62 +835,93 @@ def run_tracked_training(
             phase = "model-evaluation"
             history = pd.DataFrame(keras_history.history)
             history.insert(0, "epoch", np.arange(1, len(history) + 1))
-            best_epoch = int(history["val_loss"].idxmin()) + 1
-            test_metrics, report, predictions, matrix = _evaluate_classifier(
-                model, generators.test, dataset.split_root
-            )
-            output_digest = hashlib.sha256(
-                predictions.to_csv(index=False).encode()
-            ).hexdigest()
-            quality_passed = test_metrics["test_accuracy"] >= config.min_test_accuracy
+            if selection_mode == "min":
+                best_epoch = int(history[selection_metric].idxmin()) + 1
+            else:
+                best_epoch = int(history[selection_metric].idxmax()) + 1
 
             final_metrics = {
-                **test_metrics,
                 "training_duration_seconds": training_seconds,
                 "epochs_completed": float(len(history)),
                 "best_epoch": float(best_epoch),
                 "best_val_loss": float(history["val_loss"].min()),
                 "best_val_accuracy": float(history["val_accuracy"].max()),
             }
+            test_metrics: dict[str, float] = {}
+            predictions = pd.DataFrame()
+            matrix = np.empty((0, 0), dtype="int64")
+            quality_passed: bool | None = None
+            output_digest: str | None = None
+            if evaluate_test:
+                test_metrics, report, predictions, matrix = _evaluate_classifier(
+                    model, generators.test, dataset.split_root
+                )
+                output_digest = hashlib.sha256(
+                    predictions.to_csv(index=False).encode()
+                ).hexdigest()
+                quality_passed = (
+                    test_metrics["test_accuracy"] >= config.min_test_accuracy
+                )
+                final_metrics.update(test_metrics)
             mlflow.log_metrics(final_metrics)
             mlflow.log_table(history, "metrics/training-history.json")
-            mlflow.log_table(predictions, "outputs/test-predictions.json")
             mlflow.log_dict(
                 {
-                    "run_id": run_id,
-                    "dataset_version": dataset.dataset_version,
-                    "prediction_sha256": output_digest,
-                    "metrics": test_metrics,
-                    "classification_report": report,
-                    "quality_gate": {
-                        "minimum_test_accuracy": config.min_test_accuracy,
-                        "passed": quality_passed,
-                    },
+                    "selection_metric": selection_metric,
+                    "selection_mode": selection_mode,
+                    "best_epoch": best_epoch,
+                    "best_val_loss": final_metrics["best_val_loss"],
+                    "best_val_accuracy": final_metrics["best_val_accuracy"],
+                    "test_evaluated": evaluate_test,
                 },
-                "reports/evaluation.json",
+                "reports/model-selection.json",
             )
-            _log_training_plots(history, matrix)
+            if evaluate_test:
+                mlflow.log_table(predictions, "outputs/test-predictions.json")
+                mlflow.log_dict(
+                    {
+                        "run_id": run_id,
+                        "dataset_version": dataset.dataset_version,
+                        "prediction_sha256": output_digest,
+                        "metrics": test_metrics,
+                        "classification_report": report,
+                        "quality_gate": {
+                            "minimum_test_accuracy": config.min_test_accuracy,
+                            "passed": quality_passed,
+                        },
+                    },
+                    "reports/evaluation.json",
+                )
+            _log_training_plots(history, matrix if evaluate_test else None)
             mlflow.log_artifact(str(checkpoint_path), artifact_path="checkpoints")
 
-            phase = "model-logging"
-            generators.test.reset()
-            input_batch, _ = next(generators.test)
-            generators.test.reset()
-            input_example = input_batch[:4]
-            output_example = model.predict(input_example, verbose=0)
-            signature = infer_signature(input_example, output_example)
-            model_info = mlflow.tensorflow.log_model(
-                model,
-                name="model",
-                signature=signature,
-                input_example=input_example,
-                metadata={
+            model_uri: str | None = None
+            if log_model:
+                phase = "model-logging"
+                example_generator = (
+                    generators.test if evaluate_test else generators.validation
+                )
+                example_generator.reset()
+                input_batch, _ = next(example_generator)
+                example_generator.reset()
+                input_example = input_batch[:4]
+                output_example = model.predict(input_example, verbose=0)
+                signature = infer_signature(input_example, output_example)
+                metadata = {
                     "dataset_version": dataset.dataset_version,
-                    "prediction_sha256": output_digest,
                     "class_names": CLASS_NAMES,
-                    "input_scaling": "pixel_value / 255.0",
-                },
-            )
+                    "input_scaling": generators.input_scaling,
+                }
+                if output_digest is not None:
+                    metadata["prediction_sha256"] = output_digest
+                model_info = mlflow.tensorflow.log_model(
+                    model,
+                    name="model",
+                    signature=signature,
+                    input_example=input_example,
+                    metadata=metadata,
+                )
+                model_uri = model_info.model_uri
 
             phase = "artifact-verification"
             verification_payload = {
@@ -882,15 +944,18 @@ def run_tracked_training(
             if downloaded_payload != verification_payload:
                 raise RuntimeError("Artifact round-trip returned different content")
 
-            mlflow.set_tags(
-                {
-                    "run.outcome": "succeeded",
-                    "quality_gate.passed": str(quality_passed).lower(),
-                    "artifact.roundtrip_verified": "true",
-                    "output.prediction_sha256": output_digest,
-                    "model.uri": model_info.model_uri,
-                }
-            )
+            outcome_tags = {
+                "run.outcome": "succeeded",
+                "artifact.roundtrip_verified": "true",
+                "test.evaluated": str(evaluate_test).lower(),
+            }
+            if quality_passed is not None:
+                outcome_tags["quality_gate.passed"] = str(quality_passed).lower()
+            if output_digest is not None:
+                outcome_tags["output.prediction_sha256"] = output_digest
+            if model_uri is not None:
+                outcome_tags["model.uri"] = model_uri
+            mlflow.set_tags(outcome_tags)
             mlflow.flush_async_logging()
         except Exception as error:
             mlflow.set_tags(
@@ -904,7 +969,7 @@ def run_tracked_training(
 
     return ExperimentResult(
         run_id=run_id,
-        model_uri=model_info.model_uri,
+        model_uri=model_uri,
         artifact_uri=active_run.info.artifact_uri,
         model=model,
         history=history,

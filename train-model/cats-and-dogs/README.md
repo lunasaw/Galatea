@@ -1,47 +1,48 @@
-# 猫狗分类 Notebook 运行说明
+# 猫狗分类：MLflow + MinIO 企业级实验追踪
 
-本文档覆盖从下载 Microsoft Cats vs Dogs 数据集，到启动并执行
-`cats-vs-dogs-classification.ipynb` 的完整流程。
-
-## 1. 目录约定
-
-本项目使用以下固定路径：
+本目录采用“Python 模块负责实现、Notebook 负责实验编排与展示”的结构：
 
 ```text
-/data/ai/chenzhangyue/code/
-├── data/cats-and-dogs/
-│   ├── microsoft-catsvsdogs-dataset.zip
-│   └── PetImages/
-│       ├── Cat/                 # 12,500 张
-│       └── Dog/                 # 12,500 张
-└── train/cats-and-dogs/
-    ├── README.md
-    └── cats-vs-dogs-classification.ipynb
+train-model/cats-and-dogs/
+├── cats_dogs_pipeline.py                  # 数据、模型、训练、评测、追踪实现
+├── cats-vs-dogs-classification.ipynb      # 配置、调用、实验记录、图表展示
+└── README.md
 ```
 
-Notebook 直接读取已经解压的 `PetImages`，不会在训练时修改原始数据。
+每个模型变体对应一个独立 MLflow Run。同一次 Notebook 执行的基础模型和增强模型共享
+`run_group_id`，可以对比，但不会覆盖彼此的参数或指标。
 
-## 2. 安装运行环境
+## 1. 运行环境
 
-推荐使用 Python 3.12。在当前 Jupyter Python 环境中安装依赖：
+使用仓库约定的 Conda 环境：
 
 ```bash
-python -m pip install tensorflow pillow matplotlib pandas numpy jupyter
+source /data/conda/etc/profile.d/conda.sh
+conda activate attend-ray-py312
+python -m pip install \
+  "tensorflow==2.21.*" \
+  "mlflow==3.14.0" \
+  pillow matplotlib pandas numpy scikit-learn jupyter
+python -m pip check
 ```
 
-确认 TensorFlow 可以导入：
+确认 TensorFlow 与设备可用：
 
 ```bash
 python -c "import tensorflow as tf; print(tf.__version__); print(tf.config.list_physical_devices())"
 ```
 
-当前环境已验证可使用 TensorFlow 2.21。若输出中只有 `CPU:0`，notebook
-仍然可以执行，但完整训练会明显慢于 GPU。
+## 2. 准备数据集
 
-## 3. 下载数据集
+Notebook 默认读取：
 
-先安装并配置 Kaggle CLI。Kaggle API Token 可以放在 `~/.kaggle/kaggle.json`，
-也可以通过平台提供的 Kaggle 凭据完成认证。
+```text
+/data/ai/chenzhangyue/code/data/cats-and-dogs/PetImages/
+├── Cat/       # 12,500 张图片
+└── Dog/       # 12,500 张图片
+```
+
+下载并解压：
 
 ```bash
 python -m pip install kaggle
@@ -50,86 +51,140 @@ kaggle datasets download \
   -d shaunthesheep/microsoft-catsvsdogs-dataset \
   -p /data/ai/chenzhangyue/code/data/cats-and-dogs \
   --force
-```
-
-使用 `--force` 可以避免上一次中断下载留下的续传片段混入 zip。
-
-## 4. 解压并检查数据
-
-```bash
 unzip -q \
   /data/ai/chenzhangyue/code/data/cats-and-dogs/microsoft-catsvsdogs-dataset.zip \
   -d /data/ai/chenzhangyue/code/data/cats-and-dogs
 ```
 
-检查两类图片数量：
+原始数据集包含两张已知坏图：`PetImages/Cat/666.jpg` 和
+`PetImages/Dog/11702.jpg`。Python 模块会验证每张图片、隔离坏图并生成 24,998 条有效
+Manifest 记录，不修改原始数据。
+
+## 3. 启动 MLflow 与 MinIO
+
+当前部署由 MLflow Tracking Server 保存元数据，并由 Server 将 Artifact 代理写入
+MinIO。Notebook 客户端不加载 `/etc/minio/mlflow-s3.env`，也不持有 MinIO 长期密钥。
 
 ```bash
-find /data/ai/chenzhangyue/code/data/cats-and-dogs/PetImages/Cat \
-  -maxdepth 1 -type f -iname '*.jpg' | wc -l
-find /data/ai/chenzhangyue/code/data/cats-and-dogs/PetImages/Dog \
-  -maxdepth 1 -type f -iname '*.jpg' | wc -l
+systemctl is-active minio.service
+systemctl is-active mlflow.service
+curl -fsS -H 'Host: localhost' http://127.0.0.1:5000/health
 ```
 
-两条命令都应输出 `12500`。原始数据集包含两张已知坏图：
-`PetImages/Cat/666.jpg` 和 `PetImages/Dog/11702.jpg`。Notebook 在划分数据时会
-检查图片并自动跳过它们，不需要手工删除原始文件。
+设置客户端地址和 Experiment：
 
-如果 `unzip` 报告 `bad zipfile offset` 或 `extra bytes`，说明下载文件已损坏，
-不要使用部分解压出的数据；请重新执行第 3 节带 `--force` 的下载命令，再解压。
+```bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export MLFLOW_EXPERIMENT_NAME=cats-vs-dogs-enterprise
+```
 
-## 5. 启动 Notebook
+Notebook 默认要求 Experiment 的 Artifact Location 为 `mlflow-artifacts:/` 或 `s3://`。
+仓库中的 `systemd/mlflow.service` 使用：
 
-如果平台已经在 `8888` 端口启动了 Jupyter，直接打开该服务，在文件浏览器中进入
-`cats-and-dogs/cats-vs-dogs-classification.ipynb`，不需要再启动一个服务。
+```text
+--serve-artifacts --artifacts-destination s3://mlflow-artifacts
+```
 
-尚未启动 Jupyter 时运行：
+因此客户端只访问 MLflow，模型、Checkpoint、Manifest、预测和图表由 MLflow Server
+写入 MinIO。如果 MLflow 不可用，或 Experiment 仍指向本地 Artifact Store，执行会在
+数据处理和训练前失败，不会静默产生不可追踪模型。
+
+### 可选：记录 MinIO 输入数据血缘
+
+Notebook 实际读取本地 `PetImages`。如果这份本地缓存是从 MinIO 某个不可变版本完整
+物化得到的，可以声明真实来源：
+
+```bash
+export CATS_DOGS_DATASET_SOURCE_URI=\
+s3://training-data/datasets/raw/microsoft-cats-vs-dogs/2026-07-30/PetImages
+```
+
+只有本地内容与该对象前缀完全一致时才设置。否则保留默认 `file://` 来源，避免伪造数据
+血缘。无论来源如何，模块都会计算逐文件 SHA-256、全量内容摘要和切分摘要。
+
+## 4. 运行 Notebook
+
+从仓库根目录启动：
 
 ```bash
 cd /data/ai/chenzhangyue/code/train
-jupyter lab --ip=0.0.0.0 --port=8888 --no-browser
+jupyter lab --no-browser --allow-root --ServerApp.root_dir="$PWD"
 ```
 
-打开后确认 Kernel 使用的是安装了 TensorFlow 的 Python 3 环境，然后选择
-`Kernel -> Restart Kernel and Run All Cells`。
+打开 `train-model/cats-and-dogs/cats-vs-dogs-classification.ipynb`，选择
+`Kernel -> Restart Kernel and Run All Cells`。修改 `cats_dogs_pipeline.py` 后必须重启
+Kernel，避免继续使用旧模块缓存。
 
-Notebook 每次从头执行时会：
+Notebook 只做以下工作：
 
-1. 检查 `PetImages/Cat` 和 `PetImages/Dog` 是否完整；
-2. 验证图片并跳过两张坏图；
-3. 以固定随机种子划分 90% 训练集、5% 验证集和 5% 测试集；
-4. 在 `/tmp/cats-v-dogs` 创建临时副本；
-5. 训练基础 CNN，执行测试、预测和 Grad-CAM；
-6. 再训练一个带数据增强的 CNN，并绘制训练曲线。
+1. 从环境变量构造配置并执行 MLflow/Artifact Store 门禁；
+2. 调用模块准备数据，展示数据摘要和样本；
+3. 调用模块执行基础模型 Run，展示指标、曲线、预测和 Grad-CAM；
+4. 调用模块执行增强模型 Run，展示指标、曲线和预测；
+5. 按当前 `run_group_id` 查询并对比两个 MLflow Run。
 
-`/tmp/cats-v-dogs` 会在每次重新执行时重建，不会导致重复样本。系统重启后该
-临时目录消失是正常现象，下次运行 notebook 会自动重新生成。
+## 5. 参数与快速验证
 
-## 6. 先做快速验证
+第一次运行保持一个 Epoch，完整走通数据、训练、MLflow 与 Artifact 回读：
 
-第一次运行建议把导入单元中的：
-
-```python
-EPOCHS = 10
+```bash
+export CATS_DOGS_EPOCHS=1
 ```
 
-临时改为：
+确认成功后再设置正式 Epoch。该变量同时控制两个模型，Early Stopping 可能提前结束：
 
-```python
-EPOCHS = 1
+```bash
+export CATS_DOGS_EPOCHS=10
 ```
 
-确认数据加载、训练、测试和可视化都正常后，再改回 `10` 进行正式训练。该变量
-同时控制基础模型和数据增强模型，因此默认完整运行总共会训练 20 个 epoch。
+质量门禁默认要求测试准确率至少为 `0.80`，可按审批后的基线调整：
+
+```bash
+export CATS_DOGS_MIN_TEST_ACCURACY=0.85
+```
+
+未通过门禁的 Run 仍会完整保留用于审计，但 `quality_gate.passed=false`，不得进入发布
+流程。Notebook 故意不自动注册或提升模型，防止探索性执行修改生产 Model Registry。
+
+可用环境变量：
+
+| 变量 | 默认值 | 作用 |
+| --- | --- | --- |
+| `MLFLOW_TRACKING_URI` | `http://127.0.0.1:5000` | Tracking Server 地址 |
+| `MLFLOW_EXPERIMENT_NAME` | `cats-vs-dogs-enterprise` | Experiment 名称 |
+| `CATS_DOGS_EPOCHS` | `1` | 每个模型最多 Epoch 数 |
+| `CATS_DOGS_MIN_TEST_ACCURACY` | `0.80` | 测试准确率门禁 |
+| `CATS_DOGS_DATA_DIR` | 固定数据目录 | 本地数据缓存根目录 |
+| `CATS_DOGS_DATASET_SOURCE_URI` | 本地 `file://` | 真实、不可变的数据来源 URI |
+| `CATS_DOGS_DATASET_VERSION` | 内容摘要 | 经审批的外部数据版本号 |
+| `MLFLOW_RUN_GROUP_ID` | 每次自动生成 | 显式合并多个 Run 时使用 |
+
+不要长期固定 `MLFLOW_RUN_GROUP_ID`，除非多个任务确实属于同一次受控实验。
+
+## 6. 每个 Run 的记录内容
+
+| 类别 | 内容 |
+| --- | --- |
+| 输入 | 来源 URI、训练/验证/测试 Dataset Input、Manifest、内容与切分 SHA-256 |
+| 参数 | 模型结构、Optimizer、Batch Size、Learning Rate、Epoch、Seed、增强策略 |
+| 时序指标 | Train/Validation Loss 与 Accuracy、Learning Rate、Epoch 耗时、系统资源 |
+| 测试指标 | Loss、Accuracy、Precision、Recall、F1、ROC AUC、质量门禁 |
+| 输出 | 逐样本预测、评测报告、训练曲线、混淆矩阵、最佳 Checkpoint |
+| 模型 | TensorFlow 模型、Signature、Input Example、依赖、预处理和标签元数据 |
+| 审计 | Git 状态、模块和 Notebook 源码、运行环境、失败阶段、Artifact 回读结果 |
+
+成功 Run 必须具有 `artifact.roundtrip_verified=true`。这表示客户端已经通过 MLflow
+下载并核对刚写入的验证对象；结合远程 Artifact Store 门禁，可确认 MinIO 输出路径具备
+基本可恢复性。
 
 ## 7. 常见问题
 
-- `ModuleNotFoundError: No module named 'tensorflow'`：TensorFlow 安装到了不同的
-  Python 环境；在 notebook 中运行 `import sys; print(sys.executable)`，再用该
-  Python 的 `-m pip install tensorflow` 安装。
-- `FileNotFoundError: Extract the dataset first`：确认目录名大小写严格为
-  `PetImages/Cat` 和 `PetImages/Dog`，并重新执行第 4 节的检查命令。
-- CUDA 或 `no CUDA-capable device` 提示：当前进程没有可用 GPU；这是性能提示，
-  不会阻止 CPU 训练。
-- 训练时间过长：先设置 `EPOCHS = 1`；正式训练建议在能够识别 GPU 的 Jupyter
-  内核中运行。
+- `MLflow is unavailable`：启动 `minio.service` 和 `mlflow.service`，检查 `/health`
+  后重试。正式训练不会在追踪服务不可用时继续。
+- `Experiment Artifact Store is not remote`：当前 Experiment 是旧的本地 Artifact
+  Location。确认服务参数后创建新 Experiment；修改服务不会迁移旧 Experiment。
+- `FileNotFoundError`：确认目录名大小写为 `PetImages/Cat` 和 `PetImages/Dog`。
+- Run 为 `FAILED`：查看 `failure.type`、`failure.phase`、MLflow Server 日志和 MinIO
+  日志，不要手工把失败 Run 改为成功。
+- GPU 不可用：CPU 仍能执行，但完整训练明显更慢。先用 `CATS_DOGS_EPOCHS=1` 验证。
+- 修改 `.py` 后 Notebook 行为未变化：重启 Kernel，清除 Python 模块缓存后重新运行。

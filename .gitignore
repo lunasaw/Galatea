@@ -1,2 +1,5 @@
 /platform-data/
 .ipynb_checkpoints
+__pycache__/
+*.py[cod]
+**/__pycache__

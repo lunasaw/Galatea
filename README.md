@@ -89,7 +89,7 @@ Ray Job / Ray Train：CPU、GPU、分布式执行
 当前实现是一套单节点训练平台基线：
 
 - Conda 环境：`/data/conda/envs/attend-ray-py312`
-- 工作目录：`/data/ai/chenzhangyue/code/train`
+- 工作目录：`/data/ai/chenzhangyue/code/galatea`
 - JupyterLab、MLflow、MinIO：由 systemd 管理
 - Ray：已安装，Head 在提交训练前按需启动，当前没有仓库内 systemd Unit
 - MLflow Backend Store：本机 `platform-data/mlflow/mlflow.db`
@@ -107,7 +107,7 @@ MLflow API，不应读取 `mlflow.db`。当前 MinIO 是单机单盘部署，不
 ```bash
 source /data/conda/etc/profile.d/conda.sh
 conda activate attend-ray-py312
-cd /data/ai/chenzhangyue/code/train
+cd /data/ai/chenzhangyue/code/galatea
 ```
 
 ### 2. 检查平台服务

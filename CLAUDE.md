@@ -13,7 +13,7 @@ The cats-and-dogs TensorFlow/Keras example in `train-model/cats-and-dogs/` is on
 ## Environment
 
 - **Conda environment**: `attend-ray-py312` at `/data/conda/envs/attend-ray-py312`
-- **Working directory**: `/data/ai/chenzhangyue/code/train`
+- **Working directory**: `/data/ai/chenzhangyue/code/galatea`
 - **Data directory**: `/data/ai/chenzhangyue/code/data/` (sibling to train, not in git)
 - **Platform data**: `platform-data/` (gitignored, contains runtime databases, artifacts, and state)
 

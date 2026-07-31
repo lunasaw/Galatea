@@ -9,11 +9,11 @@ After=network-online.target minio.service
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/data/ai/chenzhangyue/code/train
+WorkingDirectory=/data/ai/chenzhangyue/code/galatea
 Environment="PATH=/data/conda/envs/attend-ray-py312/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 EnvironmentFile=/etc/minio/mlflow-s3.env
-ExecStart=/data/conda/envs/attend-ray-py312/bin/mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////data/ai/chenzhangyue/code/train/platform-data/mlflow/mlflow.db --serve-artifacts --artifacts-destination s3://mlflow-artifacts --allowed-hosts localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,qcloud-bj06-gc50-01,10.19.20.26,10.69.16.176,coder.vdian.net --cors-allowed-origins https://coder.vdian.net
+ExecStart=/data/conda/envs/attend-ray-py312/bin/mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db --serve-artifacts --artifacts-destination s3://mlflow-artifacts --allowed-hosts localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,qcloud-bj06-gc50-01,10.19.20.26,10.69.16.176,coder.vdian.net --cors-allowed-origins https://coder.vdian.net
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s

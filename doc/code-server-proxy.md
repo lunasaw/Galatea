@@ -237,7 +237,7 @@ ExecStart=/data/conda/envs/attend-ray-py312/bin/jupyter-lab \
   --ServerApp.ip=0.0.0.0 \
   --ServerApp.port=8888 \
   --ServerApp.port_retries=0 \
-  --ServerApp.root_dir=/data/ai/chenzhangyue/code/train \
+  --ServerApp.root_dir=/data/ai/chenzhangyue/code/galatea \
   --ServerApp.allow_remote_access=True \
   --ServerApp.quit_button=False \
   --ServerApp.base_url=/GC5026/absproxy/8888/ \
@@ -423,7 +423,7 @@ curl -I http://127.0.0.1:8081/proxy/3000/
 /etc/systemd/system/code-server.service
 /etc/systemd/system/code-server.service.d/proxy.conf
 /etc/systemd/system/jupyterlab.service
-/data/ai/chenzhangyue/code/train/systemd/jupyterlab.service
+/data/ai/chenzhangyue/code/galatea/systemd/jupyterlab.service
 ```
 
 本文不会记录 code-server 密码或 Jupyter token；这些凭据应从当前运行实例或安全配置

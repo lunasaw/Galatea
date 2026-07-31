@@ -1,0 +1,4 @@
+interface:
+  display_name: "模型目录规范"
+  short_description: "规范 train-model 下模型项目的配置、源码与测试目录布局"
+  default_prompt: "Use $model-project-structure to create or review a model project with configs, source code, and tests colocated under train-model."

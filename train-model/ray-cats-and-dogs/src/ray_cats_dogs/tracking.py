@@ -225,7 +225,14 @@ def log_run_inputs(
             "host": socket.gethostname(),
             "packages": {
                 package: importlib.metadata.version(package)
-                for package in ("ray", "mlflow", "tensorflow", "numpy", "pandas")
+                for package in (
+                    "ray",
+                    "mlflow",
+                    "torch",
+                    "torchvision",
+                    "numpy",
+                    "pandas",
+                )
             },
         },
         "environment/runtime.json",

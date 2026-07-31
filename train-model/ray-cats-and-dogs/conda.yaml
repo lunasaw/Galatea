@@ -14,4 +14,7 @@ dependencies:
       - PyYAML==6.0.3
       - ray[default,train,data]==2.53.0
       - scikit-learn==1.9.0
-      - tensorflow==2.21.*
+      # Match the shared CUDA 13 PyTorch stack used by Ray and vLLM workers.
+      - torch==2.11.0
+      - torchvision==0.26.0
+      - torchaudio==2.11.0

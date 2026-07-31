@@ -1,4 +1,4 @@
-"""Final holdout evaluation, executed only for a clean champion role."""
+"""Final PyTorch holdout evaluation for a clean champion role."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def evaluate_checkpoint(
 ) -> dict[str, Any]:
     import numpy as np
     import pandas as pd
-    import tensorflow as tf
+    import torch
     from sklearn.metrics import (
         classification_report,
         confusion_matrix,
@@ -27,6 +27,7 @@ def evaluate_checkpoint(
 
     from ray_cats_dogs.data import CLASS_NAMES
     from ray_cats_dogs.input_pipeline import make_local_dataset
+    from ray_cats_dogs.models import build_model
 
     frame = pd.DataFrame(test_records)
     dataset = make_local_dataset(
@@ -35,22 +36,64 @@ def evaluate_checkpoint(
         image_size=tuple(image_size),
         batch_size=batch_size,
     )
-    with checkpoint.as_directory() as checkpoint_directory:
-        model = tf.keras.models.load_model(
-            Path(checkpoint_directory) / "best-model.keras"
+    if torch.cuda.is_available() and not (torch.version.cuda or "").startswith("13."):
+        raise RuntimeError(
+            "Evaluation worker loaded a non-CUDA-13 PyTorch build; install the "
+            "project torch==2.11.0 CUDA 13 environment before evaluation."
         )
-        evaluation = model.evaluate(dataset, verbose=0, return_dict=True)
-        probabilities = model.predict(dataset, verbose=0)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    with checkpoint.as_directory() as checkpoint_directory:
+        state = torch.load(
+            Path(checkpoint_directory) / "best-model.pt",
+            map_location="cpu",
+            weights_only=False,
+        )
+        model = build_model(
+            state["model_config"],
+            state["training_config"],
+            tuple(state["image_size"]),
+            int(state["seed"]),
+        )
+        model.load_state_dict(state["model_state_dict"])
+        model.to(device).eval()
 
-    labels = frame["label"].to_numpy(dtype="int64")
-    predictions = np.argmax(probabilities, axis=1).astype("int64")
+    criterion = torch.nn.CrossEntropyLoss()
+    labels: list[int] = []
+    predictions: list[int] = []
+    probabilities: list[np.ndarray] = []
+    total_loss = 0.0
+    total_count = 0
+    with torch.no_grad():
+        for images, batch_labels in dataset:
+            images = images.to(device, non_blocking=True)
+            batch_labels = batch_labels.to(device, non_blocking=True)
+            logits = model(images)
+            loss = criterion(logits, batch_labels)
+            probs = torch.softmax(logits, dim=1)
+            total_loss += float(loss.item()) * len(batch_labels)
+            total_count += len(batch_labels)
+            labels.extend(batch_labels.cpu().tolist())
+            predictions.extend(probs.argmax(dim=1).cpu().tolist())
+            probabilities.extend(probs.cpu().numpy())
+
+    labels_array = np.asarray(labels, dtype="int64")
+    predictions_array = np.asarray(predictions, dtype="int64")
+    probability_array = np.asarray(probabilities, dtype="float32")
     metrics = {
-        "test_loss": float(evaluation["loss"]),
-        "test_accuracy": float(evaluation["accuracy"]),
-        "test_precision": float(precision_score(labels, predictions, zero_division=0)),
-        "test_recall": float(recall_score(labels, predictions, zero_division=0)),
-        "test_f1": float(f1_score(labels, predictions, zero_division=0)),
-        "test_roc_auc": float(roc_auc_score(labels, probabilities[:, 1])),
+        "test_loss": total_loss / max(1, total_count),
+        "test_accuracy": float((labels_array == predictions_array).mean()),
+        "test_precision": float(
+            precision_score(labels_array, predictions_array, zero_division=0)
+        ),
+        "test_recall": float(
+            recall_score(labels_array, predictions_array, zero_division=0)
+        ),
+        "test_f1": float(
+            f1_score(labels_array, predictions_array, zero_division=0)
+        ),
+        "test_roc_auc": float(
+            roc_auc_score(labels_array, probability_array[:, 1])
+        ),
     }
     prediction_rows = [
         {
@@ -64,21 +107,23 @@ def evaluate_checkpoint(
         }
         for relative_path, actual, predicted, probability in zip(
             frame["relative_path"],
-            labels,
-            predictions,
-            probabilities,
+            labels_array,
+            predictions_array,
+            probability_array,
             strict=True,
         )
     ]
     return {
         "metrics": metrics,
         "classification_report": classification_report(
-            labels,
-            predictions,
+            labels_array,
+            predictions_array,
             target_names=CLASS_NAMES,
             output_dict=True,
             zero_division=0,
         ),
-        "confusion_matrix": confusion_matrix(labels, predictions).tolist(),
+        "confusion_matrix": confusion_matrix(
+            labels_array, predictions_array
+        ).tolist(),
         "predictions": prediction_rows,
     }

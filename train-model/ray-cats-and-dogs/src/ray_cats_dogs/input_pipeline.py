@@ -1,21 +1,87 @@
-"""TensorFlow input pipelines backed by Ray Dataset shards or local manifests."""
+"""PyTorch image batches backed by Ray Dataset shards or local manifests."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import pandas as pd
 
 
-def _decode_one(path: Any, label: Any, image_size: tuple[int, int]) -> tuple[Any, Any]:
-    import tensorflow as tf
+def _image_transform(
+    image_size: tuple[int, int],
+    *,
+    training: bool,
+    augmentation: bool,
+) -> Any:
+    from torchvision import transforms
 
-    encoded = tf.io.read_file(path)
-    image = tf.io.decode_image(encoded, channels=3, expand_animations=False)
-    image.set_shape((None, None, 3))
-    image = tf.image.resize(image, image_size, antialias=True)
-    return tf.cast(image, tf.float32), tf.cast(label, tf.int64)
+    operations: list[Any] = [transforms.Resize(image_size)]
+    if training and augmentation:
+        operations.extend(
+            [
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomRotation(20),
+                transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), fill=0),
+            ]
+        )
+    operations.append(transforms.ToTensor())
+    return transforms.Compose(operations)
+
+
+def _decode_batch(frame: pd.DataFrame, transform: Any) -> tuple[Any, Any]:
+    import torch
+    from PIL import Image
+
+    images = []
+    for path in frame["path"]:
+        with Image.open(path) as image:
+            images.append(transform(image.convert("RGB")))
+    labels = torch.as_tensor(frame["label"].to_numpy(), dtype=torch.long)
+    return torch.stack(images), labels
+
+
+class _RayImageBatches:
+    def __init__(
+        self,
+        dataset_shard: Any,
+        *,
+        image_size: tuple[int, int],
+        batch_size: int,
+        training: bool,
+        augmentation: bool,
+        seed: int,
+    ) -> None:
+        self.dataset_shard = dataset_shard
+        self.image_size = image_size
+        self.batch_size = batch_size
+        self.training = training
+        self.augmentation = augmentation
+        self.seed = seed
+
+    def __iter__(self) -> Iterator[tuple[Any, Any]]:
+        import torch
+
+        torch.manual_seed(self.seed)
+        transform = _image_transform(
+            self.image_size,
+            training=self.training,
+            augmentation=self.augmentation,
+        )
+        kwargs: dict[str, Any] = {
+            "batch_size": self.batch_size,
+            "batch_format": "pandas",
+            "drop_last": False,
+        }
+        if self.training:
+            kwargs.update(
+                {
+                    "local_shuffle_buffer_size": max(self.batch_size * 8, 256),
+                    "local_shuffle_seed": self.seed,
+                }
+            )
+        for frame in self.dataset_shard.iter_batches(**kwargs):
+            yield _decode_batch(frame, transform)
 
 
 def make_worker_dataset(
@@ -24,34 +90,16 @@ def make_worker_dataset(
     image_size: tuple[int, int],
     batch_size: int,
     training: bool,
+    augmentation: bool,
     seed: int,
 ) -> Any:
-    import tensorflow as tf
-    from ray.train.tensorflow import prepare_dataset_shard
-
-    shuffle_buffer = max(batch_size * 8, batch_size) if training else None
-    dataset = dataset_shard.to_tf(
-        feature_columns="path",
-        label_columns="label",
+    return _RayImageBatches(
+        dataset_shard,
+        image_size=image_size,
         batch_size=batch_size,
-        drop_last=False,
-        local_shuffle_buffer_size=shuffle_buffer,
-        local_shuffle_seed=seed if training else None,
-        feature_type_spec=tf.TensorSpec(shape=(None,), dtype=tf.string, name="path"),
-        label_type_spec=tf.TensorSpec(shape=(None,), dtype=tf.int64, name="label"),
-    )
-    dataset = prepare_dataset_shard(dataset)
-
-    def decode_batch(paths: Any, labels: Any) -> tuple[Any, Any]:
-        images = tf.map_fn(
-            lambda path: _decode_one(path, tf.constant(0), image_size)[0],
-            paths,
-            fn_output_signature=tf.TensorSpec((*image_size, 3), tf.float32),
-        )
-        return images, labels
-
-    return dataset.map(decode_batch, num_parallel_calls=tf.data.AUTOTUNE).prefetch(
-        tf.data.AUTOTUNE
+        training=training,
+        augmentation=augmentation,
+        seed=seed,
     )
 
 
@@ -62,14 +110,30 @@ def make_local_dataset(
     image_size: tuple[int, int],
     batch_size: int,
 ) -> Any:
-    import tensorflow as tf
+    from torch.utils.data import DataLoader, Dataset
+    from PIL import Image
 
-    paths = [str(pet_images_root / relative) for relative in frame["relative_path"]]
-    labels = frame["label"].astype("int64").tolist()
-    dataset = tf.data.Dataset.from_tensor_slices((paths, labels))
-    dataset = dataset.map(
-        lambda path, label: _decode_one(path, label, image_size),
-        num_parallel_calls=tf.data.AUTOTUNE,
-        deterministic=True,
+    transform = _image_transform(
+        image_size,
+        training=False,
+        augmentation=False,
     )
-    return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+    class ManifestDataset(Dataset):
+        def __len__(self) -> int:
+            return len(frame)
+
+        def __getitem__(self, index: int) -> tuple[Any, int]:
+            record = frame.iloc[index]
+            path = pet_images_root / str(record["relative_path"])
+            with Image.open(path) as image:
+                tensor = transform(image.convert("RGB"))
+            return tensor, int(record["label"])
+
+    return DataLoader(
+        ManifestDataset(),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False,
+    )

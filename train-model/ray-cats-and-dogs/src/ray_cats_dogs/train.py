@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
@@ -37,6 +38,9 @@ from ray_cats_dogs.tracking import (
     verify_artifact_round_trip,
 )
 from ray_cats_dogs.worker import train_loop_per_worker
+
+
+os.environ.setdefault("MLFLOW_RECORD_ENV_VARS_IN_MODEL_LOGGING", "false")
 
 
 def config_plan(config: ProjectConfig) -> dict[str, Any]:
@@ -145,7 +149,7 @@ def _log_checkpoint_and_selection(
         raise RuntimeError("Ray Train completed without a recoverable checkpoint")
     with result.checkpoint.as_directory() as checkpoint_directory:
         mlflow.log_artifacts(checkpoint_directory, artifact_path="checkpoints/best")
-        best_model_path = Path(checkpoint_directory) / "best-model.keras"
+        best_model_path = Path(checkpoint_directory) / "best-model.pt"
         local_model_digest = hashlib.sha256(best_model_path.read_bytes()).hexdigest()
         state = json.loads(
             (Path(checkpoint_directory) / "training-state.json").read_text(
@@ -157,7 +161,7 @@ def _log_checkpoint_and_selection(
     ) as verification_directory:
         downloaded_model = mlflow.artifacts.download_artifacts(
             run_id=run_id,
-            artifact_path="checkpoints/best/best-model.keras",
+            artifact_path="checkpoints/best/best-model.pt",
             dst_path=verification_directory,
         )
         downloaded_digest = hashlib.sha256(
@@ -245,27 +249,43 @@ def _log_evaluation(
 
 
 def _log_mlflow_model(checkpoint: Any, config: ProjectConfig) -> str:
-    import mlflow.tensorflow
+    import mlflow.pytorch
     import numpy as np
-    import tensorflow as tf
+    import torch
     from mlflow.models import infer_signature
 
+    from ray_cats_dogs.models import build_model
+
     with checkpoint.as_directory() as checkpoint_directory:
-        with tf.device("/CPU:0"):
-            model = tf.keras.models.load_model(
-                Path(checkpoint_directory) / "best-model.keras"
-            )
-            input_example = np.zeros((2, *config.image_size, 3), dtype="float32")
-            output_example = model.predict(input_example, verbose=0)
-        model_info = mlflow.tensorflow.log_model(
+        state = torch.load(
+            Path(checkpoint_directory) / "best-model.pt",
+            map_location="cpu",
+            weights_only=False,
+        )
+        model = build_model(
+            state["model_config"],
+            state["training_config"],
+            tuple(state["image_size"]),
+            int(state["seed"]),
+        )
+        model.load_state_dict(state["model_state_dict"])
+        model.eval()
+        input_example = np.zeros((2, 3, *config.image_size), dtype="float32")
+        with torch.no_grad():
+            output_example = model(torch.from_numpy(input_example)).numpy()
+        model_info = mlflow.pytorch.log_model(
             model,
             name="model",
             signature=infer_signature(input_example, output_example),
             input_example=input_example,
+            code_paths=[str(Path(__file__).resolve().parents[1])],
+            serialization_format="pickle",
             metadata={
                 "class_names": ["Cat", "Dog"],
                 "preprocessing_version": config.data.preprocessing_version,
-                "input_range": "raw pixel values [0,255]",
+                "input_range": "NCHW float32 in [0,1]",
+                "output_semantics": "raw class logits; apply softmax for probabilities",
+                "cuda_runtime": torch.version.cuda,
             },
         )
     with tempfile.TemporaryDirectory(
@@ -312,7 +332,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
 
     import ray
     from ray.train import CheckpointConfig, DataConfig, FailureConfig, RunConfig, ScalingConfig
-    from ray.train.tensorflow import TensorflowTrainer
+    from ray.train.torch import TorchTrainer
 
     initialized_here = not ray.is_initialized()
     if initialized_here:
@@ -350,7 +370,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
             run_name=run_name,
             tags=tags,
             description=(
-                "Ray Train TensorFlow cats-vs-dogs workload with deterministic "
+                "Ray Train PyTorch CUDA 13 cats-vs-dogs workload with deterministic "
                 "data lineage and driver-owned MLflow tracking."
             ),
             log_system_metrics=True,
@@ -378,7 +398,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                 ray_datasets = build_ray_datasets(dataset, config.data)
                 phase = "ray-training"
                 with controller_pickle_by_value():
-                    trainer = TensorflowTrainer(
+                    trainer = TorchTrainer(
                         train_loop_per_worker=train_loop_per_worker,
                         train_loop_config=_worker_loop_config(
                             config, run_id, identity_key

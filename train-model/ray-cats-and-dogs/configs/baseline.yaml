@@ -17,7 +17,7 @@ data:
   test_fraction: 0.05
   image_height: 150
   image_width: 150
-  preprocessing_version: ray-tf-image-v1
+  preprocessing_version: ray-torchvision-image-v2
 
 model:
   family: custom_cnn
@@ -38,14 +38,14 @@ training:
 ray:
   address: auto
   num_workers: 1
-  use_gpu: false
+  use_gpu: true
   cpus_per_worker: 2
   memory_per_worker_gb: 4
   placement_strategy: PACK
   max_failures: 1
   storage_path: ${REPO_ROOT}/platform-data/ray-results
   evaluation_cpus: 2
-  evaluation_gpus: 0
+  evaluation_gpus: 1
   evaluation_memory_gb: 4
 
 mlflow:

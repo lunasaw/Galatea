@@ -1,8 +1,68 @@
-"""TensorFlow model families for binary cat and dog classification."""
+"""PyTorch model families for binary cat and dog classification."""
 
 from __future__ import annotations
 
 from typing import Any
+
+import torch
+from torch import nn
+
+
+class ImageNetNormalize(nn.Module):
+    """Apply the normalization expected by torchvision ImageNet backbones."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_buffer(
+            "mean", torch.tensor((0.485, 0.456, 0.406)).view(1, 3, 1, 1)
+        )
+        self.register_buffer(
+            "std", torch.tensor((0.229, 0.224, 0.225)).view(1, 3, 1, 1)
+        )
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return (inputs - self.mean) / self.std
+
+
+class CatsDogsClassifier(nn.Module):
+    """Backbone plus binary classifier with a module-level pickle identity.
+
+    Keeping this class at module scope makes both Ray's controller serialization and
+    MLflow's PyTorch flavor independent of a transient ``build_model`` call frame.
+    """
+
+    def __init__(
+        self,
+        features: nn.Module,
+        feature_channels: int,
+        dense_units: int,
+        dropout: float,
+        *,
+        normalize: nn.Module | None = None,
+        family: str,
+        optimizer_name: str,
+        learning_rate: float,
+    ) -> None:
+        super().__init__()
+        self.normalize = normalize if normalize is not None else nn.Identity()
+        self.features = features
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Dropout(dropout) if dropout else nn.Identity(),
+            nn.Linear(feature_channels, dense_units),
+            nn.ReLU(inplace=True),
+            nn.Linear(dense_units, 2),
+        )
+        self.family = family
+        self.optimizer_name = optimizer_name
+        self.learning_rate = float(learning_rate)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.pool(self.features(self.normalize(inputs))))
+
+    def count_params(self) -> int:
+        return sum(parameter.numel() for parameter in self.parameters())
 
 
 def build_model(
@@ -11,53 +71,48 @@ def build_model(
     image_size: tuple[int, int],
     seed: int,
 ) -> Any:
-    import tensorflow as tf
+    from torchvision import models
 
-    tf.keras.utils.set_random_seed(seed)
-    inputs = tf.keras.layers.Input(shape=(*image_size, 3), name="image")
-    x = inputs
-    if model_config["augmentation"]:
-        x = tf.keras.Sequential(
-            [
-                tf.keras.layers.RandomFlip("horizontal", seed=seed),
-                tf.keras.layers.RandomRotation(0.08, seed=seed + 1),
-                tf.keras.layers.RandomTranslation(0.10, 0.10, seed=seed + 2),
-            ],
-            name="augmentation",
-        )(x)
+    del image_size
+    torch.manual_seed(seed)
 
     family = model_config["family"]
+    normalize: nn.Module = nn.Identity()
     if family == "custom_cnn":
-        x = tf.keras.layers.Rescaling(1.0 / 255, name="rescale")(x)
-        for filters in (32, 64, 128):
-            x = tf.keras.layers.Conv2D(filters, 3, padding="same", activation="relu")(x)
-            x = tf.keras.layers.MaxPooling2D(2)(x)
-        x = tf.keras.layers.Conv2D(256, 3, padding="same", activation="relu")(x)
+        feature_layers: list[nn.Module] = []
+        channels = (3, 32, 64, 128, 256)
+        for input_channels, output_channels in zip(channels, channels[1:]):
+            feature_layers.extend(
+                [
+                    nn.Conv2d(input_channels, output_channels, 3, padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.MaxPool2d(2),
+                ]
+            )
+        features = nn.Sequential(*feature_layers)
+        feature_channels = 256
     elif family == "mobilenet_v2":
-        x = tf.keras.applications.mobilenet_v2.preprocess_input(x)
-        backbone = tf.keras.applications.MobileNetV2(
-            include_top=False,
-            weights=model_config["pretrained_weights"],
-            input_shape=(*image_size, 3),
+        weights = (
+            models.MobileNet_V2_Weights.DEFAULT
+            if model_config["pretrained_weights"] == "imagenet"
+            else None
         )
-        backbone.trainable = False
-        x = backbone(x, training=False)
+        backbone = models.mobilenet_v2(weights=weights)
+        features = backbone.features
+        feature_channels = 1280
+        normalize = ImageNetNormalize()
+        for parameter in features.parameters():
+            parameter.requires_grad = False
     else:
         raise ValueError(f"Unsupported model family: {family}")
 
-    x = tf.keras.layers.GlobalAveragePooling2D()(x)
-    if model_config["dropout"]:
-        x = tf.keras.layers.Dropout(model_config["dropout"], seed=seed + 3)(x)
-    x = tf.keras.layers.Dense(model_config["dense_units"], activation="relu")(x)
-    outputs = tf.keras.layers.Dense(2, activation="softmax", name="class_probability")(x)
-    model = tf.keras.Model(inputs, outputs, name=f"cats_dogs_{family}")
-    optimizer_class = {
-        "adam": tf.keras.optimizers.Adam,
-        "rmsprop": tf.keras.optimizers.RMSprop,
-    }[training_config["optimizer"]]
-    model.compile(
-        optimizer=optimizer_class(learning_rate=training_config["learning_rate"]),
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
+    return CatsDogsClassifier(
+        features,
+        feature_channels,
+        int(model_config["dense_units"]),
+        float(model_config["dropout"]),
+        normalize=normalize,
+        family=family,
+        optimizer_name=str(training_config["optimizer"]),
+        learning_rate=float(training_config["learning_rate"]),
     )
-    return model

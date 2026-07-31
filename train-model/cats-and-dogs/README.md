@@ -1,11 +1,12 @@
-# 猫狗分类：MLflow + MinIO 企业级实验追踪
+# 猫狗分类：PyTorch CUDA 13 + MLflow + MinIO
 
 本目录采用“Python 模块负责实现、Notebook 负责实验编排与展示”的结构：
 
 ```text
 train-model/cats-and-dogs/
 ├── conda.yaml                            # 可复现的独立 Conda 环境
-├── cats_dogs_pipeline.py                  # 数据、模型、训练、评测、追踪实现
+├── cats_dogs_pipeline.py                  # 稳定的 Notebook 导入入口
+├── cats_dogs_torch_pipeline.py            # PyTorch 数据、模型、训练、评测和追踪
 ├── cats_dogs_tuner.py                     # MLflow 历史感知自动调优入口
 ├── cats-vs-dogs-classification.ipynb      # 配置、调用、实验记录、图表展示
 └── README.md
@@ -22,6 +23,9 @@ train-model/cats-and-dogs/
 source /data/conda/etc/profile.d/conda.sh
 conda env create --file train-model/cats-and-dogs/conda.yaml
 conda activate cats-and-dogs-py312
+python -m ipykernel install --user \
+  --name cats-and-dogs-py312 \
+  --display-name "Python (cats-and-dogs, PyTorch CUDA 13)"
 python -m pip check
 ```
 
@@ -29,19 +33,20 @@ python -m pip check
 同步依赖。Conda 包和 pip 包均优先使用清华 TUNA 镜像。平台服务的公共依赖由
 仓库根目录的 `requirements.txt` 管理，不写入模型依赖文件。
 
-确认 TensorFlow 与设备可用：
+确认 PyTorch、CUDA 13 和 Blackwell GPU 可用：
 
 ```bash
-python -c "import tensorflow as tf; print(tf.__version__); print(tf.config.list_physical_devices())"
+python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.get_device_name(0)); print(torch.cuda.get_device_capability(0)); print(torch.cuda.get_arch_list())"
 ```
 
-正式训练默认要求 TensorFlow 注册至少一个 GPU；项目会在模型构建和每个 tracked Run
-开始前设置 GPU 内存增长，并在 GPU 不可用时直接失败，不再静默退回 CPU。`conda.yaml`
-使用 `tensorflow[and-cuda]` 安装 CUDA 运行库。修改依赖或安装 CUDA 组件后必须重启
-Jupyter Kernel，再确认输出包含 `PhysicalDevice(...GPU...)`：
+`conda.yaml` 固定 `torch==2.11.0`、`torchvision==0.26.0` 和
+`torchaudio==2.11.0`。PyTorch 依赖元数据会安装匹配的 CUDA 13.0.2、cuDNN、NCCL 与
+Triton wheel；不要再向同一环境安装 `tensorflow[and-cuda]` 或 `nvidia-*-cu12`。
+正式训练默认要求 PyTorch 注册至少一个 CUDA GPU，并在不可用时直接失败。创建或更新
+环境后必须重启 Jupyter Kernel，选择上面注册的项目 Kernel，再确认：
 
 ```bash
-python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+python -c "import torch; print(torch.cuda.is_available()); print(torch.version.cuda)"
 nvidia-smi
 ```
 
@@ -230,7 +235,7 @@ python train-model/cats-and-dogs/cats_dogs_tuner.py
 | `CATS_DOGS_TUNER_PRETRAINED_WEIGHTS` | `imagenet` | `imagenet` 或 `none` |
 | `CATS_DOGS_TUNER_STUDY_NAME` | 数据版本派生 | 显式恢复同一个调优 Study |
 
-ImageNet 权重必须已在 Keras 缓存中，或训练节点能够在首次执行时下载。模型效果受数据、
+ImageNet 权重必须已在 Torch Hub 缓存中，或训练节点能够在首次执行时下载。模型效果受数据、
 预算、硬件和目标定义影响；`0.95` 是可配置的工程停止目标，不代表也不保证达到公开榜单
 意义上的 SOTA。调优器不会自动注册或提升 Champion，仍需通过质量门禁和人工审批。
 
@@ -243,7 +248,7 @@ ImageNet 权重必须已在 Keras 缓存中，或训练节点能够在首次执�
 | 时序指标 | Train/Validation Loss 与 Accuracy、Learning Rate、Epoch 耗时、系统资源 |
 | 测试指标 | Loss、Accuracy、Precision、Recall、F1、ROC AUC、质量门禁 |
 | 输出 | 逐样本预测、评测报告、训练曲线、混淆矩阵、最佳 Checkpoint |
-| 模型 | TensorFlow 模型、Signature、Input Example、依赖、预处理和标签元数据 |
+| 模型 | PyTorch 模型、Signature、NCHW Input Example、依赖、预处理和标签元数据 |
 | 审计 | Git 状态、模块和 Notebook 源码、运行环境、失败阶段、Artifact 回读结果 |
 
 成功 Run 必须具有 `artifact.roundtrip_verified=true`。这表示客户端已经通过 MLflow
@@ -259,7 +264,7 @@ ImageNet 权重必须已在 Keras 缓存中，或训练节点能够在首次执�
 - `FileNotFoundError`：确认目录名大小写为 `PetImages/Cat` 和 `PetImages/Dog`。
 - Run 为 `FAILED`：查看 `failure.type`、`failure.phase`、MLflow Server 日志和 MinIO
   日志，不要手工把失败 Run 改为成功。
-- GPU 不可用：正式训练会在模型构建前失败。安装/更新 `tensorflow[and-cuda]` 后重启
-  Kernel，并用 `tf.config.list_physical_devices('GPU')` 和 `nvidia-smi` 验证；仅 CPU
-  smoke test 才设置 `CATS_DOGS_REQUIRE_GPU=false`。
+- GPU 不可用：确认 Notebook 使用 `cats-and-dogs-py312` Kernel，并用
+  `torch.cuda.is_available()`、`torch.version.cuda` 和 `nvidia-smi` 验证；仅 CPU smoke
+  test 才设置 `CATS_DOGS_REQUIRE_GPU=false`。
 - 修改 `.py` 后 Notebook 行为未变化：重启 Kernel，清除 Python 模块缓存后重新运行。

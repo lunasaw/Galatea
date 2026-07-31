@@ -1,9 +1,11 @@
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
-import cats_dogs_pipeline as pipeline
+import torch
+from torch.utils.data import DataLoader, TensorDataset
+
+import cats_dogs_torch_pipeline as pipeline
 
 
 def _config(*, require_gpu: bool) -> pipeline.PipelineConfig:
@@ -18,56 +20,64 @@ def _config(*, require_gpu: bool) -> pipeline.PipelineConfig:
     )
 
 
-class TensorFlowRuntimeTests(unittest.TestCase):
-    def test_requires_a_logical_gpu_by_default(self) -> None:
+class TorchRuntimeTests(unittest.TestCase):
+    def test_requires_cuda_by_default(self) -> None:
         config = _config(require_gpu=True)
-        with patch.object(pipeline.tf.config, "list_physical_devices", return_value=[]):
-            with self.assertRaisesRegex(RuntimeError, "did not register a GPU"):
-                pipeline.configure_tensorflow_runtime(config)
+        with patch.object(pipeline.torch.cuda, "is_available", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "did not register a CUDA GPU"):
+                pipeline.configure_torch_runtime(config)
 
     def test_allows_explicit_cpu_smoke_override(self) -> None:
         config = _config(require_gpu=False)
-        with patch.object(pipeline.tf.config, "list_physical_devices", return_value=[]):
-            self.assertEqual(pipeline.configure_tensorflow_runtime(config), "/CPU:0")
-
-    def test_selects_first_logical_gpu_and_enables_memory_growth(self) -> None:
-        config = _config(require_gpu=True)
-        physical_gpu = SimpleNamespace(name="/physical_device:GPU:0")
-        logical_gpu = SimpleNamespace(name="/device:GPU:0")
-        with (
-            patch.object(
-                pipeline.tf.config,
-                "list_physical_devices",
-                return_value=[physical_gpu],
-            ),
-            patch.object(
-                pipeline.tf.config,
-                "list_logical_devices",
-                return_value=[logical_gpu],
-            ),
-            patch.object(
-                pipeline.tf.config.experimental, "set_memory_growth"
-            ) as set_growth,
-        ):
+        with patch.object(pipeline.torch.cuda, "is_available", return_value=False):
             self.assertEqual(
-                pipeline.configure_tensorflow_runtime(config), "/device:GPU:0"
+                torch.device("cpu"), pipeline.configure_torch_runtime(config)
             )
-        set_growth.assert_called_once_with(physical_gpu, True)
 
-    def test_rejects_physical_gpu_that_failed_logical_initialization(self) -> None:
+    def test_selects_first_cuda_device_and_seeds_it(self) -> None:
         config = _config(require_gpu=True)
-        physical_gpu = SimpleNamespace(name="/physical_device:GPU:0")
         with (
-            patch.object(
-                pipeline.tf.config,
-                "list_physical_devices",
-                return_value=[physical_gpu],
-            ),
-            patch.object(pipeline.tf.config, "list_logical_devices", return_value=[]),
-            patch.object(pipeline.tf.config.experimental, "set_memory_growth"),
+            patch.object(pipeline.torch.cuda, "is_available", return_value=True),
+            patch.object(pipeline.torch.cuda, "set_device") as set_device,
+            patch.object(pipeline.torch.cuda, "manual_seed_all") as cuda_seed,
         ):
-            with self.assertRaisesRegex(RuntimeError, "physical GPU hardware"):
-                pipeline.configure_tensorflow_runtime(config)
+            device = pipeline.configure_torch_runtime(config)
+
+        self.assertEqual(torch.device("cuda:0"), device)
+        set_device.assert_called_once_with(torch.device("cuda:0"))
+        cuda_seed.assert_called_with(config.seed)
+
+    def test_cnn_returns_two_logits_on_cpu(self) -> None:
+        model = pipeline.CatsDogsCNN("baseline")
+        outputs = model(torch.zeros((2, 3, 64, 64), dtype=torch.float32))
+
+        self.assertEqual((2, 2), tuple(outputs.shape))
+        self.assertGreater(model.count_params(), 0)
+
+    def test_gradcam_handles_cnn_backward_hook(self) -> None:
+        model = pipeline.CatsDogsCNN("baseline")
+        images = torch.rand((4, 3, 64, 64), dtype=torch.float32)
+        loader = DataLoader(
+            TensorDataset(images, torch.zeros(4, dtype=torch.long)), batch_size=4
+        )
+        with torch.no_grad():
+            desired_class = int(model(images[:1]).argmax(dim=1).item())
+        result = pipeline.ExperimentResult(
+            run_id="gradcam-test",
+            model_uri=None,
+            artifact_uri="file:///tmp",
+            model=model,
+            history=None,
+            test_metrics={},
+            predictions=None,
+            confusion_matrix=None,
+            quality_gate_passed=None,
+        )
+
+        figure = pipeline.plot_gradcam_examples(
+            result, loader, desired_class=desired_class, n_images=1
+        )
+        pipeline.plt.close(figure)
 
 
 if __name__ == "__main__":

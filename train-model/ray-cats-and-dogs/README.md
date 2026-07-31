@@ -1,8 +1,8 @@
 # Ray + MLflow 猫狗分类训练
 
 本项目把 [`../cats-and-dogs/`](../cats-and-dogs/) 中的 Notebook 训练流程重构为可恢复、
-可审计、可由 Ray Job 提交的正式训练项目。原项目保持不变；这里复用它的 TensorFlow CNN、
-确定性数据切分、MLflow 数据血缘和测试集门禁思想，并把配置、实现、入口与测试分开。
+可审计、可由 Ray Job 提交的正式 PyTorch CUDA 13 训练项目。它复用确定性数据切分、
+MLflow 数据血缘和测试集门禁思想，并把配置、实现、入口与测试分开。
 
 当前阶段使用 Ray Train 做单 Worker 或多 Worker 数据并行训练。MLflow 的权威写入者始终
 只有 Driver/Train Controller：Worker 只做计算、向 Ray 上报指标和 Checkpoint，不创建、
@@ -66,11 +66,12 @@ python -m ipykernel install --user \
 python -m pip check
 ```
 
-共享平台环境已经包含相同版本的 Ray、MLflow 和 TensorFlow 时，也可以先用它做配置检查：
+共享平台环境已经包含相同版本的 Ray、MLflow 和 PyTorch CUDA 13 时，也可以先用它做配置检查：
 
 ```bash
 source /data/conda/etc/profile.d/conda.sh
 conda activate attend-ray-py312
+python -c "import torch, ray; print(torch.__version__, torch.version.cuda); print(ray.__version__)"
 ```
 
 ## 2. 平台与数据前置检查
@@ -214,7 +215,7 @@ ROC AUC、预测摘要和质量门禁，并生成 MLflow Logged Model。未通�
 - 每个 Worker 接收同一份模型、数据摘要、配置、Seed、MLflow Run ID 和幂等键。
 - 训练集和验证集必须能被 Worker 数整除，避免 Ray `equal` Shard 静默丢弃余数样本。
 - 文件切分和本地 Shuffle 使用固定 Seed；多 Worker 浮点归约、GPU Kernel 和部分图片算子仍可能产生细微非确定性，Run 不宣称逐位复现。
-- 每个 Epoch 的 Ray Checkpoint 同时包含当前模型、验证集最佳模型和训练状态；失败恢复不会覆盖其他 MLflow Attempt。
+- 每个 Epoch 的 Ray Checkpoint 同时包含当前 PyTorch `state_dict`、验证集最佳模型和训练状态；失败恢复不会覆盖其他 MLflow Attempt。
 - 最佳 Checkpoint 会通过 MLflow Artifact API 下载并核对 SHA-256；Logged Model 也会回读
   `MLmodel` 描述文件。任何回读失败都会让 Run 标记为失败。
 

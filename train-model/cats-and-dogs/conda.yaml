@@ -16,4 +16,7 @@ dependencies:
       - pandas==2.3.3
       - pillow==12.0.0
       - scikit-learn==1.9.0
-      - tensorflow[and-cuda]==2.21.*
+      # torch 2.11 pins its CUDA 13.0.2 runtime, cuDNN, NCCL, and Triton wheels.
+      - torch==2.11.0
+      - torchvision==0.26.0
+      - torchaudio==2.11.0

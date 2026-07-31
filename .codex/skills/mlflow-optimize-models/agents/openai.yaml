@@ -1,0 +1,4 @@
+interface:
+  display_name: "MLflow Model Optimizer"
+  short_description: "Analyze experiments and guide safe model optimization"
+  default_prompt: "Use $mlflow-optimize-models to analyze an MLflow experiment and propose evidence-based parameter or code optimizations."

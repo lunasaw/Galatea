@@ -127,7 +127,15 @@ def _worker_loop_config(
     config: ProjectConfig,
     run_id: str,
     identity_key: str,
+    dataset: PreparedDataset,
 ) -> dict[str, Any]:
+    training_examples_per_worker = (
+        len(dataset.split_frame("training")) // config.ray.num_workers
+    )
+    validation_examples_per_worker = (
+        len(dataset.split_frame("validation")) // config.ray.num_workers
+    )
+    batch_size = config.training.per_worker_batch_size
     return {
         "seed": config.run.seed,
         "image_size": list(config.image_size),
@@ -137,6 +145,14 @@ def _worker_loop_config(
         "objective_mode": config.training.objective_mode,
         "mlflow_run_id": run_id,
         "idempotency_key": identity_key,
+        "training_batches_per_worker": (
+            training_examples_per_worker + batch_size - 1
+        )
+        // batch_size,
+        "validation_batches_per_worker": (
+            validation_examples_per_worker + batch_size - 1
+        )
+        // batch_size,
     }
 
 
@@ -401,7 +417,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                     trainer = TorchTrainer(
                         train_loop_per_worker=train_loop_per_worker,
                         train_loop_config=_worker_loop_config(
-                            config, run_id, identity_key
+                            config, run_id, identity_key, dataset
                         ),
                         scaling_config=ScalingConfig(
                             num_workers=config.ray.num_workers,

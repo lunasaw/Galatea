@@ -185,6 +185,14 @@ Notebook 提交使用同一个 `build_runtime_env(PROJECT_ROOT)`：`working_dir`
 环境变量，因此 Worker 函数和 MLflow Callback 会按值序列化给 Controller；不依赖训练
 节点预先执行 `pip install -e`，也不依赖所有节点共享源码绝对路径。
 
+训练进行时，Rank 0 Worker 会在 Ray Job 日志中输出训练和验证的 batch 级 `tqdm` 进度条。
+进度条后缀的 loss/accuracy 是 Rank 0 当前 shard 的即时值，只用于观察任务是否推进；
+Checkpoint 选择和 MLflow 中的 epoch 指标仍使用全部 Worker `all_reduce` 后的全局值。
+每个 epoch 的 `train.report` 同时写入 MLflow，包括 loss、accuracy、Cat/Dog 与 macro
+precision/recall/F1、样本吞吐、batch 数、学习率和各阶段耗时。Smoke Notebook 的监控
+单元会轮询 Ray Job，并优先从 MLflow Metric History 展示这些指标；MLflow 尚未刷新时，会
+回退到 Worker 输出的 epoch JSON。`FOLLOW_JOB=False` 可关闭持续轮询。
+
 入口会同时记录 Ray Job ID、MLflow Run ID、数据/切分/代码摘要、完整资源与超参数，以及 Ray
 Checkpoint URI。`configs/*.yaml` 默认将 Ray 执行态保存在
 `platform-data/ray-results/`。跨主机集群必须让所有节点挂载同一绝对路径，或把

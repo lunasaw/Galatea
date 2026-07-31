@@ -32,15 +32,15 @@ class RayMlflowCallbackTest(unittest.TestCase):
         reports = [
             {
                 "epoch": 2,
-                "worker_rank": 0,
-                "world_size": 2,
-                "val_accuracy": 0.8,
-            },
-            {
-                "epoch": 2,
                 "worker_rank": 1,
                 "world_size": 2,
                 "val_accuracy": 0.1,
+            },
+            {
+                "epoch": 2,
+                "worker_rank": 0,
+                "world_size": 2,
+                "val_accuracy": 0.8,
             },
         ]
 

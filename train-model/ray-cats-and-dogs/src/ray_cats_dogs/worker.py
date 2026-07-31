@@ -27,22 +27,58 @@ def _optimizer(model: Any, training: dict[str, Any]) -> Any:
 
 def _global_epoch_metrics(
     loss_sum: float,
-    correct: int,
-    count: int,
+    confusion: Any,
     device: Any,
-) -> tuple[float, float]:
+) -> dict[str, float]:
     import torch
     import torch.distributed as dist
 
-    totals = torch.tensor(
-        [loss_sum, float(correct), float(count)],
-        dtype=torch.float64,
-        device=device,
+    totals = torch.cat(
+        (
+            torch.tensor(
+                [loss_sum],
+                dtype=torch.float64,
+                device=device,
+            ),
+            confusion.to(device=device, dtype=torch.float64).reshape(-1),
+        )
     )
     if dist.is_available() and dist.is_initialized():
         dist.all_reduce(totals, op=dist.ReduceOp.SUM)
-    total_loss, total_correct, total_count = totals.cpu().tolist()
-    return total_loss / max(1.0, total_count), total_correct / max(1.0, total_count)
+    total_loss = float(totals[0].item())
+    matrix = totals[1:].reshape_as(confusion).cpu()
+    total_count = float(matrix.sum().item())
+    correct = float(matrix.diag().sum().item())
+
+    row_totals = matrix.sum(dim=1)
+    column_totals = matrix.sum(dim=0)
+    true_positive = matrix.diag()
+    per_class_precision = true_positive / torch.clamp(column_totals, min=1.0)
+    per_class_recall = true_positive / torch.clamp(row_totals, min=1.0)
+    per_class_f1 = (
+        2.0 * per_class_precision * per_class_recall
+        / torch.clamp(per_class_precision + per_class_recall, min=1e-12)
+    )
+    positive_precision = float(per_class_precision[-1].item())
+    positive_recall = float(per_class_recall[-1].item())
+    positive_f1 = float(per_class_f1[-1].item())
+    return {
+        "loss": total_loss / max(1.0, total_count),
+        "accuracy": correct / max(1.0, total_count),
+        "precision": positive_precision,
+        "recall": positive_recall,
+        "f1": positive_f1,
+        "cat_precision": float(per_class_precision[0].item()),
+        "cat_recall": float(per_class_recall[0].item()),
+        "cat_f1": float(per_class_f1[0].item()),
+        "dog_precision": positive_precision,
+        "dog_recall": positive_recall,
+        "dog_f1": positive_f1,
+        "macro_precision": float(per_class_precision.mean().item()),
+        "macro_recall": float(per_class_recall.mean().item()),
+        "macro_f1": float(per_class_f1.mean().item()),
+        "examples": total_count,
+    }
 
 
 def _run_epoch(
@@ -51,15 +87,32 @@ def _run_epoch(
     criterion: Any,
     device: Any,
     optimizer: Any | None,
-) -> tuple[float, float]:
+    *,
+    show_progress: bool,
+    total_batches: int | None = None,
+    progress_description: str | None = None,
+) -> dict[str, float]:
     import torch
+    from tqdm import tqdm
 
     training = optimizer is not None
     model.train(training)
     loss_sum = 0.0
-    correct = 0
-    count = 0
-    for images, labels in batches:
+    confusion = None
+    batch_count = 0
+    local_count = 0
+    local_correct = 0
+    progress = tqdm(
+        batches,
+        desc=progress_description
+        or ("train batches" if training else "validation batches"),
+        unit="batch",
+        total=total_batches,
+        leave=True,
+        mininterval=1.0,
+        disable=not show_progress,
+    )
+    for images, labels in progress:
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
         if training:
@@ -73,9 +126,33 @@ def _run_epoch(
                 loss.backward()
                 optimizer.step()
         loss_sum += float(loss.item()) * len(labels)
-        correct += int((logits.argmax(dim=1) == labels).sum().item())
-        count += len(labels)
-    return _global_epoch_metrics(loss_sum, correct, count, device)
+        predictions = logits.argmax(dim=1)
+        if show_progress:
+            local_count += len(labels)
+            local_correct += int((predictions == labels).sum().item())
+        if confusion is None:
+            confusion = torch.zeros(
+                (logits.shape[1], logits.shape[1]),
+                dtype=torch.float64,
+                device=device,
+            )
+        confusion.index_put_(
+            (labels, predictions),
+            torch.ones_like(labels, dtype=torch.float64),
+            accumulate=True,
+        )
+        batch_count += 1
+        if show_progress:
+            progress.set_postfix(
+                loss=f"{loss_sum / local_count:.4f}",
+                accuracy=f"{local_correct / local_count:.3f}",
+                refresh=False,
+            )
+    if confusion is None:
+        raise RuntimeError("Ray worker received an empty dataset shard")
+    result = _global_epoch_metrics(loss_sum, confusion, device)
+    result["batches"] = float(batch_count)
+    return result
 
 
 def _unwrapped_model(model: Any) -> Any:
@@ -161,17 +238,36 @@ def train_loop_per_worker(loop_config: dict[str, Any]) -> None:
         criterion = torch.nn.CrossEntropyLoss()
 
         objective_name = loop_config["objective_metric"]
-        for epoch in range(starting_epoch, int(loop_config["training"]["epochs"])):
+        total_epochs = int(loop_config["training"]["epochs"])
+        for epoch in range(starting_epoch, total_epochs):
             started_at = time.perf_counter()
-            train_loss, train_accuracy = _run_epoch(
-                model, train_dataset, criterion, device, optimizer
+            train_started_at = time.perf_counter()
+            train_epoch = _run_epoch(
+                model,
+                train_dataset,
+                criterion,
+                device,
+                optimizer,
+                show_progress=rank == 0,
+                total_batches=int(loop_config["training_batches_per_worker"]),
+                progress_description=f"epoch {epoch + 1}/{total_epochs} train",
             )
-            val_loss, val_accuracy = _run_epoch(
-                model, validation_dataset, criterion, device, None
+            train_duration = time.perf_counter() - train_started_at
+            validation_started_at = time.perf_counter()
+            validation_epoch = _run_epoch(
+                model,
+                validation_dataset,
+                criterion,
+                device,
+                None,
+                show_progress=rank == 0,
+                total_batches=int(loop_config["validation_batches_per_worker"]),
+                progress_description=f"epoch {epoch + 1}/{total_epochs} validation",
             )
+            validation_duration = time.perf_counter() - validation_started_at
             values = {
-                "val_accuracy": val_accuracy,
-                "val_loss": val_loss,
+                "val_accuracy": validation_epoch["accuracy"],
+                "val_loss": validation_epoch["loss"],
             }
             objective_value = values[objective_name]
             improved = _is_better(
@@ -186,12 +282,46 @@ def train_loop_per_worker(loop_config: dict[str, Any]) -> None:
 
             metrics = {
                 "epoch": epoch + 1,
-                "train_loss": train_loss,
-                "train_accuracy": train_accuracy,
-                "val_loss": val_loss,
-                "val_accuracy": val_accuracy,
+                "train_loss": train_epoch["loss"],
+                "train_accuracy": train_epoch["accuracy"],
+                "train_precision": train_epoch["precision"],
+                "train_recall": train_epoch["recall"],
+                "train_f1": train_epoch["f1"],
+                "train_cat_precision": train_epoch["cat_precision"],
+                "train_cat_recall": train_epoch["cat_recall"],
+                "train_cat_f1": train_epoch["cat_f1"],
+                "train_dog_precision": train_epoch["dog_precision"],
+                "train_dog_recall": train_epoch["dog_recall"],
+                "train_dog_f1": train_epoch["dog_f1"],
+                "train_macro_precision": train_epoch["macro_precision"],
+                "train_macro_recall": train_epoch["macro_recall"],
+                "train_macro_f1": train_epoch["macro_f1"],
+                "train_examples": train_epoch["examples"],
+                "train_batches_per_worker": train_epoch["batches"],
+                "train_examples_per_second": train_epoch["examples"]
+                / max(train_duration, 1e-12),
+                "val_loss": validation_epoch["loss"],
+                "val_accuracy": validation_epoch["accuracy"],
+                "val_precision": validation_epoch["precision"],
+                "val_recall": validation_epoch["recall"],
+                "val_f1": validation_epoch["f1"],
+                "val_cat_precision": validation_epoch["cat_precision"],
+                "val_cat_recall": validation_epoch["cat_recall"],
+                "val_cat_f1": validation_epoch["cat_f1"],
+                "val_dog_precision": validation_epoch["dog_precision"],
+                "val_dog_recall": validation_epoch["dog_recall"],
+                "val_dog_f1": validation_epoch["dog_f1"],
+                "val_macro_precision": validation_epoch["macro_precision"],
+                "val_macro_recall": validation_epoch["macro_recall"],
+                "val_macro_f1": validation_epoch["macro_f1"],
+                "val_examples": validation_epoch["examples"],
+                "val_batches_per_worker": validation_epoch["batches"],
+                "val_examples_per_second": validation_epoch["examples"]
+                / max(validation_duration, 1e-12),
                 "best_objective": best_metric,
                 "epoch_duration_seconds": time.perf_counter() - started_at,
+                "train_duration_seconds": train_duration,
+                "val_duration_seconds": validation_duration,
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
                 "worker_rank": rank,
                 "world_size": world_size,
@@ -234,6 +364,14 @@ def train_loop_per_worker(loop_config: dict[str, Any]) -> None:
                 )
                 reported_checkpoint = Checkpoint.from_directory(state_dir)
             train.report(metrics, checkpoint=reported_checkpoint)
+            if rank == 0:
+                print(
+                    json.dumps(
+                        {"event": "epoch-complete", **metrics},
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
             patience = int(loop_config["training"]["early_stopping_patience"])
             if not improved and no_improvement >= max(1, patience):
                 break

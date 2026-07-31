@@ -16,7 +16,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import matplotlib.pyplot as plt
 import mlflow
@@ -794,6 +794,7 @@ def run_tracked_training(
     extra_tags: dict[str, Any] | None = None,
     run_name_suffix: str = "",
     extra_source_paths: list[Path] | None = None,
+    progress_callback: Callable[[dict[str, float]], None] | None = None,
 ) -> ExperimentResult:
     """Train and log one auditable PyTorch Run."""
 
@@ -911,6 +912,16 @@ def run_tracked_training(
                     {key: value for key, value in values.items() if key != "epoch"},
                     step=epoch_index,
                 )
+                if progress_callback is not None:
+                    progress_callback(
+                        {
+                            **values,
+                            "epochs_requested": float(config.epochs),
+                            "best_epoch": float(best_epoch),
+                            "best_metric": float(best_value),
+                            "no_improvement": float(no_improvement),
+                        }
+                    )
                 if no_improvement >= max(1, config.early_stopping_patience):
                     break
             training_seconds = time.perf_counter() - started_at

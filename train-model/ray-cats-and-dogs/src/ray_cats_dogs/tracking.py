@@ -232,6 +232,7 @@ def log_run_inputs(
                     "torchvision",
                     "numpy",
                     "pandas",
+                    "tqdm",
                 )
             },
         },
@@ -289,7 +290,14 @@ class RayMlflowCallback(UserCallback):
     ) -> None:
         if not metrics:
             return
-        rank_zero = metrics[0]
+        rank_zero = next(
+            (
+                report
+                for report in metrics
+                if report.get("worker_rank") == 0
+            ),
+            metrics[0],
+        )
         step = int(rank_zero.get("epoch", 0))
         timestamp = int(time.time() * 1000)
         excluded = {"epoch", "worker_rank"}

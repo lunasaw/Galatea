@@ -35,6 +35,18 @@ python -m pip check
 python -c "import tensorflow as tf; print(tf.__version__); print(tf.config.list_physical_devices())"
 ```
 
+正式训练默认要求 TensorFlow 注册至少一个 GPU；项目会在模型构建和每个 tracked Run
+开始前设置 GPU 内存增长，并在 GPU 不可用时直接失败，不再静默退回 CPU。`conda.yaml`
+使用 `tensorflow[and-cuda]` 安装 CUDA 运行库。修改依赖或安装 CUDA 组件后必须重启
+Jupyter Kernel，再确认输出包含 `PhysicalDevice(...GPU...)`：
+
+```bash
+python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+nvidia-smi
+```
+
+只允许在有意执行 CPU smoke test 时临时设置 `CATS_DOGS_REQUIRE_GPU=false`。
+
 ## 2. 准备数据集
 
 Notebook 默认读取：
@@ -109,7 +121,7 @@ s3://training-data/datasets/raw/microsoft-cats-vs-dogs/2026-07-30/PetImages
 从仓库根目录启动：
 
 ```bash
-cd /data/ai/chenzhangyue/code/train
+cd /data/ai/chenzhangyue/code/galatea
 jupyter lab --no-browser --allow-root --ServerApp.root_dir="$PWD"
 ```
 
@@ -170,6 +182,7 @@ export CATS_DOGS_MIN_TEST_ACCURACY=0.85
 | `MLFLOW_TRACKING_URI` | `http://127.0.0.1:5000` | Tracking Server 地址 |
 | `MLFLOW_EXPERIMENT_NAME` | `cats-vs-dogs-enterprise` | Experiment 名称 |
 | `CATS_DOGS_EPOCHS` | `1` | 每个模型最多 Epoch 数 |
+| `CATS_DOGS_REQUIRE_GPU` | `true` | GPU 门禁；正式训练检测不到 GPU 时失败 |
 | `CATS_DOGS_MIN_TEST_ACCURACY` | `0.80` | 测试准确率门禁 |
 | `CATS_DOGS_DATA_DIR` | 固定数据目录 | 本地数据缓存根目录 |
 | `CATS_DOGS_DATASET_SOURCE_URI` | 本地 `file://` | 真实、不可变的数据来源 URI |
@@ -246,5 +259,7 @@ ImageNet 权重必须已在 Keras 缓存中，或训练节点能够在首次执�
 - `FileNotFoundError`：确认目录名大小写为 `PetImages/Cat` 和 `PetImages/Dog`。
 - Run 为 `FAILED`：查看 `failure.type`、`failure.phase`、MLflow Server 日志和 MinIO
   日志，不要手工把失败 Run 改为成功。
-- GPU 不可用：CPU 仍能执行，但完整训练明显更慢。先用 `CATS_DOGS_EPOCHS=1` 验证。
+- GPU 不可用：正式训练会在模型构建前失败。安装/更新 `tensorflow[and-cuda]` 后重启
+  Kernel，并用 `tf.config.list_physical_devices('GPU')` 和 `nvidia-smi` 验证；仅 CPU
+  smoke test 才设置 `CATS_DOGS_REQUIRE_GPU=false`。
 - 修改 `.py` 后 Notebook 行为未变化：重启 Kernel，清除 Python 模块缓存后重新运行。

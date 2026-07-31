@@ -74,6 +74,7 @@ class PipelineConfig:
     train_fraction: float = 0.90
     early_stopping_patience: int = 3
     min_test_accuracy: float = 0.80
+    require_gpu: bool = True
     require_remote_artifact_store: bool = True
     expected_images_per_class: int | None = 12500
     expected_valid_images: int | None = 24998
@@ -103,7 +104,7 @@ class PipelineConfig:
     @classmethod
     def from_env(cls) -> "PipelineConfig":
         repo_root = Path(
-            os.getenv("TRAIN_REPO_ROOT", "/data/ai/chenzhangyue/code/train")
+            os.getenv("TRAIN_REPO_ROOT", "/data/ai/chenzhangyue/code/galatea")
         ).resolve()
         run_group_id = os.getenv(
             "MLFLOW_RUN_GROUP_ID",
@@ -137,6 +138,7 @@ class PipelineConfig:
             min_test_accuracy=float(
                 os.getenv("CATS_DOGS_MIN_TEST_ACCURACY", "0.80")
             ),
+            require_gpu=_env_bool("CATS_DOGS_REQUIRE_GPU", True),
             require_remote_artifact_store=_env_bool(
                 "MLFLOW_REQUIRE_REMOTE_ARTIFACT_STORE", True
             ),
@@ -211,6 +213,39 @@ def _command_output(arguments: list[str], cwd: Path) -> str | None:
         text=True,
     )
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def configure_tensorflow_runtime(config: PipelineConfig) -> str:
+    """Select a GPU before model construction and reject silent CPU fallback."""
+
+    physical_gpus = tf.config.list_physical_devices("GPU")
+    if not physical_gpus:
+        if config.require_gpu:
+            raise RuntimeError(
+                "TensorFlow did not register a GPU. Stop this run, install the "
+                "project's CUDA dependencies, restart the Python/Jupyter kernel, "
+                "and verify tf.config.list_physical_devices('GPU') before retrying. "
+                "Set CATS_DOGS_REQUIRE_GPU=false only for an intentional CPU smoke run."
+            )
+        return "/CPU:0"
+
+    for gpu in physical_gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError:
+            # A restarted notebook configures this before initialization; callers that
+            # already initialized TensorFlow can still proceed when a logical GPU exists.
+            pass
+
+    logical_gpus = tf.config.list_logical_devices("GPU")
+    if not logical_gpus:
+        if config.require_gpu:
+            raise RuntimeError(
+                "TensorFlow found physical GPU hardware but could not initialize a "
+                "logical GPU. Check the CUDA/cuDNN load errors, then restart the kernel."
+            )
+        return "/CPU:0"
+    return logical_gpus[0].name
 
 
 def preflight_tracking(config: PipelineConfig) -> TrackingContext:
@@ -484,28 +519,32 @@ def build_model(config: PipelineConfig, variant: str) -> Model:
     if variant not in {"baseline", "augmented"}:
         raise ValueError(f"Unsupported model variant: {variant}")
 
-    inputs = tf.keras.layers.Input(shape=(*config.image_size, 3))
-    x = tf.keras.layers.Conv2D(32, (3, 3), activation="relu")(inputs)
-    x = tf.keras.layers.Conv2D(64, (3, 3), activation="relu")(x)
-    x = tf.keras.layers.MaxPooling2D(2, 2)(x)
-    x = tf.keras.layers.Conv2D(64, (3, 3), activation="relu")(x)
-    x = tf.keras.layers.Conv2D(128, (3, 3), activation="relu")(x)
-    x = tf.keras.layers.MaxPooling2D(2, 2)(x)
-    x = tf.keras.layers.Conv2D(128, (3, 3), activation="relu")(x)
-    x = tf.keras.layers.Conv2D(256, (3, 3), activation="relu")(x)
-    if variant == "augmented":
+    training_device = configure_tensorflow_runtime(config)
+    with tf.device(training_device):
+        inputs = tf.keras.layers.Input(shape=(*config.image_size, 3))
+        x = tf.keras.layers.Conv2D(32, (3, 3), activation="relu")(inputs)
+        x = tf.keras.layers.Conv2D(64, (3, 3), activation="relu")(x)
         x = tf.keras.layers.MaxPooling2D(2, 2)(x)
-    x = tf.keras.layers.GlobalAveragePooling2D()(x)
-    dense_units = 1024 if variant == "baseline" else 256
-    x = tf.keras.layers.Dense(dense_units, activation="relu")(x)
-    outputs = tf.keras.layers.Dense(len(CLASS_NAMES), activation="softmax")(x)
+        x = tf.keras.layers.Conv2D(64, (3, 3), activation="relu")(x)
+        x = tf.keras.layers.Conv2D(128, (3, 3), activation="relu")(x)
+        x = tf.keras.layers.MaxPooling2D(2, 2)(x)
+        x = tf.keras.layers.Conv2D(128, (3, 3), activation="relu")(x)
+        x = tf.keras.layers.Conv2D(256, (3, 3), activation="relu")(x)
+        if variant == "augmented":
+            x = tf.keras.layers.MaxPooling2D(2, 2)(x)
+        x = tf.keras.layers.GlobalAveragePooling2D()(x)
+        dense_units = 1024 if variant == "baseline" else 256
+        x = tf.keras.layers.Dense(dense_units, activation="relu")(x)
+        outputs = tf.keras.layers.Dense(len(CLASS_NAMES), activation="softmax")(x)
 
-    model = Model(inputs=inputs, outputs=outputs, name=f"cats_dogs_{variant}_cnn")
-    model.compile(
-        optimizer=tf.keras.optimizers.RMSprop(learning_rate=config.learning_rate),
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
-    )
+        model = Model(inputs=inputs, outputs=outputs, name=f"cats_dogs_{variant}_cnn")
+        model.compile(
+            optimizer=tf.keras.optimizers.RMSprop(
+                learning_rate=config.learning_rate
+            ),
+            loss="sparse_categorical_crossentropy",
+            metrics=["accuracy"],
+        )
     return model
 
 
@@ -606,7 +645,7 @@ def _evaluate_classifier(
     )
 
 
-def _environment_report() -> dict[str, Any]:
+def _environment_report(training_device: str) -> dict[str, Any]:
     gpu_devices = []
     for device in tf.config.list_physical_devices("GPU"):
         try:
@@ -614,6 +653,9 @@ def _environment_report() -> dict[str, Any]:
             gpu_devices.append(details.get("device_name", device.name))
         except Exception:
             gpu_devices.append(device.name)
+    logical_gpu_devices = [
+        device.name for device in tf.config.list_logical_devices("GPU")
+    ]
     return {
         "python": platform.python_version(),
         "tensorflow": tf.__version__,
@@ -622,6 +664,8 @@ def _environment_report() -> dict[str, Any]:
         "pandas": pd.__version__,
         "operating_system": platform.platform(),
         "gpu_devices": gpu_devices,
+        "logical_gpu_devices": logical_gpu_devices,
+        "training_device": training_device,
     }
 
 
@@ -684,6 +728,7 @@ def _run_parameters(
     generators: DataGenerators,
     model: Model,
     variant: str,
+    training_device: str,
 ) -> dict[str, Any]:
     return {
         "model.variant": variant,
@@ -701,6 +746,8 @@ def _run_parameters(
         "training.seed": config.seed,
         "training.early_stopping_patience": config.early_stopping_patience,
         "training.input_scaling": generators.input_scaling,
+        "resources.training_device": training_device,
+        "resources.gpu_required": config.require_gpu,
         "data.dataset_version": dataset.dataset_version,
         "data.content_sha256": dataset.content_digest,
         "data.split_sha256": dataset.split_digest,
@@ -749,6 +796,8 @@ def run_tracked_training(
     if selection_metric not in {"val_loss", "val_accuracy"}:
         raise ValueError(f"Unsupported selection metric: {selection_metric}")
 
+    training_device = configure_tensorflow_runtime(config)
+
     git_commit = _command_output(["git", "rev-parse", "HEAD"], config.repo_root)
     git_status = _command_output(["git", "status", "--porcelain"], config.repo_root)
     tags = {
@@ -763,7 +812,9 @@ def run_tracked_training(
         "lifecycle.stage": "development",
     }
     tags.update(extra_tags or {})
-    parameters = _run_parameters(config, dataset, generators, model, variant)
+    parameters = _run_parameters(
+        config, dataset, generators, model, variant, training_device
+    )
     parameters.update(extra_parameters or {})
     run_name = f"{config.run_group_id}-{variant}{run_name_suffix}"
     phase = "run-setup"
@@ -804,32 +855,35 @@ def run_tracked_training(
             for source_path in extra_source_paths or []:
                 if source_path.is_file() and source_path.resolve() != MODULE_PATH:
                     mlflow.log_artifact(str(source_path), artifact_path="source")
-            mlflow.log_dict(_environment_report(), "environment/runtime.json")
+            mlflow.log_dict(
+                _environment_report(training_device), "environment/runtime.json"
+            )
             _log_dataset_inputs(dataset)
 
             phase = "model-training"
             started_at = time.perf_counter()
-            keras_history = model.fit(
-                generators.training,
-                epochs=config.epochs,
-                validation_data=generators.validation,
-                callbacks=[
-                    _EpochTelemetryCallback(),
-                    tf.keras.callbacks.TerminateOnNaN(),
-                    tf.keras.callbacks.EarlyStopping(
-                        monitor=selection_metric,
-                        mode=selection_mode,
-                        patience=config.early_stopping_patience,
-                        restore_best_weights=True,
-                    ),
-                    tf.keras.callbacks.ModelCheckpoint(
-                        filepath=str(checkpoint_path),
-                        monitor=selection_metric,
-                        mode=selection_mode,
-                        save_best_only=True,
-                    ),
-                ],
-            )
+            with tf.device(training_device):
+                keras_history = model.fit(
+                    generators.training,
+                    epochs=config.epochs,
+                    validation_data=generators.validation,
+                    callbacks=[
+                        _EpochTelemetryCallback(),
+                        tf.keras.callbacks.TerminateOnNaN(),
+                        tf.keras.callbacks.EarlyStopping(
+                            monitor=selection_metric,
+                            mode=selection_mode,
+                            patience=config.early_stopping_patience,
+                            restore_best_weights=True,
+                        ),
+                        tf.keras.callbacks.ModelCheckpoint(
+                            filepath=str(checkpoint_path),
+                            monitor=selection_metric,
+                            mode=selection_mode,
+                            save_best_only=True,
+                        ),
+                    ],
+                )
             training_seconds = time.perf_counter() - started_at
 
             phase = "model-evaluation"
@@ -853,9 +907,10 @@ def run_tracked_training(
             quality_passed: bool | None = None
             output_digest: str | None = None
             if evaluate_test:
-                test_metrics, report, predictions, matrix = _evaluate_classifier(
-                    model, generators.test, dataset.split_root
-                )
+                with tf.device(training_device):
+                    test_metrics, report, predictions, matrix = _evaluate_classifier(
+                        model, generators.test, dataset.split_root
+                    )
                 output_digest = hashlib.sha256(
                     predictions.to_csv(index=False).encode()
                 ).hexdigest()

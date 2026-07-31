@@ -27,6 +27,7 @@ from cats_dogs_pipeline import (
     PreparedDataset,
     TrackingContext,
     augmentation_policy,
+    configure_tensorflow_runtime,
     prepare_dataset,
     preflight_tracking,
     run_tracked_training,
@@ -536,31 +537,33 @@ def build_tuning_model(
     pretrained_weights: str,
 ) -> Model:
     tf.keras.utils.set_random_seed(config.seed)
-    inputs = tf.keras.layers.Input(shape=(*config.image_size, 3))
-    if spec.architecture.startswith("custom_"):
-        x = _custom_backbone(inputs, spec.architecture)
-    else:
-        x = _transfer_backbone(
-            inputs,
-            spec,
-            config.image_size,
-            pretrained_weights,
+    training_device = configure_tensorflow_runtime(config)
+    with tf.device(training_device):
+        inputs = tf.keras.layers.Input(shape=(*config.image_size, 3))
+        if spec.architecture.startswith("custom_"):
+            x = _custom_backbone(inputs, spec.architecture)
+        else:
+            x = _transfer_backbone(
+                inputs,
+                spec,
+                config.image_size,
+                pretrained_weights,
+            )
+        x = tf.keras.layers.GlobalAveragePooling2D()(x)
+        if spec.dropout:
+            x = tf.keras.layers.Dropout(spec.dropout)(x)
+        x = tf.keras.layers.Dense(spec.dense_units, activation="relu")(x)
+        outputs = tf.keras.layers.Dense(len(CLASS_NAMES), activation="softmax")(x)
+        model = Model(inputs, outputs, name=f"cats_dogs_{spec.architecture}")
+        optimizer_class = {
+            "adam": tf.keras.optimizers.Adam,
+            "rmsprop": tf.keras.optimizers.RMSprop,
+        }[spec.optimizer]
+        model.compile(
+            optimizer=optimizer_class(learning_rate=spec.learning_rate),
+            loss="sparse_categorical_crossentropy",
+            metrics=["accuracy"],
         )
-    x = tf.keras.layers.GlobalAveragePooling2D()(x)
-    if spec.dropout:
-        x = tf.keras.layers.Dropout(spec.dropout)(x)
-    x = tf.keras.layers.Dense(spec.dense_units, activation="relu")(x)
-    outputs = tf.keras.layers.Dense(len(CLASS_NAMES), activation="softmax")(x)
-    model = Model(inputs, outputs, name=f"cats_dogs_{spec.architecture}")
-    optimizer_class = {
-        "adam": tf.keras.optimizers.Adam,
-        "rmsprop": tf.keras.optimizers.RMSprop,
-    }[spec.optimizer]
-    model.compile(
-        optimizer=optimizer_class(learning_rate=spec.learning_rate),
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
-    )
     return model
 
 
@@ -685,6 +688,8 @@ def run_auto_tuning(
     tracking: TrackingContext | None = None,
     dataset: PreparedDataset | None = None,
 ) -> TuningOutcome | dict[str, Any]:
+    if not plan_only:
+        configure_tensorflow_runtime(config)
     tracking = tracking or preflight_tracking(config)
     dataset = dataset or prepare_dataset(config)
     study_name = _resolved_study_name(tuning, dataset)

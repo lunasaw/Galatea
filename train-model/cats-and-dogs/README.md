@@ -4,6 +4,7 @@
 
 ```text
 train-model/cats-and-dogs/
+├── conda.yaml                            # 可复现的独立 Conda 环境
 ├── cats_dogs_pipeline.py                  # 数据、模型、训练、评测、追踪实现
 ├── cats_dogs_tuner.py                     # MLflow 历史感知自动调优入口
 ├── cats-vs-dogs-classification.ipynb      # 配置、调用、实验记录、图表展示
@@ -15,17 +16,18 @@ train-model/cats-and-dogs/
 
 ## 1. 运行环境
 
-使用仓库约定的 Conda 环境：
+使用本项目独立的 Conda 环境：
 
 ```bash
 source /data/conda/etc/profile.d/conda.sh
-conda activate attend-ray-py312
-python -m pip install \
-  "tensorflow==2.21.*" \
-  "mlflow==3.14.0" \
-  pillow matplotlib pandas numpy scikit-learn jupyter
+conda env create --file train-model/cats-and-dogs/conda.yaml
+conda activate cats-and-dogs-py312
 python -m pip check
 ```
+
+环境已经存在时，使用 `conda env update --file train-model/cats-and-dogs/conda.yaml`
+同步依赖。Conda 包和 pip 包均优先使用清华 TUNA 镜像。平台服务的公共依赖由
+仓库根目录的 `requirements.txt` 管理，不写入模型依赖文件。
 
 确认 TensorFlow 与设备可用：
 
@@ -46,7 +48,6 @@ Notebook 默认读取：
 下载并解压：
 
 ```bash
-python -m pip install kaggle
 mkdir -p /data/ai/chenzhangyue/code/data/cats-and-dogs
 kaggle datasets download \
   -d shaunthesheep/microsoft-catsvsdogs-dataset \

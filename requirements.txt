@@ -1,0 +1,10 @@
+# Shared training-platform services. Model dependencies belong in each
+# train-model/<project>/conda.yaml file.
+--index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+jupyterlab==4.6.2
+jupyter_server==2.20.0
+ipykernel==7.3.0
+mlflow==3.14.0
+boto3==1.43.59
+ray[default,train,data]==2.53.0

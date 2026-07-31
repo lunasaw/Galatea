@@ -1,0 +1,19 @@
+name: cats-and-dogs-py312
+channels:
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
+dependencies:
+  - python=3.12.12
+  - pip
+  - pip:
+      - --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+      - ipykernel==7.3.0
+      - jupyter_server==2.20.0
+      - jupyterlab==4.6.2
+      - kaggle==2.2.4
+      - matplotlib==3.10.8
+      - mlflow==3.14.0
+      - numpy==2.2.6
+      - pandas==2.3.3
+      - pillow==12.0.0
+      - scikit-learn==1.9.0
+      - tensorflow==2.21.*

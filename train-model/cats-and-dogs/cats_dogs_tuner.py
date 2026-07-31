@@ -14,26 +14,28 @@ from typing import Any, Iterable
 
 import mlflow
 import numpy as np
-import tensorflow as tf
+import torch
 from mlflow import MlflowClient
 from sklearn.ensemble import RandomForestRegressor
-from tensorflow.keras.models import Model
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from torch import nn
+from torchvision import models
 
 from cats_dogs_pipeline import (
     CLASS_NAMES,
+    CatsDogsCNN,
     DataGenerators,
     PipelineConfig,
     PreparedDataset,
     TrackingContext,
-    augmentation_policy,
+    configure_torch_runtime,
+    create_generators,
     prepare_dataset,
     preflight_tracking,
     run_tracked_training,
 )
 
 
-SEARCH_VERSION = "v1"
+SEARCH_VERSION = "v2-pytorch-cu130"
 MODULE_PATH = Path(__file__).resolve()
 ARCHITECTURES = (
     "custom_baseline",
@@ -387,6 +389,10 @@ def load_study_history(
     for run in runs:
         params = run.data.params
         tags = run.data.tags
+        if params.get("framework.name") != "pytorch":
+            continue
+        if params.get("data.preprocessing_version") != "torchvision-image-v2":
+            continue
         if params.get("data.content_sha256") != dataset.content_digest:
             continue
         if params.get("data.split_sha256") != dataset.split_digest:
@@ -437,131 +443,127 @@ def create_tuning_generators(
     dataset: PreparedDataset,
     spec: TrialSpec,
 ) -> DataGenerators:
-    policy = augmentation_policy(spec.augmentation)
-    if spec.augmentation:
-        training_factory = ImageDataGenerator(
-            horizontal_flip=policy["horizontal_flip"],
-            rotation_range=policy["rotation_range"],
-            width_shift_range=policy["width_shift_range"],
-            height_shift_range=policy["height_shift_range"],
-            fill_mode=policy["fill_mode"],
+    loader_config = replace(
+        config,
+        baseline_batch_size=spec.batch_size,
+        augmented_batch_size=spec.batch_size,
+    )
+    return create_generators(
+        loader_config,
+        dataset,
+        augmented=spec.augmentation,
+    )
+
+
+class _Normalize(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.register_buffer("mean", torch.tensor((0.485, 0.456, 0.406)).view(1, 3, 1, 1))
+        self.register_buffer("std", torch.tensor((0.229, 0.224, 0.225)).view(1, 3, 1, 1))
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return (inputs - self.mean) / self.std
+
+
+class _TuningClassifier(nn.Module):
+    def __init__(
+        self,
+        features: nn.Module,
+        feature_channels: int,
+        dense_units: int,
+        dropout: float,
+        *,
+        normalize: bool,
+    ) -> None:
+        super().__init__()
+        self.normalize = _Normalize() if normalize else nn.Identity()
+        self.features = features
+        self.last_conv = next(
+            layer
+            for layer in reversed(list(features.modules()))
+            if isinstance(layer, nn.Conv2d)
         )
-    else:
-        training_factory = ImageDataGenerator()
-    evaluation_factory = ImageDataGenerator()
-    common = {
-        "target_size": config.image_size,
-        "class_mode": "binary",
-        "batch_size": spec.batch_size,
-    }
-    training = training_factory.flow_from_directory(
-        str(dataset.training_dir),
-        seed=config.seed,
-        shuffle=True,
-        **common,
-    )
-    validation = evaluation_factory.flow_from_directory(
-        str(dataset.validation_dir),
-        shuffle=False,
-        **common,
-    )
-    test = evaluation_factory.flow_from_directory(
-        str(dataset.test_dir),
-        shuffle=False,
-        **common,
-    )
-    return DataGenerators(
-        training=training,
-        validation=validation,
-        test=test,
-        batch_size=spec.batch_size,
-        augmentation=policy,
-        input_scaling="raw pixel [0,255]; normalization embedded in model",
-    )
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Dropout(dropout) if dropout else nn.Identity(),
+            nn.Linear(feature_channels, dense_units),
+            nn.ReLU(inplace=True),
+            nn.Linear(dense_units, len(CLASS_NAMES)),
+        )
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.pool(self.features(self.normalize(inputs))))
+
+    def count_params(self) -> int:
+        return sum(parameter.numel() for parameter in self.parameters())
 
 
-def _custom_backbone(inputs: Any, architecture: str) -> Any:
-    x = tf.keras.layers.Rescaling(1.0 / 255)(inputs)
-    x = tf.keras.layers.Conv2D(32, 3, activation="relu")(x)
-    x = tf.keras.layers.Conv2D(64, 3, activation="relu")(x)
-    x = tf.keras.layers.MaxPooling2D(2)(x)
-    x = tf.keras.layers.Conv2D(64, 3, activation="relu")(x)
-    x = tf.keras.layers.Conv2D(128, 3, activation="relu")(x)
-    x = tf.keras.layers.MaxPooling2D(2)(x)
-    x = tf.keras.layers.Conv2D(128, 3, activation="relu")(x)
-    x = tf.keras.layers.Conv2D(256, 3, activation="relu")(x)
-    if architecture == "custom_augmented":
-        x = tf.keras.layers.MaxPooling2D(2)(x)
-    return x
-
-
-def _transfer_backbone(
-    inputs: Any,
+def _transfer_features(
     spec: TrialSpec,
-    image_size: tuple[int, int],
     pretrained_weights: str,
-) -> Any:
-    weights = None if pretrained_weights == "none" else pretrained_weights
-    input_shape = (*image_size, 3)
+) -> tuple[nn.Module, int]:
+    use_pretrained = pretrained_weights == "imagenet"
     if spec.architecture == "mobilenet_v2":
-        x = tf.keras.layers.Rescaling(1.0 / 127.5, offset=-1)(inputs)
-        backbone = tf.keras.applications.MobileNetV2(
-            include_top=False,
-            weights=weights,
-            input_shape=input_shape,
-        )
+        weights = models.MobileNet_V2_Weights.DEFAULT if use_pretrained else None
+        features = models.mobilenet_v2(weights=weights).features
+        channels = 1280
     elif spec.architecture == "efficientnet_b0":
-        x = inputs
-        backbone = tf.keras.applications.EfficientNetB0(
-            include_top=False,
-            weights=weights,
-            input_shape=input_shape,
-        )
+        weights = models.EfficientNet_B0_Weights.DEFAULT if use_pretrained else None
+        features = models.efficientnet_b0(weights=weights).features
+        channels = 1280
     else:
         raise ValueError(f"Unsupported transfer architecture: {spec.architecture}")
 
-    backbone.trainable = spec.trainable_backbone_layers > 0
-    if backbone.trainable:
-        frozen_count = max(0, len(backbone.layers) - spec.trainable_backbone_layers)
-        for layer in backbone.layers[:frozen_count]:
-            layer.trainable = False
-        for layer in backbone.layers[frozen_count:]:
-            layer.trainable = not isinstance(layer, tf.keras.layers.BatchNormalization)
-    return backbone(x, training=False)
+    for parameter in features.parameters():
+        parameter.requires_grad = False
+    if spec.trainable_backbone_layers:
+        parameterized_layers = [
+            layer
+            for layer in features.modules()
+            if any(True for _ in layer.parameters(recurse=False))
+            and not isinstance(layer, nn.modules.batchnorm._BatchNorm)
+        ]
+        for layer in parameterized_layers[-spec.trainable_backbone_layers :]:
+            for parameter in layer.parameters(recurse=False):
+                parameter.requires_grad = True
+    return features, channels
 
 
 def build_tuning_model(
     config: PipelineConfig,
     spec: TrialSpec,
     pretrained_weights: str,
-) -> Model:
-    tf.keras.utils.set_random_seed(config.seed)
-    inputs = tf.keras.layers.Input(shape=(*config.image_size, 3))
+) -> nn.Module:
+    configure_torch_runtime(config)
+    torch.manual_seed(config.seed)
     if spec.architecture.startswith("custom_"):
-        x = _custom_backbone(inputs, spec.architecture)
-    else:
-        x = _transfer_backbone(
-            inputs,
-            spec,
-            config.image_size,
-            pretrained_weights,
+        base = CatsDogsCNN(spec.architecture.removeprefix("custom_"))
+        features = base.features
+        model = _TuningClassifier(
+            features,
+            256,
+            spec.dense_units,
+            spec.dropout,
+            normalize=False,
         )
-    x = tf.keras.layers.GlobalAveragePooling2D()(x)
-    if spec.dropout:
-        x = tf.keras.layers.Dropout(spec.dropout)(x)
-    x = tf.keras.layers.Dense(spec.dense_units, activation="relu")(x)
-    outputs = tf.keras.layers.Dense(len(CLASS_NAMES), activation="softmax")(x)
-    model = Model(inputs, outputs, name=f"cats_dogs_{spec.architecture}")
-    optimizer_class = {
-        "adam": tf.keras.optimizers.Adam,
-        "rmsprop": tf.keras.optimizers.RMSprop,
-    }[spec.optimizer]
-    model.compile(
-        optimizer=optimizer_class(learning_rate=spec.learning_rate),
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
-    )
+    else:
+        features, channels = _transfer_features(spec, pretrained_weights)
+        model = _TuningClassifier(
+            features,
+            channels,
+            spec.dense_units,
+            spec.dropout,
+            normalize=True,
+        )
+    model._optimizer_name = spec.optimizer  # type: ignore[attr-defined]
+    model._learning_rate = spec.learning_rate  # type: ignore[attr-defined]
     return model
+
+
+def _clear_torch_cache() -> None:
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def _resolved_study_name(tuning: TuningConfig, dataset: PreparedDataset) -> str:
@@ -685,6 +687,8 @@ def run_auto_tuning(
     tracking: TrackingContext | None = None,
     dataset: PreparedDataset | None = None,
 ) -> TuningOutcome | dict[str, Any]:
+    if not plan_only:
+        configure_torch_runtime(config)
     tracking = tracking or preflight_tracking(config)
     dataset = dataset or prepare_dataset(config)
     study_name = _resolved_study_name(tuning, dataset)
@@ -773,7 +777,7 @@ def run_auto_tuning(
             consecutive_failures += 1
             model = None
             generators = None
-            tf.keras.backend.clear_session()
+            _clear_torch_cache()
             continue
 
         previous_best = best.val_accuracy if best else -math.inf
@@ -803,7 +807,7 @@ def run_auto_tuning(
             consecutive_failures += 1
             model = None
             generators = None
-            tf.keras.backend.clear_session()
+            _clear_torch_cache()
             continue
 
         score = float(result.history["val_accuracy"].max())
@@ -830,7 +834,7 @@ def run_auto_tuning(
             flush=True,
         )
         del result, model, generators
-        tf.keras.backend.clear_session()
+        _clear_torch_cache()
 
     if best is None:
         raise RuntimeError("Auto-tuning produced no successful validation result")

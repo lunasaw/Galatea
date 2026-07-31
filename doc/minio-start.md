@@ -13,11 +13,11 @@
 | MinIO Client | `RELEASE.2025-08-13T08-35-41Z` |
 | MinIO API | `http://127.0.0.1:9000` |
 | MinIO Console | `http://127.0.0.1:9001` |
-| 数据目录 | `/data/ai/chenzhangyue/code/train/platform-data/minio/data` |
+| 数据目录 | `/data/ai/chenzhangyue/code/galatea/platform-data/minio/data` |
 | Server 二进制 | `/usr/local/bin/minio` |
 | Client 二进制 | `/usr/local/bin/mc` |
 | 服务账号 | `minio:minio` |
-| systemd unit 源文件 | `/data/ai/chenzhangyue/code/train/systemd/minio.service` |
+| systemd unit 源文件 | `/data/ai/chenzhangyue/code/galatea/systemd/minio.service` |
 | systemd unit 安装位置 | `/etc/systemd/system/minio.service` |
 | 环境文件 | `/etc/minio/minio.env`、`/etc/minio/mlflow-s3.env` |
 | 训练数据 Bucket | `training-data` |
@@ -87,7 +87,7 @@ id minio >/dev/null 2>&1 || \
   useradd --system --gid minio --home-dir /var/lib/minio --shell /usr/sbin/nologin minio
 
 install -d -o minio -g minio -m 0750 \
-  /data/ai/chenzhangyue/code/train/platform-data/minio/data
+  /data/ai/chenzhangyue/code/galatea/platform-data/minio/data
 install -d -o root -g root -m 0750 /etc/minio
 ```
 
@@ -104,7 +104,7 @@ MINIO_ROOT_PASSWORD=$(openssl rand -base64 36 | tr -dc 'A-Za-z0-9' | head -c 32)
 cat > /etc/minio/minio.env <<EOF
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
-MINIO_VOLUMES=/data/ai/chenzhangyue/code/train/platform-data/minio/data
+MINIO_VOLUMES=/data/ai/chenzhangyue/code/galatea/platform-data/minio/data
 MINIO_OPTS="--address 127.0.0.1:9000 --console-address 127.0.0.1:9001"
 MINIO_BROWSER_REDIRECT_URL=https://coder.vdian.net/GC5026/proxy/9001/
 EOF
@@ -152,7 +152,7 @@ chown root:root /etc/minio/training-data-s3.env
 
 ```bash
 install -o root -g root -m 0644 \
-  /data/ai/chenzhangyue/code/train/systemd/minio.service \
+  /data/ai/chenzhangyue/code/galatea/systemd/minio.service \
   /etc/systemd/system/minio.service
 
 systemctl daemon-reload
@@ -253,7 +253,7 @@ After=network-online.target minio.service
 
 ```bash
 install -o root -g root -m 0644 \
-  /data/ai/chenzhangyue/code/train/systemd/mlflow.service \
+  /data/ai/chenzhangyue/code/galatea/systemd/mlflow.service \
   /etc/systemd/system/mlflow.service
 systemctl daemon-reload
 systemctl restart mlflow.service
@@ -361,7 +361,7 @@ mc ls local
 mc version info local/training-data
 mc version info local/mlflow-artifacts
 mc admin info local
-du -sh /data/ai/chenzhangyue/code/train/platform-data/minio/data
+du -sh /data/ai/chenzhangyue/code/galatea/platform-data/minio/data
 ```
 
 删除对象时，启用版本控制的 Bucket 会先产生 delete marker；需要清理历史版本时必须明确评估恢复需求，不能把 `mc rm --recursive --force` 当作日常清理命令。
@@ -370,8 +370,8 @@ du -sh /data/ai/chenzhangyue/code/train/platform-data/minio/data
 
 至少同时备份以下三类内容：
 
-1. `/data/ai/chenzhangyue/code/train/platform-data/minio/data/`：对象数据。
-2. `/data/ai/chenzhangyue/code/train/platform-data/mlflow/mlflow.db`：MLflow 元数据。
+1. `/data/ai/chenzhangyue/code/galatea/platform-data/minio/data/`：对象数据。
+2. `/data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db`：MLflow 元数据。
 3. `/etc/minio/minio.env`、`/etc/minio/mlflow-s3.env`：凭据和 Endpoint 配置，必须加密保存。
 
 备份前暂停写入或使用文件系统快照，避免 SQLite 数据库和 Artifact 处于不一致状态。恢复到新机器后，先恢复 MinIO 数据与密钥，再启动 MinIO，最后启动 MLflow；不要只恢复 `mlflow.db` 而遗漏 Artifact。

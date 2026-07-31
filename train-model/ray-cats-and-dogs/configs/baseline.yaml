@@ -1,0 +1,58 @@
+project_name: ray-cats-and-dogs
+
+run:
+  role: trial
+  name_prefix: ray-cats-dogs
+  seed: 42
+  log_model: false
+
+data:
+  root: /data/ai/chenzhangyue/code/data/cats-and-dogs
+  cache_dir: ${REPO_ROOT}/platform-data/ray-cats-and-dogs/manifests
+  source_uri: null
+  expected_images_per_class: 12500
+  expected_valid_images: 24998
+  train_fraction: 0.90
+  validation_fraction: 0.05
+  test_fraction: 0.05
+  image_height: 150
+  image_width: 150
+  preprocessing_version: ray-torchvision-image-v2
+
+model:
+  family: custom_cnn
+  dense_units: 256
+  dropout: 0.20
+  augmentation: true
+  pretrained_weights: null
+
+training:
+  epochs: 10
+  per_worker_batch_size: 32
+  learning_rate: 0.001
+  optimizer: rmsprop
+  early_stopping_patience: 3
+  objective_metric: val_accuracy
+  objective_mode: max
+
+ray:
+  address: auto
+  num_workers: 1
+  use_gpu: true
+  cpus_per_worker: 2
+  memory_per_worker_gb: 4
+  placement_strategy: PACK
+  max_failures: 1
+  storage_path: ${REPO_ROOT}/platform-data/ray-results
+  evaluation_cpus: 2
+  evaluation_gpus: 1
+  evaluation_memory_gb: 4
+
+mlflow:
+  tracking_uri: http://127.0.0.1:5000
+  experiment_name: ray-cats-and-dogs
+  require_remote_artifacts: true
+
+evaluation:
+  evaluate_test: false
+  minimum_test_accuracy: 0.80

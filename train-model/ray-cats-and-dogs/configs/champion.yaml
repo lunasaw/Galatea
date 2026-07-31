@@ -1,0 +1,9 @@
+extends: distributed.yaml
+
+run:
+  role: champion
+  name_prefix: ray-cats-dogs-champion
+  log_model: true
+
+evaluation:
+  evaluate_test: true

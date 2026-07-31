@@ -8,15 +8,15 @@ After=network-online.target
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/data/ai/chenzhangyue/code/train
+WorkingDirectory=/data/ai/chenzhangyue/code/galatea
 Environment="PATH=/data/conda/envs/attend-ray-py312/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-Environment="JUPYTER_CONFIG_DIR=/data/ai/chenzhangyue/code/train/platform-data/jupyter/config"
-Environment="JUPYTER_DATA_DIR=/data/ai/chenzhangyue/code/train/platform-data/jupyter/data"
+Environment="JUPYTER_CONFIG_DIR=/data/ai/chenzhangyue/code/galatea/platform-data/jupyter/config"
+Environment="JUPYTER_DATA_DIR=/data/ai/chenzhangyue/code/galatea/platform-data/jupyter/data"
 RuntimeDirectory=jupyterlab
 RuntimeDirectoryMode=0750
 Environment="JUPYTER_RUNTIME_DIR=/run/jupyterlab"
-ExecStart=/data/conda/envs/attend-ray-py312/bin/jupyter-lab --no-browser --allow-root --ServerApp.ip=0.0.0.0 --ServerApp.port=8888 --ServerApp.port_retries=0 --ServerApp.root_dir=/data/ai/chenzhangyue/code/train --ServerApp.allow_remote_access=True --ServerApp.quit_button=False --ServerApp.base_url=/GC5026/absproxy/8888/ --ServerApp.custom_display_url=https://coder.vdian.net/GC5026/absproxy/8888/
+ExecStart=/data/conda/envs/attend-ray-py312/bin/jupyter-lab --no-browser --allow-root --ServerApp.ip=0.0.0.0 --ServerApp.port=8888 --ServerApp.port_retries=0 --ServerApp.root_dir=/data/ai/chenzhangyue/code/galatea --ServerApp.allow_remote_access=True --ServerApp.quit_button=False --ServerApp.base_url=/GC5026/absproxy/8888/ --ServerApp.custom_display_url=https://coder.vdian.net/GC5026/absproxy/8888/
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s

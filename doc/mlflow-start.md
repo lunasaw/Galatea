@@ -1,7 +1,7 @@
 # MLflow Tracking Server 安装、启动与运维
 
 本文记录当前训练节点上 MLflow Tracking Server 的完整部署方式。命令和路径均以
-`/data/ai/chenzhangyue/code/train` 为准，覆盖本地 SQLite、MinIO Artifact、前台试运行、
+`/data/ai/chenzhangyue/code/galatea` 为准，覆盖本地 SQLite、MinIO Artifact、前台试运行、
 systemd 常驻、客户端接入、备份和故障排查。
 
 文档基线日期：2026-07-30。
@@ -18,10 +18,10 @@ systemd 常驻、客户端接入、备份和故障排查。
 | Python | 3.12.12 |
 | MLflow | 3.14.0 |
 | 监听端口 | 5000 |
-| Backend Store | `sqlite:////data/ai/chenzhangyue/code/train/platform-data/mlflow/mlflow.db` |
+| Backend Store | `sqlite:////data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db` |
 | Artifact Store | 本机 MinIO `s3://mlflow-artifacts`，Endpoint `http://127.0.0.1:9000` |
 | S3 环境文件 | `/etc/minio/mlflow-s3.env`（`0600 root:root`） |
-| unit 源文件 | `/data/ai/chenzhangyue/code/train/systemd/mlflow.service` |
+| unit 源文件 | `/data/ai/chenzhangyue/code/galatea/systemd/mlflow.service` |
 | unit 安装位置 | `/etc/systemd/system/mlflow.service` |
 
 当前服务采用 SQLite 元数据加本机 MinIO Artifact：
@@ -51,11 +51,11 @@ platform-data/mlflow/mlflow.db   s3://mlflow-artifacts/
 ```bash
 /data/conda/bin/conda --version
 /data/conda/bin/conda env list
-test -d /data/ai/chenzhangyue/code/train && echo "train directory exists"
-ls -lah /data/ai/chenzhangyue/code/train/platform-data/mlflow 2>/dev/null || true
+test -d /data/ai/chenzhangyue/code/galatea && echo "train directory exists"
+ls -lah /data/ai/chenzhangyue/code/galatea/platform-data/mlflow 2>/dev/null || true
 systemctl is-active minio.service || true
 ss -lntp | grep -E ':5000\\b' || true
-df -h /data/ai/chenzhangyue/code/train
+df -h /data/ai/chenzhangyue/code/galatea
 ```
 
 如果 `mlflow.db` 已存在，它就是当前实验元数据，安装过程中不要删除或覆盖。若 5000
@@ -104,7 +104,7 @@ mlflow --version
 
 ```bash
 sudo install -d -o root -g root -m 0750 \
-  /data/ai/chenzhangyue/code/train/platform-data/mlflow
+  /data/ai/chenzhangyue/code/galatea/platform-data/mlflow
 ```
 
 `mlflow.db` 不需要提前创建，MLflow 首次连接时会初始化数据库。Artifact Bucket 和
@@ -127,7 +127,7 @@ set +a
 mlflow server \
   --host 127.0.0.1 \
   --port 5000 \
-  --backend-store-uri sqlite:////data/ai/chenzhangyue/code/train/platform-data/mlflow/mlflow.db \
+  --backend-store-uri sqlite:////data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db \
   --serve-artifacts \
   --artifacts-destination s3://mlflow-artifacts \
   --allowed-hosts localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
@@ -166,7 +166,7 @@ Experiment 的 `artifact_location` 和历史文件应单独检查，不能只改
 仓库已提供与当前机器一致的 unit：
 
 ```text
-/data/ai/chenzhangyue/code/train/systemd/mlflow.service
+/data/ai/chenzhangyue/code/galatea/systemd/mlflow.service
 ```
 
 它包含以下关键设置：
@@ -187,14 +187,14 @@ Experiment 的 `artifact_location` 和历史文件应单独检查，不能只改
 应先更新 `--allowed-hosts`：
 
 ```bash
-sed -n '1,240p' /data/ai/chenzhangyue/code/train/systemd/mlflow.service
+sed -n '1,240p' /data/ai/chenzhangyue/code/galatea/systemd/mlflow.service
 ```
 
 确认无误后安装并立即启动：
 
 ```bash
 sudo install -m 0644 \
-  /data/ai/chenzhangyue/code/train/systemd/mlflow.service \
+  /data/ai/chenzhangyue/code/galatea/systemd/mlflow.service \
   /etc/systemd/system/mlflow.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now mlflow.service
@@ -352,7 +352,7 @@ with mlflow.start_run(run_name="baseline") as run:
 ### 10.1 查看占用空间
 
 ```bash
-du -sh /data/ai/chenzhangyue/code/train/platform-data/mlflow/mlflow.db
+du -sh /data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db
 mc du --recursive local/mlflow-artifacts
 ```
 
@@ -362,12 +362,12 @@ mc du --recursive local/mlflow-artifacts
 不可用，应安排在没有训练写入时执行：
 
 ```bash
-MLFLOW_BACKUP_DIR=/data/ai/chenzhangyue/code/train/platform-data/backups/mlflow-$(date +%Y%m%d-%H%M%S)
+MLFLOW_BACKUP_DIR=/data/ai/chenzhangyue/code/galatea/platform-data/backups/mlflow-$(date +%Y%m%d-%H%M%S)
 sudo install -d -o root -g root -m 0750 "${MLFLOW_BACKUP_DIR}"
 
 sudo systemctl stop mlflow.service
 sudo cp -a \
-  /data/ai/chenzhangyue/code/train/platform-data/mlflow/mlflow.db \
+  /data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db \
   "${MLFLOW_BACKUP_DIR}/"
 sudo install -d -m 0750 "${MLFLOW_BACKUP_DIR}/minio"
 mc mirror --overwrite local/mlflow-artifacts "${MLFLOW_BACKUP_DIR}/minio/mlflow-artifacts"
@@ -394,7 +394,7 @@ conda activate attend-ray-py312
 python -m pip install --upgrade "mlflow==3.14.0"
 python -m pip check
 mlflow db upgrade \
-  sqlite:////data/ai/chenzhangyue/code/train/platform-data/mlflow/mlflow.db
+  sqlite:////data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db
 
 sudo systemctl start mlflow.service
 sudo systemctl status mlflow.service --no-pager -l

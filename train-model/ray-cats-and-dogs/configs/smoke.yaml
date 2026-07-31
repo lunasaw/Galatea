@@ -1,0 +1,11 @@
+extends: baseline.yaml
+
+run:
+  role: smoke
+  name_prefix: ray-cats-dogs-smoke
+
+training:
+  epochs: 1
+
+ray:
+  max_failures: 0

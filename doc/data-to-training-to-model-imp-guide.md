@@ -85,7 +85,7 @@ export MLFLOW_S3_ENDPOINT_URL="http://127.0.0.1:9000"
 mlflow server \
   --host 127.0.0.1 \
   --port 5000 \
-  --backend-store-uri sqlite:////data/ai/chenzhangyue/code/train/platform-data/mlflow/mlflow.db \
+  --backend-store-uri sqlite:////data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db \
   --serve-artifacts \
   --artifacts-destination s3://mlflow-artifacts
 ```
@@ -132,7 +132,7 @@ jupyter lab \
   --ip=127.0.0.1 \
   --port=8888 \
   --no-browser \
-  --ServerApp.root_dir=/data/ai/chenzhangyue/code/train
+  --ServerApp.root_dir=/data/ai/chenzhangyue/code/galatea
 ```
 
 四个服务均不应未经认证直接暴露到公网。远程访问使用SSH隧道或带认证的HTTPS反向代理。
@@ -201,7 +201,7 @@ PyTorch不要仅依据 `nvidia-smi` 显示的CUDA兼容上限选择版本；应�
 ### 4.1 服务器本地目录
 
 ```text
-/data/ai/chenzhangyue/code/train/
+/data/ai/chenzhangyue/code/galatea/
 ├── cats-and-dogs/  # 当前示例项目和Notebook
 ├── data-cache/     # MinIO数据的本地缓存
 ├── checkpoints/    # 训练中的本地Checkpoint
@@ -213,10 +213,10 @@ PyTorch不要仅依据 `nvidia-smi` 显示的CUDA兼容上限选择版本；应�
 创建目录：
 
 ```bash
-mkdir -p /data/ai/chenzhangyue/code/train/data-cache
-mkdir -p /data/ai/chenzhangyue/code/train/checkpoints
-mkdir -p /data/ai/chenzhangyue/code/train/platform-data/minio/data
-mkdir -p /data/ai/chenzhangyue/code/train/platform-data/mlflow
+mkdir -p /data/ai/chenzhangyue/code/galatea/data-cache
+mkdir -p /data/ai/chenzhangyue/code/galatea/checkpoints
+mkdir -p /data/ai/chenzhangyue/code/galatea/platform-data/minio/data
+mkdir -p /data/ai/chenzhangyue/code/galatea/platform-data/mlflow
 ```
 
 ### 4.2 MinIO目录
@@ -552,7 +552,7 @@ data:
   dataset_name: demo-classification
   dataset_version: dataset-v001
   manifest_uri: s3://training-data/datasets/manifests/demo/dataset-v001.csv
-  local_cache_dir: /data/ai/chenzhangyue/code/train/data-cache/demo/dataset-v001
+  local_cache_dir: /data/ai/chenzhangyue/code/galatea/data-cache/demo/dataset-v001
   num_workers: 8
 
 model:
@@ -576,7 +576,7 @@ mlflow:
   artifact_store: s3://mlflow-artifacts
 
 output:
-  checkpoint_dir: /data/ai/chenzhangyue/code/train/checkpoints
+  checkpoint_dir: /data/ai/chenzhangyue/code/galatea/checkpoints
 ```
 
 要求：
@@ -816,7 +816,7 @@ set +a
 
 ray job submit \
   --address=http://127.0.0.1:8265 \
-  --working-dir /data/ai/chenzhangyue/code/train \
+  --working-dir /data/ai/chenzhangyue/code/galatea \
   -- python scripts/train.py --config configs/train-dev.yaml
 ```
 
@@ -834,7 +834,7 @@ Smoke Test通过标准：
 ```bash
 ray job submit \
   --address=http://127.0.0.1:8265 \
-  --working-dir /data/ai/chenzhangyue/code/train \
+  --working-dir /data/ai/chenzhangyue/code/galatea \
   -- python scripts/train.py --config configs/train-prod.yaml
 ```
 
@@ -965,7 +965,7 @@ existing_run_id = os.environ["RESUME_RUN_ID"]
 checkpoint_path = mlflow.artifacts.download_artifacts(
     run_id=existing_run_id,
     artifact_path="recovery/epoch-0002/latest.pt",
-    dst_path="/data/ai/chenzhangyue/code/train/checkpoints/recovered",
+    dst_path="/data/ai/chenzhangyue/code/galatea/checkpoints/recovered",
 )
 ```
 

@@ -1,7 +1,7 @@
 # JupyterLab 安装、启动与运维
 
 本文记录当前训练节点上 JupyterLab 的完整部署方式。命令和路径均以
-`/data/ai/chenzhangyue/code/train` 为准，覆盖环境安装、前台试运行、systemd 常驻、
+`/data/ai/chenzhangyue/code/galatea` 为准，覆盖环境安装、前台试运行、systemd 常驻、
 访问认证、健康检查和常见故障排查。
 
 文档基线日期：2026-07-30。
@@ -18,12 +18,12 @@
 | Python | 3.12.12 |
 | JupyterLab | 4.6.2 |
 | Jupyter Server | 2.20.0 |
-| Notebook 根目录 | `/data/ai/chenzhangyue/code/train` |
-| 配置目录 | `/data/ai/chenzhangyue/code/train/platform-data/jupyter/config` |
-| 数据目录 | `/data/ai/chenzhangyue/code/train/platform-data/jupyter/data` |
+| Notebook 根目录 | `/data/ai/chenzhangyue/code/galatea` |
+| 配置目录 | `/data/ai/chenzhangyue/code/galatea/platform-data/jupyter/config` |
+| 数据目录 | `/data/ai/chenzhangyue/code/galatea/platform-data/jupyter/data` |
 | systemd 运行目录 | `/run/jupyterlab` |
 | 监听端口 | 8888 |
-| unit 源文件 | `/data/ai/chenzhangyue/code/train/systemd/jupyterlab.service` |
+| unit 源文件 | `/data/ai/chenzhangyue/code/galatea/systemd/jupyterlab.service` |
 | unit 安装位置 | `/etc/systemd/system/jupyterlab.service` |
 
 当前常驻服务通过 code-server 的 `absproxy` 路径访问，因此 Jupyter 的 base URL 是：
@@ -43,9 +43,9 @@
 ```bash
 /data/conda/bin/conda --version
 /data/conda/bin/conda env list
-test -d /data/ai/chenzhangyue/code/train && echo "train directory exists"
+test -d /data/ai/chenzhangyue/code/galatea && echo "train directory exists"
 ss -lntp | grep -E ':8888\\b' || true
-df -h /data/ai/chenzhangyue/code/train
+df -h /data/ai/chenzhangyue/code/galatea
 ```
 
 如果 8888 已被其他进程占用，应先确认该进程是否就是现有 JupyterLab，不要同时启动
@@ -107,8 +107,8 @@ jupyter kernelspec list
 
 ```bash
 sudo install -d -o root -g root -m 0750 \
-  /data/ai/chenzhangyue/code/train/platform-data/jupyter/config \
-  /data/ai/chenzhangyue/code/train/platform-data/jupyter/data
+  /data/ai/chenzhangyue/code/galatea/platform-data/jupyter/config \
+  /data/ai/chenzhangyue/code/galatea/platform-data/jupyter/data
 ```
 
 `/run/jupyterlab` 不需要手工创建；systemd 会根据 unit 中的
@@ -132,7 +132,7 @@ jupyter lab \
   --ServerApp.ip=127.0.0.1 \
   --ServerApp.port=8888 \
   --ServerApp.port_retries=0 \
-  --ServerApp.root_dir=/data/ai/chenzhangyue/code/train
+  --ServerApp.root_dir=/data/ai/chenzhangyue/code/galatea
 ```
 
 启动日志会给出带临时 token 的 URL。另开终端检查 HTTP 响应：
@@ -149,7 +149,7 @@ curl -I http://127.0.0.1:8888/
 仓库已提供与当前机器一致的 unit：
 
 ```text
-/data/ai/chenzhangyue/code/train/systemd/jupyterlab.service
+/data/ai/chenzhangyue/code/galatea/systemd/jupyterlab.service
 ```
 
 它包含以下关键设置：
@@ -168,14 +168,14 @@ curl -I http://127.0.0.1:8888/
 安装前先复核 unit 中的用户、路径、域名和 `/GC5026` 前缀：
 
 ```bash
-sed -n '1,240p' /data/ai/chenzhangyue/code/train/systemd/jupyterlab.service
+sed -n '1,240p' /data/ai/chenzhangyue/code/galatea/systemd/jupyterlab.service
 ```
 
 确认无误后安装并立即启动：
 
 ```bash
 sudo install -m 0644 \
-  /data/ai/chenzhangyue/code/train/systemd/jupyterlab.service \
+  /data/ai/chenzhangyue/code/galatea/systemd/jupyterlab.service \
   /etc/systemd/system/jupyterlab.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now jupyterlab.service
@@ -210,8 +210,8 @@ sudo env JUPYTER_RUNTIME_DIR=/run/jupyterlab \
 
 ```bash
 sudo env \
-  JUPYTER_CONFIG_DIR=/data/ai/chenzhangyue/code/train/platform-data/jupyter/config \
-  JUPYTER_DATA_DIR=/data/ai/chenzhangyue/code/train/platform-data/jupyter/data \
+  JUPYTER_CONFIG_DIR=/data/ai/chenzhangyue/code/galatea/platform-data/jupyter/config \
+  JUPYTER_DATA_DIR=/data/ai/chenzhangyue/code/galatea/platform-data/jupyter/data \
   /data/conda/envs/attend-ray-py312/bin/jupyter server password
 sudo systemctl restart jupyterlab.service
 ```
@@ -305,7 +305,7 @@ print(Path.cwd())
 ```
 
 `sys.executable` 应指向 `/data/conda/envs/attend-ray-py312/bin/python`，工作目录应位于
-`/data/ai/chenzhangyue/code/train` 内。
+`/data/ai/chenzhangyue/code/galatea` 内。
 
 ## 10. 日常运维
 

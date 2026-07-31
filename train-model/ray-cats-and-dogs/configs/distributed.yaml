@@ -1,0 +1,5 @@
+extends: baseline.yaml
+
+ray:
+  num_workers: 2
+  placement_strategy: SPREAD

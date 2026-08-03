@@ -14,7 +14,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from ray_cats_dogs.config import load_config  # noqa: E402
-from ray_cats_dogs.train import config_plan, read_only_plan, run_training  # noqa: E402
 
 
 def _handle_termination(signum, frame) -> None:
@@ -59,10 +58,22 @@ def main() -> None:
     arguments = parser.parse_args()
     config = load_config(arguments.config, tuple(arguments.overrides))
     if arguments.check_config:
+        from ray_cats_dogs.train import config_plan
+
         result = config_plan(config)
     elif arguments.plan:
+        from ray_cats_dogs.train import read_only_plan
+
         result = read_only_plan(config)
     else:
+        import mlflow
+
+        mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+        mlflow.set_experiment(config.mlflow.experiment_name)
+        mlflow.autolog(log_models=False, silent=True)
+
+        from ray_cats_dogs.train import run_training
+
         result = run_training(config, force=arguments.force)
     print(json.dumps(result, indent=2, sort_keys=True))
 

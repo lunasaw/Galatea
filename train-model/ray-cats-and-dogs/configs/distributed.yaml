@@ -1,5 +1,13 @@
 extends: baseline.yaml
 
 ray:
+  # 同一次实验启动两个同步 DDP Worker。由于 baseline.yaml 设置了
+  # use_gpu=true，且训练 Worker 不使用 fractional GPU，因此需要两张可用
+  # GPU，每个 Worker 独占一张完整 GPU。继承的每 Worker 批大小为 128，
+  # 所以有效全局批大小为 256。
   num_workers: 2
+
+  # 尽力将 Worker 分散放置到不同节点。SPREAD 并不强制要求两个节点：
+  # 如果集群只能这样调度，两个 Worker 可以运行在同一节点的不同 GPU 上。
+  # 只有明确要求跨节点放置时才使用 STRICT_SPREAD。
   placement_strategy: SPREAD

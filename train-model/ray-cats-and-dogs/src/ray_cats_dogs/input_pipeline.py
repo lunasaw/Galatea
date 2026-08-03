@@ -8,37 +8,34 @@ from typing import Any, Iterator
 import pandas as pd
 
 
-def _image_transform(
-    image_size: tuple[int, int],
-    *,
-    training: bool,
-    augmentation: bool,
-) -> Any:
+def _image_transform(image_size: tuple[int, int]) -> Any:
     from torchvision import transforms
 
-    operations: list[Any] = [transforms.Resize(image_size)]
-    if training and augmentation:
-        operations.extend(
-            [
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation(20),
-                transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), fill=0),
-            ]
-        )
-    operations.append(transforms.ToTensor())
-    return transforms.Compose(operations)
+    return transforms.Compose([transforms.Resize(image_size), transforms.ToTensor()])
 
 
-def _decode_batch(frame: pd.DataFrame, transform: Any) -> tuple[Any, Any]:
-    import torch
+def decode_image_batch(
+    frame: pd.DataFrame,
+    *,
+    image_size: tuple[int, int],
+) -> dict[str, Any]:
+    """Decode one path batch in a Ray Data CPU task and keep pixels compact."""
+
+    import numpy as np
     from PIL import Image
+    from torchvision import transforms
 
+    transform = transforms.Compose(
+        [transforms.Resize(image_size), transforms.PILToTensor()]
+    )
     images = []
     for path in frame["path"]:
         with Image.open(path) as image:
-            images.append(transform(image.convert("RGB")))
-    labels = torch.as_tensor(frame["label"].to_numpy(), dtype=torch.long)
-    return torch.stack(images), labels
+            images.append(transform(image.convert("RGB")).numpy())
+    return {
+        "image": np.stack(images),
+        "label": frame["label"].to_numpy(dtype=np.int64, copy=True),
+    }
 
 
 class _RayImageBatches:
@@ -46,60 +43,44 @@ class _RayImageBatches:
         self,
         dataset_shard: Any,
         *,
-        image_size: tuple[int, int],
         batch_size: int,
-        training: bool,
-        augmentation: bool,
-        seed: int,
+        prefetch_batches: int,
     ) -> None:
         self.dataset_shard = dataset_shard
-        self.image_size = image_size
         self.batch_size = batch_size
-        self.training = training
-        self.augmentation = augmentation
-        self.seed = seed
+        self.prefetch_batches = prefetch_batches
 
     def __iter__(self) -> Iterator[tuple[Any, Any]]:
         import torch
 
-        torch.manual_seed(self.seed)
-        transform = _image_transform(
-            self.image_size,
-            training=self.training,
-            augmentation=self.augmentation,
+        batches = self.dataset_shard.iter_torch_batches(
+            batch_size=self.batch_size,
+            dtypes={"image": torch.uint8, "label": torch.int64},
+            device="auto",
+            drop_last=False,
+            prefetch_batches=self.prefetch_batches,
+            pin_memory=torch.cuda.is_available(),
         )
-        kwargs: dict[str, Any] = {
-            "batch_size": self.batch_size,
-            "batch_format": "pandas",
-            "drop_last": False,
-        }
-        if self.training:
-            kwargs.update(
-                {
-                    "local_shuffle_buffer_size": max(self.batch_size * 8, 256),
-                    "local_shuffle_seed": self.seed,
-                }
-            )
-        for frame in self.dataset_shard.iter_batches(**kwargs):
-            yield _decode_batch(frame, transform)
+        for batch in batches:
+            images = batch["image"]
+            labels = batch["label"]
+            if isinstance(images, list):
+                images = torch.cat(images)
+            if isinstance(labels, list):
+                labels = torch.cat(labels)
+            yield images, labels
 
 
 def make_worker_dataset(
     dataset_shard: Any,
     *,
-    image_size: tuple[int, int],
     batch_size: int,
-    training: bool,
-    augmentation: bool,
-    seed: int,
+    prefetch_batches: int,
 ) -> Any:
     return _RayImageBatches(
         dataset_shard,
-        image_size=image_size,
         batch_size=batch_size,
-        training=training,
-        augmentation=augmentation,
-        seed=seed,
+        prefetch_batches=prefetch_batches,
     )
 
 
@@ -113,11 +94,7 @@ def make_local_dataset(
     from torch.utils.data import DataLoader, Dataset
     from PIL import Image
 
-    transform = _image_transform(
-        image_size,
-        training=False,
-        augmentation=False,
-    )
+    transform = _image_transform(image_size)
 
     class ManifestDataset(Dataset):
         def __len__(self) -> int:

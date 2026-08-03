@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import ray.cloudpickle as cloudpickle  # noqa: E402
+from ray_cats_dogs.input_pipeline import decode_image_batch  # noqa: E402
 from ray_cats_dogs.runtime import (  # noqa: E402
     RAY_JOB_CONFIG_ENV,
     build_runtime_env,
@@ -77,7 +78,9 @@ class RuntimeEnvTest(unittest.TestCase):
     def test_controller_payload_loads_without_project_on_pythonpath(self) -> None:
         callback = RayMlflowCallback("http://tracking", "run-123")
         with controller_pickle_by_value():
-            payload = cloudpickle.dumps((train_loop_per_worker, callback))
+            payload = cloudpickle.dumps(
+                (train_loop_per_worker, callback, decode_image_batch)
+            )
 
         with tempfile.TemporaryDirectory() as directory:
             payload_path = Path(directory) / "controller-payload.pkl"
@@ -90,9 +93,9 @@ class RuntimeEnvTest(unittest.TestCase):
                     "-c",
                     (
                         "import pickle,sys; "
-                        "function,callback=pickle.load(open(sys.argv[1],'rb')); "
+                        "function,callback,decoder=pickle.load(open(sys.argv[1],'rb')); "
                         "print(function.__name__,type(callback).__name__,"
-                        "callback.run_id)"
+                        "callback.run_id,decoder.__name__)"
                     ),
                     str(payload_path),
                 ],
@@ -105,7 +108,7 @@ class RuntimeEnvTest(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(
-            "train_loop_per_worker RayMlflowCallback run-123",
+            "train_loop_per_worker RayMlflowCallback run-123 decode_image_batch",
             result.stdout.strip(),
         )
 

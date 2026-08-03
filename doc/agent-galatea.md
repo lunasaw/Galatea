@@ -1,795 +1,587 @@
-# Galatea：自主模型训练 Agent 的 Skill 架构
+# Galatea：当前 Agent 与训练平台架构
 
-> 状态：设计草案；范围：多项目、多模型、多框架训练平台；当前参考实现：TensorFlow
-> Cats vs Dogs Demo；平台组件：JupyterLab、Ray、MLflow、MinIO。
+> 状态：当前实现；范围：多项目、多模型、多框架训练平台；正式参考工作负载：
+> PyTorch CUDA 13 + Ray Train + MLflow 的 Cats vs Dogs 项目。
 
-## 1. 背景与目标
+本文描述仓库当前已经落地的 Agent 能力、训练项目契约、Ray/MLflow 所有权和部署边界。
+规划中的能力会单独标记，不再把尚未存在的 Skill、Tool 或自治循环写成现有组件。
 
-Galatea 的目标不是为某一个 Demo 增加自动调参脚本，而是让 Agent 能够系统性地完成一个
-模型训练项目：在数据集、任务定义、目标指标和资源约束已经明确后，生成合规训练代码，
-通过 Ray 执行，使用 MLflow 记录完整证据，根据验证结果逐步改进，并最终交付满足明确
-验收条件的候选模型。
+## 1. 架构目标与边界
 
-Cats vs Dogs 只是当前可以执行和验证的参考工作负载，不是平台的架构边界。Galatea 必须
-能够扩展到分类、回归、检测、分割、推荐、排序、预测、微调和其他任务，也不能把
-TensorFlow、Accuracy 或单机 GPU 写死在共享能力中。
+Galatea 不是某个 Notebook、图像分类器或自动调参脚本，而是一套把交互开发、分布式执行、
+实验追踪、Artifact 持久化和模型治理连接起来的训练平台。平台必须能够承载分类、回归、
+检测、分割、排序、推荐、预测和模型微调，也不能把 PyTorch、Accuracy、单机 GPU 或
+Cats vs Dogs 写死在共享能力中。
 
-目标体验可以概括为：
+当前架构把职责分成三层：
 
-```text
-用户或上游系统确认数据集、任务、目标和预算
-  ↓
-Galatea 判断当前处于哪个训练阶段
-  ↓
-在写代码阶段加载 MLflow 和 Ray 规范 Skill
-  ↓
-生成可追踪、可调度、可恢复的训练代码
-  ↓
-执行、观察、诊断和迭代
-  ↓
-干净重训 Champion，并执行最终模型验收
-```
-
-Galatea 最终交付的不应只是一个模型文件，而应是一组可以复核的训练证据：
-
-- MLflow Run ID 和模型 URI；
-- 不可变的数据及切分身份；
-- 完整训练配置、代码版本和环境信息；
-- 训练与验证曲线；
-- Checkpoint 和恢复信息；
-- 最终评测报告和质量门禁结果；
-- Ray Job、Trial 或 Train Run 的执行身份；
-- Artifact 可回读和模型可加载的验证结果。
-
-## 2. 关键认识：Skill 不是训练主循环
-
-本设计最重要的边界是区分 Agent 主循环、Skill、确定性脚本和执行 Tool。
-
-| 组件 | 职责 | 示例 |
+| 层级 | 负责 | 不负责 |
 | --- | --- | --- |
-| Agent 主循环 | 识别当前阶段、选择能力、解释结果、决定下一步 | 判断现在应写代码、执行训练还是分析历史 |
-| Skill | 给模型注入特定阶段必须遵守的工程规范和决策方法 | 如何编写 MLflow/Ray 合规训练代码 |
-| 确定性脚本 | 稳定执行 API 检查、Schema 校验和合规审计 | 核对 MLflow API、审计 Run、审计 Ray 入口 |
-| Tool | 对外部系统执行有副作用的动作 | 提交 Ray Job、停止任务、注册候选模型 |
-| MLflow/Ray/MinIO | 保存外部事实和持久状态 | Run、Job、Checkpoint、模型和 Artifact |
+| 平台层 | JupyterLab、Ray、MLflow、MinIO、systemd、通用 Agent Skills | 某个模型的网络结构、指标名或数据切分 |
+| 工作负载层 | 项目配置、数据、模型、训练、评测、Checkpoint 和项目测试 | 平台服务的部署和其他项目的业务逻辑 |
+| Agent 层 | 读取仓库状态、选择 Skill、分析证据、修改代码并执行获授权的动作 | 绕过审批启动昂贵训练或修改生产模型 Alias |
 
-Skill 不应把当前 `cats_dogs_tuner.py` 的循环包装成一个巨大的 Tool，也不应尝试替代未来
-的 Agent 主循环。Skill 的核心价值是：当主循环进入一个相对固定的阶段时，向模型提供
-足够精确的规范，使其生成的平台代码在第一次就具备正确的结构和边界。
+正式训练的交付物不只是一个模型文件，而是一组可以复核的证据：
 
-例如，主循环已经确认：
+- MLflow Run ID、Ray Job ID 和 Checkpoint URI；
+- 数据内容、Manifest、切分和预处理身份；
+- 解析后的完整配置、代码摘要、Git 状态和环境版本；
+- 训练与验证 Metric History；
+- 最佳模型选择依据、最终评测报告和质量门禁；
+- Artifact 回读、Checkpoint 恢复和 Logged Model 可加载证据；
+- 是否读取最终测试集、是否执行 Registry 晋级等治理状态。
 
-```yaml
-project: example-image-classifier
-task: binary-classification
-framework: tensorflow
-dataset_version: sha256-...
-objective:
-  metric: val_f1
-  mode: max
-resources:
-  cpu: 4
-  gpu: 1
-```
-
-此时写代码的 Agent 不应重新讨论“应该做分类还是回归”，而应加载规范 Skill 并回答：
-
-- 如何建立和结束 MLflow Run；
-- 哪些参数、指标、数据身份和 Artifact 必须上报；
-- 如何保证 Trial 不访问最终 Holdout；
-- 应该使用 Ray Job、Ray Train 还是 Ray Tune；
-- Driver、Worker 和 Rank 0 分别拥有什么职责；
-- 如何声明资源、保存 Checkpoint 并支持幂等重试。
-
-## 3. Galatea 的能力分层
-
-Galatea 的第一版能力可以分成六个阶段。阶段之间存在顺序，但 Skill 本身不实现隐藏主循环。
+## 2. 当前平台拓扑
 
 ```text
-1. 项目接入
-   mlflow-onboarding
-        ↓
-2. 官方 API 查询
-   searching-mlflow-docs
-        ↓
-3. 训练代码生成
-   write-mlflow-training-code
-   write-ray-training-code
-        ↓
-4. 执行与恢复
-   未来的 Ray Job / Train / Tune Tools
-        ↓
-5. 证据分析与优化
-   mlflow-optimize-models
-        ↓
-6. Champion 重训与 SLA 验收
-   后续的模型验收能力
+开发者 / Codex Agent
+        |
+        +--> JupyterLab：探索、配置、短 Smoke、提交和查看结果
+        |
+        +--> 参数化 CLI / Ray Jobs API
+                         |
+                         v
+                 Ray Job Driver
+                   |          |
+                   |          +--> MLflow Tracking API
+                   |                   |
+                   |                   +--> Run / Trace / Metric / Tag
+                   |                   +--> Artifact Proxy
+                   |                              |
+                   |                              v
+                   |                         MinIO Bucket
+                   |
+                   v
+        Ray Data CPU Task Pool
+        并行解码和缩放 -> uint8 Tensor Object Store Cache
+                   |
+                   v
+              Ray Train Controller
+                   |
+                   +--> Worker 0：预取、GPU 增强、计算、Checkpoint、Ray Report
+                   +--> Worker 1..N：预取、GPU 增强、计算、分布式归约
+                   |
+                   +--> Ray Checkpoint Storage
+                              |
+                              v
+                 Driver 最终评测、Artifact 回读和门禁
+                              |
+                              v
+                     Logged Model / 人工晋级
 ```
 
-主循环根据项目实际状态跳过不需要的阶段。成熟项目不应重复 onboarding；全新项目则必须
-先完成基础接入，不能假定其已经具有和 Cats vs Dogs 相同的追踪能力。
+各组件当前职责如下：
 
-## 4. 官方 MLflow Skills 的定位
-
-MLflow 官方 Skills 位于同级仓库
-[`mlflow-skills`](../../mlflow-skills/README.md)。当前本地版本的 Commit 为
-`d95eabfe9758d8f94fa8b82cb14851ffa1451fcf`。
-
-官方仓库主要面向 MLflow 官方 API、GenAI Tracing、Agent Evaluation 和调试。Galatea
-应尽量复用这些上游能力，而不是自行维护一份容易过时的 MLflow 全量 API 手册。
-
-### 4.1 `mlflow-onboarding`
-
-官方 [`mlflow-onboarding`](../../mlflow-skills/mlflow-onboarding/SKILL.md) 对 Galatea 是
-必要的入口能力，而不是因为 Cats vs Dogs 已经成熟就可以忽略的能力。
-
-它负责：
-
-- 判断项目是 GenAI/Agent 应用还是传统 ML/深度学习；
-- 从代码识别 TensorFlow、PyTorch、scikit-learn 等框架；
-- 判断项目是否已经接入 MLflow；
-- 为新项目建立 Autolog 或基础手动 Tracking；
-- 配置 Experiment 并验证是否产生 Run；
-- 对已经接入的项目返回“无需重复 onboarding”。
-
-它解决的是“任意新项目如何进入 MLflow 世界”，而不是完整的正式训练规范。对不同项目，
-它应该产生类似以下能力状态：
-
-```json
-{
-  "project_type": "traditional-ml",
-  "framework": "tensorflow",
-  "mlflow_status": "basic-integration",
-  "tracking_uri_configured": true,
-  "experiment_configured": true,
-  "run_verified": true,
-  "missing_capabilities": [
-    "dataset-lineage",
-    "checkpoint-recovery",
-    "ray-run-ownership"
-  ]
-}
-```
-
-`mlflow-onboarding` 必要但不充分。它不会独立保证数据血缘、指标语义、分布式 Run 所有权、
-Checkpoint 恢复、测试集隔离或发布门禁，这些由 Galatea 的平台规范 Skill 补充。
-
-### 4.2 `searching-mlflow-docs`
-
-官方 [`searching-mlflow-docs`](../.codex/skills/searching-mlflow-docs/SKILL.md) 已复制为当前
-仓库的项目级 Skill。它负责从 MLflow 官方文档获取当前 API 和完整示例。
-
-它回答：
-
-```text
-当前版本的 mlflow.start_run 有哪些参数？
-mlflow.tensorflow.log_model 应如何记录 Signature 和 Input Example？
-Dataset Inputs、Logged Models 和 Model Registry 当前怎样使用？
-某个 API 在 MLflow 3.x 中是否已经变化？
-```
-
-Galatea 本地规范不重复保存所有 API 签名。本地 Skill 应保存“必须做什么”和“禁止做什么”，
-需要精确调用方式时，先使用官方文档 Skill，再通过本机安装版本进行签名核对。
-
-需要注意，官方 Skill 自身明确说明 `llms.txt` 目前主要覆盖 GenAI 文档，传统 ML Tracking
-页面可能不完整。因此它是官方文档入口，但还不能被当作传统训练 API 的完整离线手册。
-当索引找不到 TensorFlow、PyTorch、Dataset、Artifact 或 Registry 文档时，应继续限定在
-MLflow 官方站点和已安装包的 Docstring/Signature 中核对，不能退回第三方博客或凭记忆
-生成调用。后续可在不修改官方副本的前提下，为 Galatea 增加一个传统训练文档查询适配层。
-
-当前项目固定 `mlflow==3.14.0`，因此正式生成代码时至少要同时确认：
-
-1. 项目依赖中声明的 MLflow 版本；
-2. 本机或 Ray Runtime Environment 中的实际版本；
-3. 官方文档中的当前 API；
-4. 生成代码使用的参数是否和目标运行环境一致。
-
-### 4.3 其他官方 Skills
-
-官方仓库中的 Tracing、Trace Analysis、Agent Evaluation 和 Agent Issue 修复能力，主要用于
-Galatea 主循环本身，而不是 TensorFlow/PyTorch Epoch 指标。
-
-| 官方 Skill | 对 Galatea 的后续用途 |
+| 组件 | 当前职责 |
 | --- | --- |
-| `instrumenting-with-mlflow-tracing` | 记录主 Agent 的决策、Tool 调用和阶段耗时 |
-| `retrieving-mlflow-traces` | 查询失败或缓慢的自主训练 Session |
-| `analyze-mlflow-trace` | 分析某一步 Agent 决策或 Tool 调用错误 |
-| `analyze-mlflow-chat-session` | 重建多轮自主训练过程 |
-| `querying-mlflow-metrics` | 查询 Agent Trace 的 Token、延迟和错误率，不是训练 Run 指标 |
-| `agent-evaluation` | 评估 Agent 的 Skill 选择、答案质量、成本和工具使用 |
-| `fix-agent-issue` | 根据 Trace 建立回归测试并修复 Agent 行为 |
-| `mlflow-agent` | 在相关子 Skill 全部可用后提供总路由 |
-| `sagemaker-mlflow` | 仅适用于 SageMaker Managed MLflow，当前部署不使用 |
+| JupyterLab | 数据探索、Notebook 开发、配置检查、Job 提交和结果展示 |
+| Ray Jobs | 让正式入口脱离 Notebook Kernel 和终端生命周期 |
+| Ray Data | CPU 并行图片解码、缩放、Shuffle、Block 调度、Object Store 缓存和 Batch 预取 |
+| Ray Train | Worker 调度、数据分片、分布式训练、失败重试和 Checkpoint |
+| PyTorch | 当前参考工作负载的模型、Loss、Optimizer 和分布式计算 |
+| MLflow Tracking | Experiment、Run、Trace、参数、指标、Tag、Dataset Input 和系统指标 |
+| MLflow Artifact API | 配置、Manifest、源码、Checkpoint、报告、预测和 Logged Model 的统一访问入口 |
+| MinIO | MLflow 代理后的 S3 兼容 Artifact 持久化；也可承载不可变训练数据快照 |
+| systemd | JupyterLab、MLflow 和 MinIO 的本机服务生命周期 |
 
-这些能力应在 Galatea 主循环开始实现后按需引入，不应为了传统模型训练而无差别安装全部
-GenAI Skills。
+当前部署是单节点基线：
 
-## 5. 核心规范 Skill：`write-mlflow-training-code`
+- 共享平台环境为 `/data/conda/envs/attend-ray-py312`；
+- 仓库和服务工作目录为 `/data/ai/chenzhangyue/code/galatea`；
+- JupyterLab、MLflow 和 MinIO 由 `systemd/` 中的 Unit 管理；
+- Ray Head 按需启动，仓库当前没有 Ray systemd Unit；
+- MLflow Backend Store 位于 `platform-data/mlflow/mlflow.db`；
+- MLflow 使用 `--serve-artifacts` 代理 MinIO 中的 `s3://mlflow-artifacts`；
+- Ray 本地执行状态默认写入 `platform-data/ray-results/`；
+- `platform-data/` 是被 Git 忽略的运行状态，不是源码或客户端集成接口。
 
-### 5.1 触发条件
+训练客户端只能通过 MLflow Tracking、Artifact 和 Model Registry API 访问 MLflow。客户端
+不得打开 `mlflow.db`，也不应读取 MLflow 服务端的 MinIO 数据目录或持有长期对象存储密钥。
 
-当 Agent 正在创建、补全或评审正式训练代码，并且代码需要通过 MLflow 记录参数、指标、
-数据、Checkpoint、模型或评测结果时，必须加载该 Skill。
+## 3. 仓库与项目边界
 
-它不是 MLflow 入门教程，也不是历史 Run 查询器。它是写代码阶段的强制工程规范。
-
-### 5.2 输入前提
-
-调用前，上游应尽量提供：
-
-- 项目 ID 和任务类型；
-- 使用的框架和模型族；
-- Tracking URI 与 Experiment 配置来源；
-- 数据集、切分和预处理身份；
-- 主验证指标与 `max/min` 方向；
-- 最终 Holdout 指标和质量门禁；
-- 当前执行模式：Smoke、Trial、Champion 或 Evaluation；
-- 是否运行在 Ray Job、Ray Train 或 Ray Tune 中。
-
-缺少这些内容时，Skill 可以生成明确的未决项，但不能擅自将测试指标作为优化目标，或为
-模糊的自定义指标猜测方向。
-
-### 5.3 Tracking 与 Experiment 规范
-
-生成代码必须：
-
-- 从 `MLFLOW_TRACKING_URI` 或等价显式配置读取 Tracking URI；
-- 从 `MLFLOW_EXPERIMENT_NAME`、Experiment ID 或项目配置读取 Experiment；
-- 支持远程 Tracking Server，不能假定训练节点可以访问后端数据库；
-- 不直接打开、复制或查询 `mlflow.db`；
-- 不在训练客户端读取 MLflow Server 的 MinIO 长期凭据；
-- 通过 Tracking Server 和 Artifact API 访问 Artifact；
-- 在训练开始前验证 Tracking Server 和 Artifact Store 可用性；
-- 对无法建立可追踪 Run 的正式训练快速失败。
-
-框架 Autolog 可以作为基础采集能力，但不能被视为完整训练契约。Skill 应先确认目标框架和
-MLflow 版本是否受支持，再决定启用 Autolog，并显式补充数据身份、自定义指标、执行角色、
-恢复信息和质量门禁。还应避免 Autolog 与手动模型记录重复生成模型和 Artifact。
-
-### 5.4 Run 生命周期规范
-
-每个正式 Run 必须有明确角色：
+当前主要目录结构为：
 
 ```text
-smoke       验证代码、数据、追踪和恢复路径
-baseline    建立可比较基线
-trial       使用训练与验证证据，不访问最终 Holdout
-champion    以选定配置从干净状态重训
-evaluation  对固定 Champion 执行最终评测
+galatea/
+├── .codex/skills/                  # 仓库级 Agent 能力
+├── train-model/
+│   ├── cats-and-dogs/              # 兼容的平铺式 PyTorch Notebook 工作负载
+│   └── ray-cats-and-dogs/          # 当前正式 Ray Train 参考项目
+├── tests/                          # 仅保留平台级和跨项目测试
+├── doc/                            # 部署、运维和架构文档
+├── systemd/                        # JupyterLab、MLflow、MinIO Unit
+├── platform-data/                  # 数据库、对象、Manifest 和运行状态，Git 忽略
+├── requirements.txt                # 共享平台服务依赖
+├── AGENTS.md                       # 仓库训练与治理契约
+└── README.md                       # 平台入口
 ```
 
-Run 至少要记录：
-
-- `project`、`task`、`model_family` 和 `run_role`；
-- 唯一的 Trial 或执行身份；
-- 数据、切分、预处理和代码摘要；
-- 执行主机、Ray 身份和资源声明；
-- `run.outcome`、失败类型和失败阶段；
-- Parent/Child 或 Study/Trial 关系；
-- 测试集是否被访问。
-
-只有权威进程可以创建和结束共享 Run。分布式 Worker 不得各自无序创建 Run，并同时写入
-同一个共享 Artifact 路径。
-
-### 5.5 参数规范
-
-必须上报训练真正使用的“解析后配置”，而不是只记录用户传入的部分值。至少包括：
-
-- 模型结构、预训练权重和冻结策略；
-- Optimizer、Learning Rate、Scheduler、Loss；
-- Batch Size、Epoch/Step 上限和 Early Stopping；
-- 数据增强、采样、类别权重和阈值；
-- 随机种子和确定性配置；
-- 分布式并行参数；
-- CPU、GPU 和内存资源；
-- 所有被搜索或条件启用的字段。
-
-参数名应分层，例如：
+成熟训练项目放在 `train-model/<project-name>/`，推荐并由
+[`model-project-structure`](../.codex/skills/model-project-structure/SKILL.md) 约束为：
 
 ```text
-model.architecture
-training.optimizer
-training.learning_rate
-training.seed
-data.content_sha256
-data.split_sha256
-preprocessing.version
-execution.num_gpus
+train-model/<project-name>/
+├── README.md
+├── conda.yaml
+├── configs/
+│   ├── baseline.yaml
+│   └── <variant>.yaml
+├── src/<python-package>/
+│   ├── data.py
+│   ├── models/
+│   ├── train.py
+│   └── evaluate.py
+├── scripts/
+│   └── train.py
+├── tests/
+│   └── test_*.py
+└── notebooks/                      # 可选，只用于探索、提交和展示
 ```
 
-Skill 不应硬编码 Accuracy、图像分类或 TensorFlow 字段。每个项目通过契约声明指标和
-额外参数。
+所有模型专用实现、配置、环境和测试都归项目所有。仓库根 `tests/` 只用于平台级或跨项目行为；
+数据集、Checkpoint、模型、缓存和已执行 Notebook 不进入源码树。一个项目可以包含多个模型族
+和参数变体，参数差异应优先通过 `configs/*.yaml` 表达，而不是创建多个工作负载根目录。
 
-### 5.6 数据血缘规范
+当前两个项目的定位不同：
 
-模型结果必须能追溯到不可变数据身份。代码至少记录：
+| 项目 | 定位 | 结构状态 |
+| --- | --- | --- |
+| [`cats-and-dogs`](../train-model/cats-and-dogs/README.md) | PyTorch CUDA 13 Notebook、基础训练管线和历史调优兼容示例 | 保留现有紧凑平铺结构，不作为新项目模板 |
+| [`ray-cats-and-dogs`](../train-model/ray-cats-and-dogs/README.md) | 参数化 Ray Job/Ray Train、MLflow 治理和恢复参考实现 | 符合 `configs/src/scripts/tests/notebooks` 正式项目结构 |
 
-- 数据源 URI；
-- 数据集版本；
-- 内容或 Manifest 摘要；
-- 训练、验证和最终测试切分摘要；
-- 样本数量与类别/目标分布摘要；
-- 预处理、Tokenizer、Feature Schema 或增强版本；
-- MLflow Dataset Inputs 及其 `training`、`validation`、`test` 上下文。
+## 4. 当前 Agent 能力
 
-不得只记录一个可变化的本地目录路径，也不得在数据内容不一致时伪造 MinIO 来源 URI。
+仓库当前实际提供四个 Skill：
 
-### 5.7 指标语义规范
+| Skill | 触发场景 | 当前作用 |
+| --- | --- | --- |
+| [`model-project-structure`](../.codex/skills/model-project-structure/SKILL.md) | 创建、重构或评审训练项目 | 约束项目目录、配置、源码、测试、环境和 Notebook 归属 |
+| [`ray`](../.codex/skills/ray/SKILL.md) | 编写或诊断 Ray Core、Data、Train、Tune、Serve 等代码 | 提供 Ray 2.x API、调度、Runtime Env、恢复和集群参考资料 |
+| [`searching-mlflow-docs`](../.codex/skills/searching-mlflow-docs/SKILL.md) | 查询当前 MLflow API 和集成方式 | 从 MLflow 官方文档获取最新接口和示例 |
+| [`mlflow-optimize-models`](../.codex/skills/mlflow-optimize-models/SKILL.md) | 分析历史 Runs、诊断训练并设计下一步搜索 | 通过 Tracking/Artifact API 做框架无关、验证集驱动的证据分析 |
 
-指标必须区分数据角色和用途：
+Agent 根据任务阶段选择最小必要能力：
 
 ```text
-train/*       训练状态和优化诊断
-validation/*  选参、Early Stopping 和 Champion 选择
-test/*        最终描述性评测
-system/*      资源利用率和运行成本
+项目结构或测试归属问题
+  -> model-project-structure
+
+Ray API、Runtime Env、分布式训练或调度问题
+  -> ray
+
+MLflow API、Tracing、Tracking 或 Registry 用法问题
+  -> searching-mlflow-docs
+
+已有可比较 Runs，需要诊断或调优
+  -> mlflow-optimize-models
 ```
 
-每个项目必须声明一个主验证目标及其方向。Trial 只能使用训练与验证证据。最终 Holdout
-不能用于 Trial 选择、Early Stopping 或重复搜索。
+Skill、脚本和外部动作的边界如下：
 
-训练代码应按 Epoch 或 Step 记录 Metric History，而不是只记录最终标量。必须记录足够的
-曲线，使后续能力能够诊断欠拟合、过拟合、截断、震荡和资源浪费。
-
-### 5.8 Artifact 与模型规范
-
-根据项目类型记录：
-
-- 解析后的训练配置；
-- 数据 Manifest 和 Profile；
-- 训练曲线和评测报告；
-- 最佳与最近 Checkpoint；
-- 恢复元数据；
-- 预测结果或安全的汇总；
-- 模型 Signature、Input Example 和依赖；
-- 源码或不可变代码包；
-- 环境与硬件摘要。
-
-Artifact 上传成功并不等于可恢复。正式 Run 应通过 MLflow Artifact API 回读验证关键对象，
-Champion 还应重新加载模型并完成最小预测测试。
-
-敏感样本、测试标签、密钥和内部 Endpoint 不能写入日志、公开 Artifact 或模型元数据。
-
-### 5.9 失败与恢复规范
-
-异常路径也必须留下可诊断证据：
-
-- `failure.type`；
-- `failure.phase`；
-- 已完成的 Epoch/Step；
-- 最近 Checkpoint URI；
-- Ray Job/Trial ID 和 Attempt；
-- 是否允许重试及其幂等键。
-
-失败 Run 不得伪装成成功 Run。重试应创建新的 Attempt 或安全恢复原任务，不能覆盖其他
-Run、Checkpoint 或模型。
-
-### 5.10 Registry 与发布规范
-
-探索性 Trial 不得自动改变生产模型。Skill 可以生成：
-
-- Logged Model；
-- 候选模型版本；
-- 模型卡和验收报告；
-- Candidate 注册建议。
-
-修改生产 Alias 必须是单独、显式并经过审批的动作，不能作为训练脚本正常结束时的副作用。
-
-### 5.11 Skill 目录建议
-
-```text
-.codex/skills/write-mlflow-training-code/
-├── SKILL.md
-├── agents/
-│   └── openai.yaml
-├── references/
-│   ├── training-run-contract.md
-│   ├── dataset-lineage.md
-│   ├── metric-semantics.md
-│   ├── artifact-and-model.md
-│   ├── ray-integration.md
-│   └── tensorflow.md
-└── scripts/
-    ├── inspect_mlflow_api.py
-    └── audit_training_run.py
-```
-
-`inspect_mlflow_api.py` 负责核对当前安装版本和关键 API 签名；`audit_training_run.py` 负责
-通过 Tracking/Artifact API 审计实际 Smoke Run。静态检查只能辅助，不能代替对真实 Run
-的验证。
-
-## 6. 核心规范 Skill：`write-ray-training-code`
-
-### 6.1 触发条件
-
-当 Agent 将已经确定的数据、模型和训练函数编写为 Ray Job、Ray Task、Ray Train 或
-Ray Tune 工作负载时，必须加载该 Skill。
-
-它负责执行结构、资源、并发、失败、恢复和 MLflow 所有权，不负责决定任务本身应该采用
-哪个模型。
-
-### 6.2 选择正确的 Ray 抽象
-
-| 工作负载 | 推荐抽象 |
+| 组件 | 作用 |
 | --- | --- |
-| 单机单卡或单进程长训练 | Ray Job 提交参数化训练脚本 |
-| 多 Worker 分布式训练 | Ray Train |
-| 多组超参数受控试验 | Ray Tune 或显式 Trial Jobs |
-| 简短独立计算 | Ray Task |
-| 数据规模较大的分布式读取和转换 | Ray Data |
-| 探索和可视化 | Notebook，不作为正式训练入口 |
+| Skill | 提供决策方法、工程不变量和验证顺序 |
+| 项目脚本 | 确定性地加载配置、校验数据、训练、评测和记录证据 |
+| Agent | 理解上下文、选择 Skill、修改代码、解释结果和请求必要授权 |
+| 外部动作 | 提交训练、停止 Job、创建 Registry 版本或修改 Alias，必须符合用户授权 |
 
-不要为了“使用 Ray”而把所有函数装饰为 `@ray.remote`。应根据失败边界、资源需求、恢复
-方式和并行粒度选择抽象。
+当前仓库没有独立的常驻“自主训练 Agent 服务”，也没有专用的 Ray 提交/停止 Tool。早期文档
+设想的 `mlflow-onboarding`、`write-mlflow-training-code` 和
+`write-ray-training-code` 尚未作为本仓库 Skill 落地；相关强制规则目前由
+[`AGENTS.md`](../AGENTS.md)、项目实现和测试共同承担。不得把这些规划名称当作可调用的现有能力。
 
-### 6.3 正式入口规范
+## 5. 正式 Ray 训练项目
 
-正式训练必须提供非 Notebook、参数化入口，例如：
+### 5.1 配置与执行角色
+
+`ray-cats-and-dogs` 使用 YAML 继承表达运行角色：
+
+| 配置 | 角色 | Epoch | Worker | 每 Worker Batch | 测试集 | Logged Model |
+| --- | --- | ---: | ---: | ---: | --- | --- |
+| `baseline.yaml` | `trial` | 20 | 1 | 128 | 不读取 | 不记录 |
+| `distributed.yaml` | `trial` | 20 | 2 | 128 | 不读取 | 不记录 |
+| `smoke.yaml` | `smoke` | 1 | 1 | 128 | 不读取 | 不记录 |
+| `champion.yaml` | `champion` | 20 | 2 | 128 | 最终评测一次 | 记录 |
+
+配置加载顺序为 YAML 继承、环境变量覆盖、`--set` 严格键覆盖、类型转换和完整校验。当前可从
+环境覆盖 `MLFLOW_TRACKING_URI`、`MLFLOW_EXPERIMENT_NAME`、数据目录、数据来源 URI 和
+Ray Address。未知配置键会快速失败，避免拼写错误被静默忽略。
+
+当前基线将计算和数据流水线一起配置：`mixed_precision: bf16`；96 个 Ray Data Block、24 个
+CPU 解码 Task、64 张图片一个解码 Batch、4 个预取 Batch，并缓存解码后的 Tensor。配置校验
+要求混合精度为 `none` 或 `bf16`，Block 数不少于解码 Worker 数，且所有并发、Batch 和预取
+参数位于有效范围。训练 Worker 启用 BF16 前还会检查 CUDA 设备是否真正支持 BF16。
+
+正式入口为：
 
 ```bash
-python scripts/train.py --config configs/train.yaml
+python train-model/ray-cats-and-dogs/scripts/train.py \
+  --config train-model/ray-cats-and-dogs/configs/smoke.yaml
 ```
 
-入口必须：
+入口提供三种执行级别：
 
-- 解析完整配置并在启动时验证；
-- 显式接收数据、目标、资源和追踪配置；
-- 输出或记录 Ray Job ID 和 MLflow Run ID；
-- 支持 Smoke、Trial 和 Champion 角色；
-- 正确处理终止信号；
-- 将恢复所需信息写入持久化系统；
-- 不依赖 Notebook Kernel 内存状态。
-
-### 6.4 资源规范
-
-Ray 代码必须显式声明：
-
-- CPU 数量；
-- GPU 数量；
-- 内存预算；
-- Worker 数量；
-- Placement 或并发约束；
-- 数据加载 Worker 和训练 Worker 的资源关系。
-
-逻辑资源必须和物理硬件核对。不能因为 Ray 集群声明了多个 `GPU` 资源，就假定主机真的
-存在同样数量的物理 GPU。并行搜索必须限制最大并发，防止多个 Trial 抢占同一设备并 OOM。
-
-### 6.5 配置传播与确定性
-
-所有 Worker 必须接收同一份已解析配置和不可变身份，至少包括：
-
-- 数据及切分摘要；
-- 模型和训练参数；
-- 随机种子；
-- Trial ID；
-- 代码和环境摘要；
-- MLflow Experiment 和 Run 关系；
-- Checkpoint 与恢复策略。
-
-分布式采样、数据分片和随机数必须按框架要求初始化。无法完全确定的操作应被显式记录，
-而不是声称训练完全可复现。
-
-### 6.6 幂等、重试和恢复
-
-每个工作负载需要稳定的幂等键，例如：
-
-```text
-project + dataset_digest + split_digest + code_digest + trial_signature + seed + role
-```
-
-重试必须满足：
-
-- 不重复执行已成功的相同 Trial；
-- 不覆盖其他 Attempt 的 Run 和 Artifact；
-- 能从持久 Checkpoint 恢复；
-- 能区分应用错误、节点错误、资源不足和人为停止；
-- 达到最大 Attempt 或预算后可靠停止；
-- 将失败原因同时关联到 Ray 和 MLflow 身份。
-
-Checkpoint 不能只存在于 Worker 的临时目录。Ray Checkpoint 和 MLflow Artifact 之间应有
-可解析的关联，客户端不应绕过 API 读取服务端 MinIO 文件系统。
-
-### 6.7 分布式 MLflow 所有权
-
-Ray 与 MLflow 组合时最容易产生的错误，是多个 Worker 无序创建、结束或共同写入一个
-Run。必须为每种执行模式定义权威写入者。
-
-#### 单个 Ray Job
-
-```text
-Ray Job entrypoint
-  └── 一个 MLflow Run
-      ├── 训练指标
-      ├── Checkpoint
-      └── 模型和报告
-```
-
-#### Ray Train 多 Worker
-
-```text
-Ray Train Driver / Rank 0
-  └── 创建和结束共享 MLflow Run
-      ├── Rank 0 上报全局指标与 Artifact
-      └── 其他 Worker 只执行计算或上报给 Rank 0
-```
-
-如果使用每 Worker 独立 Run，必须显式记录 Parent/Child 关系，并证明不会发布不完整的局部
-模型。默认应优先单一权威 Run。
-
-#### Ray Tune
-
-```text
-可选 Study Parent Run
-  ├── Trial A → 独立 MLflow Run
-  ├── Trial B → 独立 MLflow Run
-  └── Trial C → 独立 MLflow Run
-```
-
-每个 Trial Run 只使用训练与验证集。选定配置后应另建 Champion Run，从干净状态重训并
-执行最终评测。
-
-Ray 与 MLflow 至少应互相记录：
-
-```text
-ray.job_id
-ray.task_or_trial_id
-ray.attempt
-ray.worker_rank
-execution.resources
-mlflow.run_id
-checkpoint.uri
-```
-
-### 6.8 Skill 目录建议
-
-```text
-.codex/skills/write-ray-training-code/
-├── SKILL.md
-├── agents/
-│   └── openai.yaml
-├── references/
-│   ├── workload-selection.md
-│   ├── resource-contract.md
-│   ├── retry-and-idempotency.md
-│   ├── checkpoint-and-recovery.md
-│   ├── distributed-training.md
-│   ├── mlflow-run-ownership.md
-│   └── tensorflow.md
-└── scripts/
-    ├── inspect_ray_api.py
-    └── audit_ray_entrypoint.py
-```
-
-`inspect_ray_api.py` 用于核对当前 Ray 版本和关键 API；`audit_ray_entrypoint.py` 对生成代码
-执行静态与配置审计。真正的恢复能力还必须通过受控失败测试验证。
-
-## 7. 规范 Skill 与确定性脚本的边界
-
-规范写在 `SKILL.md` 和 References 中，重复且脆弱的检查写进脚本。
-
-### 7.1 适合写进 Skill 的内容
-
-- 哪个阶段必须加载该能力；
-- 必须满足的工程不变量；
-- 如何根据执行模式选择代码模式；
-- 哪些操作禁止；
-- 什么时候需要读取框架专用 Reference；
-- 验证顺序和完成条件。
-
-### 7.2 适合写进脚本的内容
-
-- 获取已安装 MLflow/Ray 版本；
-- 输出关键 API 的真实签名；
-- 校验项目契约和配置 Schema；
-- 通过 MLflow API 检查 Run 字段；
-- 检查 Artifact 是否存在并可下载；
-- 校验 Ray 资源声明和入口参数；
-- 输出机器可读的合规报告。
-
-### 7.3 不适合写进脚本的内容
-
-- 用大量固定 `if/else` 代替对模型代码的理解；
-- 硬编码 Cats vs Dogs、Accuracy 或 TensorFlow；
-- 在审计脚本中隐藏训练主循环；
-- 未经授权自动提交 GPU 任务；
-- 未经审批自动注册或提升生产模型。
-
-脚本统一使用结构化 JSON 输出，预期的领域结论应作为正常结果，而不是异常退出：
-
-```json
-{
-  "schema_version": "galatea-compliance/v1",
-  "capability": "audit-training-run",
-  "status": "non-compliant",
-  "findings": [
-    {
-      "code": "MISSING_SPLIT_DIGEST",
-      "severity": "error",
-      "evidence": "Run parameter data.split_sha256 is absent"
-    }
-  ],
-  "next_actions": [
-    "apply-write-mlflow-training-code"
-  ]
-}
-```
-
-## 8. 主 Agent 中的 Skill 选择
-
-未来主循环应依据阶段和证据选择 Skill，而不是每次加载所有内容。
-
-| 当前状态 | 应加载的 Skill |
+| 模式 | 外部行为 |
 | --- | --- |
-| 新项目，MLflow 状态未知 | `mlflow-onboarding` |
-| Agent 不确定某个 MLflow API | `searching-mlflow-docs` |
-| 正在创建或修改训练追踪代码 | `write-mlflow-training-code` |
-| 正在创建 Ray 正式训练入口 | `write-ray-training-code` |
-| 已有 Runs，需要分析和制定优化动作 | `mlflow-optimize-models` |
-| 正在实现 Galatea 自身的可观测性 | `instrumenting-with-mlflow-tracing` |
-| 正在评估 Galatea 的 Tool/Skill 选择能力 | `agent-evaluation` |
+| `--check-config` | 只加载、校验并打印配置与资源计划；不访问数据、MLflow 或 Ray |
+| `--plan` | 检查 MLflow、扫描数据、计算身份和查询既有 Run；不创建 Experiment/Run，也不启动训练 |
+| 默认训练 | 建立 MLflow 追踪、检查幂等性和资源，然后启动 Ray Train |
 
-典型的新项目路径：
+`--plan` 可能在被 Git 忽略的 `platform-data/ray-cats-and-dogs/manifests/` 中生成或复用本地
+Manifest 缓存，但不会创建远程训练状态。`--force` 会在相同身份已经成功或正在运行时创建新
+Attempt，只能用于明确需要重复尝试的场景。
 
-```text
-主循环收到已经确认的数据集、任务和目标
-  ↓
-mlflow-onboarding 检查基础接入
-  ↓
-searching-mlflow-docs 获取目标版本 API
-  ↓
-write-mlflow-training-code 生成追踪与模型上报代码
-  ↓
-write-ray-training-code 生成正式执行入口
-  ↓
-确定性脚本审计代码和 Smoke Run
-  ↓
-执行 Tool 提交正式训练
-```
-
-典型的成熟项目路径：
+### 5.2 执行链路
 
 ```text
-主循环发现项目已有合规训练入口和可比较 Runs
-  ↓
-跳过 onboarding 和代码生成
-  ↓
-mlflow-optimize-models 分析证据
-  ↓
-根据诊断修改配置或最小范围代码
+scripts/train.py
+  |
+  +--> 加载 YAML、环境覆盖和 CLI Override
+  +--> mlflow.set_tracking_uri / set_experiment
+  +--> mlflow.autolog(log_models=False)
+  +--> run_training Workflow Trace
+          |
+          +--> Tracking/Artifact Preflight
+          +--> 数据校验、Manifest 和确定性切分
+          +--> 代码、配置和幂等身份
+          +--> 复用成功/运行中的相同 Run，或创建新 Attempt
+          +--> ray.init 和集群资源检查
+          +--> 一个 Driver 管理的 MLflow Run
+                  |
+                  +--> Ray Data TaskPool
+                  |      +--> 固定 Seed 全局 Shuffle 和 Block 划分
+                  |      +--> CPU 并行解码/缩放为 uint8 NCHW Tensor
+                  |      +--> 可选 Object Store Materialize Cache
+                  |
+                  +--> TorchTrainer
+                  |      +--> 预取 Ray Data training/validation shard
+                  |      +--> GPU Batch 增强、BF16、Channels Last 和 TF32
+                  |      +--> 1..N 个 GPU Worker
+                  |      +--> 每 Epoch Ray Checkpoint
+                  |
+                  +--> Train Controller Callback 写全局 Epoch 指标
+                  +--> 上传并 SHA-256 回读最佳 Checkpoint
+                  +--> Champion 独占最终测试与 Logged Model
+                  +--> Artifact API 最终回读
+                  +--> succeeded/failed 结果标签
 ```
 
-## 9. Cats vs Dogs Demo 的正确定位
+正式训练在导入训练编排模块前启用 `mlflow.autolog(log_models=False, silent=True)`，避免
+Autolog 与显式 Champion 模型记录重复。`run_training` 使用 MLflow Workflow Trace 覆盖完整
+Driver 流程；Trace 用于观察编排步骤，训练 Run 仍是参数、Metric、Artifact 和模型治理的
+权威记录。`--check-config` 和 `--plan` 不启用训练 Autolog。
 
-[`train-model/cats-and-dogs/`](../train-model/cats-and-dogs/README.md) 是第一套 TensorFlow
-验收样例。它可以验证规范 Skill 是否能识别和生成：
+### 5.3 MLflow 所有权
 
-- 数据内容摘要和确定性切分摘要；
-- MLflow Dataset Inputs；
-- 参数、Epoch 指标和系统指标；
-- Trial 与 Champion 的测试集隔离；
-- Checkpoint、模型、Signature 和 Input Example；
-- Artifact API 回读；
-- 失败阶段和质量门禁。
+当前实现不是“所有 Worker 都写同一个 Run”，而是明确区分所有权：
 
-它也暴露了规范 Skill 应识别的改进空间，例如正式 Ray Job/Train 入口、Ray 与 MLflow 身份
-关联、跨进程恢复和更加独立的最终 Holdout。
+| 进程 | 可以做什么 | 禁止做什么 |
+| --- | --- | --- |
+| Ray Job Driver | 创建/结束 Run，记录输入、Tag、Artifact、最终评测和模型 | 把测试集用于 Trial 选择 |
+| Ray Train Controller Callback | 从 Rank 0 Report 把全局 Epoch 指标写入既有 Run，记录最新 Checkpoint URI | 创建第二个无关联 Run |
+| Worker 0 | 训练、全局归约、输出进度、生成 Checkpoint、调用 `train.report` | 直接开始/结束 MLflow Run 或上传共享 Artifact |
+| Worker 1..N | 训练、全局归约并向 Ray 上报 | 发布局部模型或争用共享 Artifact 路径 |
 
-测试 Skill 时不能只验证它能复现 Cats vs Dogs 现有实现。还应至少使用一个不同任务的
-Fixture，例如：
+Driver 是 Run 生命周期和最终 Artifact 的权威写入者。Train Controller Callback 只是使用已知
+Run ID 写入 Rank 0 的全局指标；Worker 只执行计算和 Ray Report。这一边界保证多 Worker
+训练仍然只有一条可审计的实验记录。
 
-- scikit-learn 回归；
-- PyTorch 多类分类；
-- 自定义最小化 Loss 的任务；
-- Ray Train 多 Worker 示例。
+### 5.4 Runtime Environment
 
-如果 Skill 只能在指标名为 `best_val_accuracy`、目录名为 `cats-and-dogs` 或框架为
-TensorFlow 时工作，就没有达到平台级抽象目标。
+Ray Job 上传 `ray-cats-and-dogs` 项目目录作为 `working_dir`，并把
+`src/ray_cats_dogs` 作为 `py_modules`。上传时排除 `.git`、Notebook、测试、缓存和字节码。
+Driver 会把 Job 的 Runtime Env 显式传给 Train Worker。
 
-## 10. 自主优化与模型 SLA
+Ray 2.53 的 Train Controller 使用内部 Runtime Env，不自动继承项目 `py_modules`。当前实现
+因此把输入管线、Worker 函数和 MLflow Callback 按值序列化给 Controller，同时仍要求 Worker
+收到上传后的项目包。这使训练不依赖所有节点预先执行 `pip install -e`，也不依赖共享源码
+绝对路径。
 
-Galatea 可以在预算内逐步改进模型，但不能承诺数学意义上的全局最优。正确表述是：
+本地单节点可以使用 `platform-data/ray-results/` 保存 Ray Checkpoint。跨主机集群必须把
+`ray.storage_path` 指向所有节点可访问的同一绝对挂载或受控共享 URI；不能把 Worker 临时目录
+或 `/tmp` 当作恢复存储。
 
-> 在固定数据、评估协议、搜索空间和资源预算内，获得当前证据支持的最佳候选，并判断其
-> 是否通过已冻结的模型验收条件。
+### 5.5 数据流水线与 GPU 计算
 
-主循环的合理终态是：
+当前单 GPU 基线使用流水线并行，不会把一张实体 GPU 虚报成多张逻辑 GPU 来制造 DDP Rank。
+数据阶段和训练阶段如下：
 
 ```text
-candidate-checks-passed
-sla-not-met-within-budget
-insufficient-evidence
-blocked-by-platform-or-data
+Manifest path + label
+  -> Ray Data 固定 Seed Shuffle
+  -> 96 Blocks / 最多 24 个 CPU Task 并行读取和缩放
+  -> 紧凑 uint8 NCHW Tensor
+  -> 可选 Object Store Materialize Cache
+  -> iter_torch_batches 预取、Pinned Memory 和 device="auto"
+  -> GPU float32 归一化
+  -> GPU Batch 级随机翻转、旋转和平移
+  -> Channels Last + BF16 Autocast + TF32 训练
 ```
 
-Agent 不得为了获得 `passed` 而修改质量阈值。Trial 使用训练和验证证据；选定配置后从
-干净状态重训 Champion，再执行正式 Holdout 评测。生产 Alias 变化仍需显式人工审批。
+随机增强不写入 Object Store Cache，因此不同 Epoch 仍会生成新的增强。缓存只保存解码和缩放
+后的 `uint8` Tensor，降低 Object Store 容量和 CPU/GPU 传输开销。关闭缓存时，Ray Data 解码
+Task 可以与训练 Worker 并发，资源预检会按训练 CPU 与解码 CPU 之和计算；启用缓存时先完成
+数据物化，再进入训练，CPU 需求取两个阶段的较大值。
 
-SLA 可以包含：
+Ray 的 `GPU` 是设备调度资源，不是显存配额。提交前必须让 `ray status` 的 GPU 总数与
+`nvidia-smi -L` 的实体设备数一致；单卡节点不能用多个逻辑 GPU 资源把多个 Worker 调度到同一
+设备。扩大并行度应优先调整 Ray Data Worker、Block、Batch、预取和 Object Store，而不是
+虚报 GPU 数量。
 
-- 主质量指标及方向；
-- 次要质量和切片门禁；
-- 推理延迟与硬件协议；
-- 最大 Trial、GPU 小时和完成时限；
-- Artifact 可恢复性；
-- 模型重新加载和预测一致性；
-- 数据、代码和环境完整性。
+### 5.6 指标、进度和 Checkpoint
 
-## 11. 安全与治理边界
+每个 Epoch 的训练与验证结果先在 Worker 间进行全局归约，然后由 Rank 0 Report 进入 MLflow。
+当前记录包括：
 
-Galatea 及其 Skill 必须保持以下不变量：
+- Loss、Accuracy、Precision、Recall 和 F1；
+- Cat、Dog 和 Macro 分类指标；
+- 样本数、Batch 数和每秒样本吞吐；
+- Learning Rate、Epoch 总耗时、训练耗时、验证耗时和首次数据准备耗时；
+- 训练/验证数据等待秒数与等待占比；
+- Worker Rank、World Size、最佳目标值和 Checkpoint URI。
 
-- 不在日志、Artifact 或代码中写入 Token、密码和对象存储密钥；
-- 训练客户端通过 MLflow API 访问 MinIO Artifact，不直接读取服务端存储目录；
-- 不使用最终测试集反复选参；
-- 不比较数据、切分、预处理或评估协议不兼容的 Run；
+Rank 0 在 Ray Job 日志中显示 `tqdm` Batch 进度。进度条后缀是 Rank 0 当前数据分片的即时值，
+只用于判断任务是否推进；MLflow 和模型选择使用全部 Worker 归约后的 Epoch 指标。Notebook
+监控优先轮询 MLflow Metric History，尚未刷新时回退到 Worker 输出的 `epoch-complete` JSON。
+
+`data_preparation_seconds` 单独衡量首次并行解码和 Tensor Cache 构建，不混入 Epoch 吞吐。
+`train_data_wait_fraction` 或 `val_data_wait_fraction` 较高时，应先检查解码 Worker、Block、预取
+和 Object Store；等待接近零但 GPU 利用率仍低时，再评估 Batch、模型规模或 GPU Kernel。
+
+每个 Epoch 的 Rank 0 Checkpoint 包含当前模型、Optimizer、最佳模型和训练状态。Ray 只保留
+最近一个可恢复 Checkpoint；训练完成后 Driver 将最佳 Checkpoint 上传到 MLflow，并下载
+`best-model.pt` 核对 SHA-256。只有完成 Artifact 回读验证的 Run 才会被认作可复用成功结果。
+
+## 6. 数据、代码与实验身份
+
+当前参考实现逐文件验证本地 `PetImages/`，记录文件大小和 SHA-256，排除已知损坏图像，并
+使用固定 Seed 生成确定性训练、验证和测试切分。数据身份包括：
+
+- 数据来源 URI；
+- 完整内容摘要和 Dataset Version；
+- Manifest 与切分摘要；
+- 每个 Split 的样本和类别分布；
+- 图像尺寸和预处理版本；
+- MLflow `training`、`validation`、`test` Dataset Inputs。
+
+当前预处理身份为 `ray-data-uint8-gpu-augment-v3`：CPU 阶段只做确定性图片解码和缩放，训练
+增强在 GPU 上按 Batch 执行。缓存前的全局 Shuffle 使用固定 Seed；BF16、TF32、cuDNN
+Benchmark、多 Worker 浮点归约和随机 GPU 增强仍可能带来细微差异，因此 Run 不宣称逐位复现。
+
+本地路径不是远端数据身份。只有训练节点读取经过核对的 MinIO 数据快照时，才应设置真实的
+`CATS_DOGS_DATASET_SOURCE_URI`；不能把本地缓存伪装成对象存储版本。
+
+代码身份覆盖项目 `src/`、`scripts/`、`conda.yaml` 和 `pyproject.toml` 的内容摘要，并记录
+Git Commit 与 Dirty 状态。幂等键由以下字段共同决定：
+
+```text
+project
++ data content digest
++ split digest
++ source digest
++ resolved config digest
++ random seed
++ run role
+```
+
+相同幂等键已有满足以下全部条件的 Run 时，默认不重新训练：
+
+1. MLflow 状态为 `FINISHED`；
+2. `run.outcome=succeeded`；
+3. `artifact.roundtrip_verified=true`。
+
+相同身份正在运行时也默认复用其 Run ID。新的明确尝试使用递增 Attempt，不覆盖其他 Run、
+Checkpoint 或 Artifact。
+
+## 7. Trial、Champion 与模型治理
+
+当前 Ray 项目的主验证目标由配置声明，示例支持最大化 `val_accuracy` 或最小化 `val_loss`。
+这是示例工作负载的 Schema 限制，不是平台级指标限制；通用 Agent 和 MLflow 分析能力必须支持
+任意命名、任意方向的项目指标。
+
+Trial 和 Smoke：
+
+- 只读取训练集和验证集；
+- 使用验证指标做 Early Stopping 和 Checkpoint 选择；
+- 不执行最终测试评测；
+- 不记录可发布 Logged Model；
+- 不创建 Registry 版本或修改 Alias。
+
+Champion：
+
+- 使用已经审查的配置从干净状态训练；
+- 读取最佳验证 Checkpoint；
+- 对固定测试集执行一次最终评测；
+- 记录预测摘要、分类报告、混淆矩阵和质量门禁；
+- 记录带 Signature、Input Example、代码路径和预处理元数据的 MLflow PyTorch Model；
+- 下载 Logged Model Artifact 并确认存在 `MLmodel` 描述文件。
+
+即使 Champion 通过门禁，生产模型 Alias 也不会自动改变。Registry 创建和 `candidate`、
+`champion`、`production` 等 Alias 修改必须是单独、显式且经过审查的动作。
+
+## 8. Agent 工作流与授权
+
+当前 Agent 在一次用户会话中工作，不是持续运行的后台调优器。推荐工作流为：
+
+```text
+1. 发现
+   读取 AGENTS.md、项目 README、配置、代码和工作区状态
+        |
+2. 静态验证
+   校验项目结构、配置、数据/指标语义和外部服务边界
+        |
+3. 只读计划
+   通过 --check-config 或 --plan 确认资源、数据身份和幂等状态
+        |
+4. 实现与测试
+   修改最小范围代码，先运行项目级测试
+        |
+5. 获授权执行
+   提交 Smoke、Trial 或 Champion，并持续观察 Ray/MLflow
+        |
+6. 证据分析
+   使用 mlflow-optimize-models 比较兼容 Runs 并提出下一步
+        |
+7. 人工治理
+   审查 Champion、质量门禁和 Artifact 后再决定 Registry 晋级
+```
+
+授权边界必须保持清晰：
+
+| 动作 | 默认边界 |
+| --- | --- |
+| 读取代码、配置、Run 和 Artifact 元数据 | 可用于诊断和分析 |
+| 修改用户要求范围内的代码和文档 | 需保留无关工作区改动 |
+| 运行小型单元测试和不训练的配置检查 | 正常验证步骤 |
+| 启动 CPU/GPU Smoke、Trial 或 Champion | 必须由用户请求或明确授权 |
+| 停止正在运行的 Ray Job | 必须确认目标和授权 |
+| 创建 Registry 版本或修改模型 Alias | 必须单独、显式授权 |
+
+`mlflow-optimize-models` 只根据兼容的训练和验证证据分析最佳已观察结果、过拟合、欠拟合、
+不稳定、预算和 Artifact 问题。分析或代码优化请求本身不授权启动训练，也不授权使用测试集
+搜索或改变生产 Alias。
+
+## 9. 失败、重试与恢复
+
+训练失败时，Driver 在同一 MLflow Run 中记录 `run.outcome=failed`、`failure.phase` 和
+`failure.type`。Train Controller Callback 记录最近 Worker 异常摘要，Ray Checkpoint 保存
+最近训练状态。入口把 `SIGTERM` 转换为可处理的中断，使 Run 能留下失败证据，而不是静默消失。
+
+Ray `max_failures` 控制同一训练任务内的恢复预算；当前 Smoke 禁止 Worker 重试，基线和正式
+配置可以声明有限重试。恢复必须继续使用同一数据、代码、配置、Seed、Run ID 和幂等身份。
+应用错误、资源不足、节点失败和人为停止不能被统一伪装成成功。
+
+当前恢复边界仍受部署形态限制：本地 `platform-data/ray-results/` 只能保护同一共享文件系统
+可见范围内的任务，不能提供主机级容灾。多节点或生产部署需要共享 Checkpoint URI、MLflow
+元数据与 MinIO 对象的一致备份，以及经过验证的恢复演练。
+
+## 10. 可观测性
+
+当前可观测性分为四层：
+
+| 层 | 当前证据 |
+| --- | --- |
+| Ray Job | Job ID、状态、日志、Batch 进度和 `epoch-complete` JSON |
+| Ray Train | Worker、World Size、资源、Report、Checkpoint 和失败摘要 |
+| MLflow Run | 参数、Dataset Input、Metric History、系统指标、Tag、Artifact 和模型 |
+| MLflow Trace | `ray_cats_dogs_training` Workflow 的 Driver 编排轨迹 |
+
+MLflow Run 是模型训练证据的权威来源；Trace 用于理解工作流调用和耗时，不能代替 Run 的数据
+血缘、Metric History、Checkpoint 或质量门禁。未来若实现常驻 Agent 主循环，可再使用 MLflow
+Tracing 记录 Skill 选择、Tool 调用和多轮决策，但当前仓库尚未实现这一 Agent 运行时。
+
+## 11. 安全与持久化
+
+平台和 Agent 必须保持以下不变量：
+
+- 不把 Token、密码、对象存储密钥、私有 Endpoint 或环境文件提交到 Git；
+- 不把敏感样本、测试标签或私有训练示例写入日志、截图或公开 Artifact；
+- 不直接查询、复制或锁定 `mlflow.db`；
+- 不绕过 MLflow Artifact API 读取服务端 MinIO 文件系统；
 - 不让非权威 Worker 发布共享模型；
-- 不让重试覆盖其他 Run 或 Checkpoint；
-- 不自动修改生产模型 Alias；
-- 不把 Notebook Kernel 或 `/tmp` 当作持久恢复状态；
-- 不因为用户请求代码分析就自动启动昂贵训练；
-- 不把有限搜索结果描述为全局最优。
+- 不让重试覆盖其他 Attempt；
+- 不把 Notebook Kernel、Worker 临时目录或 `/tmp` 当作持久恢复状态；
+- 不比较数据、切分、预处理、指标定义或评估协议不兼容的 Runs；
+- 不使用最终测试集反复选参；
+- 不把有限搜索结果描述为数学意义上的全局最优。
 
-## 12. 第一版实施计划
+当前 JupyterLab、MLflow 和 MinIO Unit 包含主机特定用户、路径、端口、Allowed Hosts 和代理
+配置。监听 `0.0.0.0` 的服务必须由防火墙、认证代理或受控内网保护。MLflow SQLite 元数据和
+MinIO 对象必须成组备份；当前单机 MinIO 不构成高可用存储。
 
-### 阶段一：上游官方能力
+## 12. 验证入口
 
-1. 保留已复制的 `searching-mlflow-docs` 项目级 Skill。
-2. 引入官方 `mlflow-onboarding` 作为新项目入口能力。
-3. 记录上游 Commit，后续更新时按差异审查，不直接修改官方副本。
+先运行最窄的项目测试。正式 Ray 项目测试不连接 MLflow、不启动 Ray 集群，也不执行训练：
 
-### 阶段二：MLflow 训练代码规范
+```bash
+/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+  -s train-model/ray-cats-and-dogs/tests -p 'test_*.py'
+```
 
-1. 创建 `write-mlflow-training-code`。
-2. 定义框架无关的 Run、数据、指标和 Artifact 契约。
-3. 增加 TensorFlow Reference。
-4. 实现 MLflow API 签名检查脚本。
-5. 实现真实 Run 合规审计脚本。
-6. 使用 Cats vs Dogs 和不同指标名 Fixture 验证。
+验证配置和资源计划：
 
-### 阶段三：Ray 训练代码规范
+```bash
+/data/conda/envs/attend-ray-py312/bin/python \
+  train-model/ray-cats-and-dogs/scripts/train.py \
+  --config train-model/ray-cats-and-dogs/configs/smoke.yaml \
+  --check-config
+```
 
-1. 创建 `write-ray-training-code`。
-2. 定义 Job、Train、Tune 和 Task 选择规则。
-3. 定义资源、幂等、重试、Checkpoint 和恢复契约。
-4. 定义 Ray/MLflow 权威写入模式。
-5. 实现入口和资源审计脚本。
-6. 使用单 Job 与多 Worker Fixture 验证。
+兼容的平铺项目应从项目根运行测试，使本地模块可导入：
 
-### 阶段四：主循环和执行 Tools
+```bash
+cd train-model/cats-and-dogs
+/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+  -s tests -p 'test_*.py'
+```
 
-在规范 Skill 稳定后，再实现：
+仓库根测试入口只用于平台级和跨项目测试：
 
-- Ray Job 提交、查询、日志和停止 Tool；
-- 训练预算和超时控制；
-- Agent Session 状态与恢复；
-- MLflow Tracing 和 Agent Evaluation；
-- Champion 重训、SLA 验收和候选注册。
+```bash
+/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+  -s tests -p 'test_*.py'
+```
 
-这个顺序能避免先写一个会持续生成不合规训练代码的自主循环。
+Notebook Smoke Test 必须输出到临时目录，不能覆盖源 Notebook。服务变更需要运行：
 
-## 13. 第一版验收标准
+```bash
+systemd-analyze verify systemd/*.service
+```
 
-规范 Skill 第一版至少应通过以下验收：
+测试代码、分析代码或文档更新不隐含正式训练权限。GPU 训练、远程 Job、最终测试和 Registry
+操作只在任务范围明确时执行。
 
-1. 面对全新 TensorFlow 项目，Agent 能先完成 MLflow 基础接入，再补齐正式追踪契约。
-2. 面对已有 `autolog()` 的项目，Agent 不重复重写，而是识别缺失的数据血缘和恢复信息。
-3. Agent 不靠记忆猜测 MLflow API，能查询官方文档并核对目标版本。
-4. 生成的 Trial 代码不读取最终 Holdout。
-5. 生成的 Ray 代码显式声明资源并限制并发。
-6. Ray Train 多 Worker 代码只有权威 Worker 完成共享 MLflow 上报。
-7. 每个 Trial、Attempt、Ray Job 和 MLflow Run 都能互相追踪。
-8. 训练失败后能定位失败阶段和持久 Checkpoint。
-9. 合规审计脚本能发现缺失的数据摘要、指标历史、Artifact 和资源声明。
-10. Skill 在回归、最小化目标和非 TensorFlow Fixture 上不依赖 Cats vs Dogs 语义。
+## 13. 当前限制与演进方向
+
+以下能力尚未成为当前架构的一部分：
+
+- 通用的新项目 MLflow Onboarding Skill；
+- 独立的 MLflow/Ray 训练代码生成与合规审计 Skill；
+- 持久化 Agent Session 和自动阶段状态机；
+- 专用 Ray Job 提交、停止、恢复 Tool；
+- 自动预算管理和通用 Ray Tune 搜索编排；
+- 自动 Registry 晋级或生产 Alias 变更；
+- 多主机 Ray、MLflow 和 MinIO 高可用部署；
+- 跨框架、跨任务的正式验收 Fixture 集。
+
+合理的演进顺序是：
+
+1. 先稳定项目契约、配置 Schema、Run 证据和审计脚本；
+2. 再用回归、最小化目标和非图像任务验证框架无关性；
+3. 然后封装有明确授权边界的 Ray Job Tools 和恢复流程；
+4. 最后实现持久 Agent 状态、预算控制、Tracing 和 Agent Evaluation；
+5. Registry 晋级始终保留显式审查门禁。
+
+新增能力时必须清楚标注“已实现”“实验性”或“规划中”，避免再次把设计目标写成可用组件。
 
 ## 14. 当前结论
 
-Galatea 的第一版亮点不应定义为“Agent 能调用当前 Demo 的自动调优器”，而应定义为：
+Galatea 当前已经具备一条可执行的正式参考链路：Agent 按仓库 Skill 和项目契约理解任务，
+参数化入口通过 Ray Job/Ray Train 执行 PyTorch 训练，Driver 和 Train Controller 按明确
+所有权写入单一 MLflow Run，MinIO 持久化 Artifact，幂等身份、Checkpoint 回读、测试集隔离
+和人工 Registry 门禁共同保证训练可以审计和恢复。
 
-> Agent 在面对任意已确认的数据集和建模任务时，能够加载官方知识和本地工程规范，生成
-> 符合 MLflow、Ray、MinIO 和模型治理要求的训练代码，并让后续执行、分析、恢复和验收
-> 都建立在完整、可比较、可审计的证据之上。
-
-官方 MLflow Skills 解决 API 知识、基础接入以及未来 Agent 的 Tracing/Evaluation；Galatea
-本地 Skills 解决本平台正式模型训练的强制代码规范。两者组合，而不是重复建设，才构成
-可持续的自主训练能力基础。
+平台的扩展点是新的 `train-model/<project-name>/` 工作负载和框架无关的 Agent 能力，而不是
+复制 Cats vs Dogs 语义。未来自治程度可以提高，但所有自动化都必须建立在数据可比、证据完整、
+资源受控和发布动作显式授权的基础上。

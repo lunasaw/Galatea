@@ -8,6 +8,7 @@ import json
 import platform
 import socket
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +18,9 @@ import mlflow
 import mlflow.data
 from mlflow import MlflowClient
 from mlflow.entities import Metric
+from ray._private.profiling import chrome_tracing_dump
 from ray.train import UserCallback
+from ray.util.state import list_tasks
 
 from ray_cats_dogs.config import ProjectConfig
 from ray_cats_dogs.data import PreparedDataset
@@ -28,6 +31,11 @@ class TrackingContext:
     experiment_id: str
     experiment_name: str
     artifact_location: str
+
+
+RAY_TASK_TIMELINE_ARTIFACT_PATH = "ray/task-timeline.json"
+RAY_TASK_TIMELINE_METADATA_PATH = "ray/task-timeline-metadata.json"
+RAY_TASK_TIMELINE_LIMIT = 10_000
 
 
 def inspect_tracking(config: ProjectConfig) -> TrackingContext | None:
@@ -270,6 +278,62 @@ def verify_artifact_round_trip(run_id: str, destination: Path) -> None:
         restored = json.load(file_handle)
     if restored != payload:
         raise RuntimeError("MLflow Artifact API returned different verification content")
+
+
+def log_ray_task_timeline(run_id: str, ray_job_id: str) -> dict[str, Any]:
+    """Persist this Job's Dashboard task timeline through MLflow Artifacts."""
+
+    tasks = list_tasks(
+        filters=[("job_id", "=", ray_job_id)],
+        limit=RAY_TASK_TIMELINE_LIMIT,
+        detail=True,
+        raise_on_missing_output=True,
+    )
+    timeline_json = chrome_tracing_dump(tasks)
+    events = json.loads(timeline_json)
+    timeline_bytes = timeline_json.encode("utf-8")
+    timeline_sha256 = hashlib.sha256(timeline_bytes).hexdigest()
+
+    mlflow.log_text(
+        timeline_json,
+        RAY_TASK_TIMELINE_ARTIFACT_PATH,
+        run_id=run_id,
+    )
+    with tempfile.TemporaryDirectory(
+        prefix="ray-cats-dogs-timeline-check-"
+    ) as verification_directory:
+        downloaded = mlflow.artifacts.download_artifacts(
+            run_id=run_id,
+            artifact_path=RAY_TASK_TIMELINE_ARTIFACT_PATH,
+            dst_path=verification_directory,
+        )
+        downloaded_sha256 = hashlib.sha256(Path(downloaded).read_bytes()).hexdigest()
+    if downloaded_sha256 != timeline_sha256:
+        raise RuntimeError("MLflow Ray task timeline failed SHA-256 verification")
+
+    metadata = {
+        "artifact_path": RAY_TASK_TIMELINE_ARTIFACT_PATH,
+        "format": "chrome-trace-event",
+        "ray_job_id": ray_job_id,
+        "task_count": len(tasks),
+        "complete_event_count": sum(event.get("ph") == "X" for event in events),
+        "trace_event_count": len(events),
+        "sha256": timeline_sha256,
+        "mlflow_artifact_roundtrip_verified": True,
+    }
+    mlflow.log_dict(
+        metadata,
+        RAY_TASK_TIMELINE_METADATA_PATH,
+        run_id=run_id,
+    )
+    mlflow.set_tags(
+        {
+            "ray.task_timeline.logged": "true",
+            "ray.task_timeline.empty": str(not events).lower(),
+            "ray.task_timeline.sha256": timeline_sha256,
+        }
+    )
+    return metadata
 
 
 class RayMlflowCallback(UserCallback):

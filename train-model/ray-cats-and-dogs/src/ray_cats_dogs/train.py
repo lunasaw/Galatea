@@ -6,12 +6,14 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import mlflow
 import pandas as pd
+from mlflow.entities import SpanType
 
 from ray_cats_dogs.config import ProjectConfig
 from ray_cats_dogs.data import (
@@ -32,6 +34,7 @@ from ray_cats_dogs.tracking import (
     idempotency_key,
     inspect_tracking,
     log_run_inputs,
+    log_ray_task_timeline,
     preflight_tracking,
     runs_for_identity,
     successful_run,
@@ -52,11 +55,19 @@ def config_plan(config: ProjectConfig) -> dict[str, Any]:
             "mode": config.training.objective_mode,
             "uses_test_holdout": False,
         },
+        "artifacts": {
+            "ray_task_timeline": config.ray.record_task_timeline,
+        },
         "requested_resources": {
             "training_workers": config.ray.num_workers,
             "cpu_per_worker": config.ray.cpus_per_worker,
             "gpu_per_worker": 1 if config.ray.use_gpu else 0,
             "memory_per_worker_bytes": config.ray.memory_per_worker_bytes,
+            "ray_data_decode_workers": config.ray.data_decode_workers,
+            "ray_data_num_blocks": config.ray.data_num_blocks,
+            "ray_data_decode_batch_size": config.ray.data_decode_batch_size,
+            "ray_data_prefetch_batches": config.ray.data_prefetch_batches,
+            "ray_data_cache_decoded": config.ray.data_cache_decoded,
             "placement_strategy": config.ray.placement_strategy,
             "evaluation_cpu": config.ray.evaluation_cpus,
             "evaluation_gpu": config.ray.evaluation_gpus,
@@ -107,8 +118,14 @@ def _check_cluster_resources(ray_module: Any, config: ProjectConfig) -> dict[str
     available = {
         name: float(value) for name, value in ray_module.available_resources().items()
     }
+    training_cpus = config.ray.num_workers * config.ray.cpus_per_worker
+    data_cpus = float(config.ray.data_decode_workers)
     requirements = {
-        "CPU": config.ray.num_workers * config.ray.cpus_per_worker,
+        "CPU": (
+            max(training_cpus, data_cpus)
+            if config.ray.data_cache_decoded
+            else training_cpus + data_cpus
+        ),
         "memory": config.ray.num_workers * config.ray.memory_per_worker_bytes,
     }
     if config.ray.use_gpu:
@@ -153,6 +170,7 @@ def _worker_loop_config(
             validation_examples_per_worker + batch_size - 1
         )
         // batch_size,
+        "data_prefetch_batches": config.ray.data_prefetch_batches,
     }
 
 
@@ -316,6 +334,7 @@ def _log_mlflow_model(checkpoint: Any, config: ProjectConfig) -> str:
     return model_info.model_uri
 
 
+@mlflow.trace(name="ray_cats_dogs_training", span_type=SpanType.WORKFLOW)
 def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any]:
     """Run one idempotent Ray Train workload and one authoritative MLflow Run."""
 
@@ -379,6 +398,9 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
             "execution.type": "ray-train",
             "test.evaluated": "false",
             "registry.promotion": "manual-only",
+            "ray.task_timeline.requested": str(
+                config.ray.record_task_timeline
+            ).lower(),
         }
         phase = "run-setup"
         with mlflow.start_run(
@@ -404,6 +426,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                 ),
                 flush=True,
             )
+            timeline_metadata = None
             try:
                 log_run_inputs(config, dataset, code, ray_job_id, identity_key)
                 mlflow.log_dict(
@@ -411,7 +434,24 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                 )
                 if "://" not in config.ray.storage_path:
                     Path(config.ray.storage_path).mkdir(parents=True, exist_ok=True)
-                ray_datasets = build_ray_datasets(dataset, config.data)
+                phase = "ray-data-preparation"
+                data_started_at = time.perf_counter()
+                ray_datasets = build_ray_datasets(dataset, config)
+                data_preparation_seconds = time.perf_counter() - data_started_at
+                mlflow.log_metric(
+                    "data_preparation_seconds", data_preparation_seconds
+                )
+                mlflow.log_dict(
+                    {
+                        "decode_workers": config.ray.data_decode_workers,
+                        "configured_blocks": config.ray.data_num_blocks,
+                        "decode_batch_size": config.ray.data_decode_batch_size,
+                        "prefetch_batches": config.ray.data_prefetch_batches,
+                        "cache_decoded": config.ray.data_cache_decoded,
+                        "preparation_seconds": data_preparation_seconds,
+                    },
+                    "ray/data-pipeline.json",
+                )
                 phase = "ray-training"
                 with controller_pickle_by_value():
                     trainer = TorchTrainer(
@@ -468,6 +508,10 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                     model_uri = _log_mlflow_model(result.checkpoint, config)
                     mlflow.set_tag("model.uri", model_uri)
 
+                if config.ray.record_task_timeline:
+                    phase = "ray-task-timeline-logging"
+                    timeline_metadata = log_ray_task_timeline(run_id, ray_job_id)
+
                 phase = "artifact-verification"
                 with tempfile.TemporaryDirectory(
                     prefix="ray-cats-dogs-artifact-check-"
@@ -497,16 +541,35 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                     "idempotency_key": identity_key,
                     "test_metrics": test_metrics,
                     "quality_gate_passed": quality_passed,
+                    "ray_task_timeline": timeline_metadata,
                     "training_started": True,
                 }
             except BaseException as error:
-                mlflow.set_tags(
-                    {
-                        "run.outcome": "failed",
-                        "failure.phase": phase,
-                        "failure.type": type(error).__name__,
-                    }
-                )
+                failure_tags = {
+                    "run.outcome": "failed",
+                    "failure.phase": phase,
+                    "failure.type": type(error).__name__,
+                }
+                if phase == "ray-task-timeline-logging":
+                    failure_tags["ray.task_timeline.logged"] = "false"
+                if (
+                    isinstance(error, Exception)
+                    and config.ray.record_task_timeline
+                    and timeline_metadata is None
+                    and phase != "ray-task-timeline-logging"
+                ):
+                    try:
+                        log_ray_task_timeline(run_id, ray_job_id)
+                    except Exception as timeline_error:
+                        failure_tags.update(
+                            {
+                                "ray.task_timeline.logged": "false",
+                                "ray.task_timeline.failure_type": type(
+                                    timeline_error
+                                ).__name__,
+                            }
+                        )
+                mlflow.set_tags(failure_tags)
                 raise
     finally:
         if initialized_here:

@@ -81,6 +81,63 @@ def _global_epoch_metrics(
     }
 
 
+def _augment_batch(images: Any) -> Any:
+    """Apply independent affine augmentation to a whole batch on the GPU."""
+
+    import torch
+    import torch.nn.functional as functional
+
+    batch_size = len(images)
+    flip_mask = torch.rand(batch_size, device=images.device) < 0.5
+    images = torch.where(
+        flip_mask.view(-1, 1, 1, 1),
+        images.flip(-1),
+        images,
+    )
+
+    angles = (torch.rand(batch_size, device=images.device) * 40.0 - 20.0).deg2rad()
+    translations = torch.rand(batch_size, 2, device=images.device) * 0.4 - 0.2
+    cosine = angles.cos()
+    sine = angles.sin()
+    theta = torch.zeros(
+        (batch_size, 2, 3),
+        dtype=images.dtype,
+        device=images.device,
+    )
+    theta[:, 0, 0] = cosine
+    theta[:, 0, 1] = -sine
+    theta[:, 1, 0] = sine
+    theta[:, 1, 1] = cosine
+    theta[:, :, 2] = translations
+    grid = functional.affine_grid(theta, images.shape, align_corners=False)
+    return functional.grid_sample(
+        images,
+        grid,
+        mode="bilinear",
+        padding_mode="zeros",
+        align_corners=False,
+    )
+
+
+def _prepare_images(images: Any, device: Any, *, augmentation: bool) -> Any:
+    import torch
+
+    is_uint8 = images.dtype == torch.uint8
+    images = images.to(
+        device,
+        dtype=torch.float32,
+        non_blocking=True,
+    )
+    if is_uint8:
+        images.mul_(1.0 / 255.0)
+    if augmentation:
+        with torch.no_grad():
+            images = _augment_batch(images)
+    if device.type == "cuda":
+        images = images.contiguous(memory_format=torch.channels_last)
+    return images
+
+
 def _run_epoch(
     model: Any,
     batches: Any,
@@ -89,6 +146,8 @@ def _run_epoch(
     optimizer: Any | None,
     *,
     show_progress: bool,
+    augmentation: bool = False,
+    mixed_precision: str = "none",
     total_batches: int | None = None,
     progress_description: str | None = None,
 ) -> dict[str, float]:
@@ -102,8 +161,22 @@ def _run_epoch(
     batch_count = 0
     local_count = 0
     local_correct = 0
+    data_wait_seconds = 0.0
+
+    def measured_batches() -> Any:
+        nonlocal data_wait_seconds
+        iterator = iter(batches)
+        while True:
+            wait_started_at = time.perf_counter()
+            try:
+                batch = next(iterator)
+            except StopIteration:
+                break
+            data_wait_seconds += time.perf_counter() - wait_started_at
+            yield batch
+
     progress = tqdm(
-        batches,
+        measured_batches(),
         desc=progress_description
         or ("train batches" if training else "validation batches"),
         unit="batch",
@@ -113,11 +186,19 @@ def _run_epoch(
         disable=not show_progress,
     )
     for images, labels in progress:
-        images = images.to(device, non_blocking=True)
+        images = _prepare_images(
+            images,
+            device,
+            augmentation=training and augmentation,
+        )
         labels = labels.to(device, non_blocking=True)
         if training:
             optimizer.zero_grad(set_to_none=True)
-        with torch.set_grad_enabled(training):
+        with torch.set_grad_enabled(training), torch.autocast(
+            device_type=device.type,
+            dtype=torch.bfloat16,
+            enabled=device.type == "cuda" and mixed_precision == "bf16",
+        ):
             logits = model(images)
             loss = criterion(logits, labels)
             if training:
@@ -152,6 +233,7 @@ def _run_epoch(
         raise RuntimeError("Ray worker received an empty dataset shard")
     result = _global_epoch_metrics(loss_sum, confusion, device)
     result["batches"] = float(batch_count)
+    result["data_wait_seconds"] = data_wait_seconds
     return result
 
 
@@ -181,22 +263,22 @@ def train_loop_per_worker(loop_config: dict[str, Any]) -> None:
             )
         torch.cuda.manual_seed_all(seed + rank)
     device = get_device()
+    if (
+        device.type == "cuda"
+        and loop_config["training"]["mixed_precision"] == "bf16"
+        and not torch.cuda.is_bf16_supported()
+    ):
+        raise RuntimeError("BF16 training requires a CUDA device with BF16 support")
 
     train_dataset = make_worker_dataset(
         train.get_dataset_shard("training"),
-        image_size=tuple(loop_config["image_size"]),
         batch_size=int(loop_config["training"]["per_worker_batch_size"]),
-        training=True,
-        augmentation=bool(loop_config["model"]["augmentation"]),
-        seed=seed + rank,
+        prefetch_batches=int(loop_config["data_prefetch_batches"]),
     )
     validation_dataset = make_worker_dataset(
         train.get_dataset_shard("validation"),
-        image_size=tuple(loop_config["image_size"]),
         batch_size=int(loop_config["training"]["per_worker_batch_size"]),
-        training=False,
-        augmentation=False,
-        seed=seed,
+        prefetch_batches=int(loop_config["data_prefetch_batches"]),
     )
 
     initial_best = -math.inf if loop_config["objective_mode"] == "max" else math.inf
@@ -234,7 +316,16 @@ def train_loop_per_worker(loop_config: dict[str, Any]) -> None:
             )
             model.load_state_dict(current["model_state_dict"])
             optimizer.load_state_dict(current["optimizer_state_dict"])
+        if device.type == "cuda":
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.set_float32_matmul_precision("high")
+            model = model.to(memory_format=torch.channels_last)
         model = prepare_model(model)
+        torch.manual_seed(seed + rank)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed + rank)
         criterion = torch.nn.CrossEntropyLoss()
 
         objective_name = loop_config["objective_metric"]
@@ -249,6 +340,8 @@ def train_loop_per_worker(loop_config: dict[str, Any]) -> None:
                 device,
                 optimizer,
                 show_progress=rank == 0,
+                augmentation=bool(loop_config["model"]["augmentation"]),
+                mixed_precision=str(loop_config["training"]["mixed_precision"]),
                 total_batches=int(loop_config["training_batches_per_worker"]),
                 progress_description=f"epoch {epoch + 1}/{total_epochs} train",
             )
@@ -261,6 +354,7 @@ def train_loop_per_worker(loop_config: dict[str, Any]) -> None:
                 device,
                 None,
                 show_progress=rank == 0,
+                mixed_precision=str(loop_config["training"]["mixed_precision"]),
                 total_batches=int(loop_config["validation_batches_per_worker"]),
                 progress_description=f"epoch {epoch + 1}/{total_epochs} validation",
             )
@@ -321,7 +415,13 @@ def train_loop_per_worker(loop_config: dict[str, Any]) -> None:
                 "best_objective": best_metric,
                 "epoch_duration_seconds": time.perf_counter() - started_at,
                 "train_duration_seconds": train_duration,
+                "train_data_wait_seconds": train_epoch["data_wait_seconds"],
+                "train_data_wait_fraction": train_epoch["data_wait_seconds"]
+                / max(train_duration, 1e-12),
                 "val_duration_seconds": validation_duration,
+                "val_data_wait_seconds": validation_epoch["data_wait_seconds"],
+                "val_data_wait_fraction": validation_epoch["data_wait_seconds"]
+                / max(validation_duration, 1e-12),
                 "learning_rate": float(optimizer.param_groups[0]["lr"]),
                 "worker_rank": rank,
                 "world_size": world_size,

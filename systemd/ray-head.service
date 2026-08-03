@@ -1,0 +1,33 @@
+[Unit]
+Description=Ray Head Node
+Documentation=https://docs.ray.io/en/latest/cluster/running-applications/job-submission/index.html
+Wants=network-online.target
+Requires=minio.service
+After=network-online.target minio.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/data/ai/chenzhangyue/code/galatea
+Environment="PATH=/data/conda/envs/attend-ray-py312/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/etc/minio/ray-runtime-s3.env
+ExecStart=/data/conda/envs/attend-ray-py312/bin/ray start --head --node-ip-address=10.19.20.26 --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 '--resources={"accelerator_type:GC50":4}' --disable-usage-stats --block
+ExecStop=/data/conda/envs/attend-ray-py312/bin/ray stop --grace-period 30
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=60s
+TimeoutStopSec=45s
+LimitNOFILE=1048576
+KillMode=control-group
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

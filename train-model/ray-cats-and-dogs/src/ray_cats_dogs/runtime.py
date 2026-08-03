@@ -72,10 +72,15 @@ def controller_pickle_by_value() -> Iterator[None]:
     """
 
     import ray.cloudpickle as cloudpickle
+    import ray_cats_dogs.input_pipeline as input_pipeline_module
     import ray_cats_dogs.tracking as tracking_module
     import ray_cats_dogs.worker as worker_module
 
-    modules: tuple[ModuleType, ...] = (tracking_module, worker_module)
+    modules: tuple[ModuleType, ...] = (
+        input_pipeline_module,
+        tracking_module,
+        worker_module,
+    )
     for module in modules:
         cloudpickle.register_pickle_by_value(module)
     try:

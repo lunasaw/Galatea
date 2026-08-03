@@ -53,6 +53,7 @@ class ModelSettings:
 class TrainingSettings:
     epochs: int
     per_worker_batch_size: int
+    mixed_precision: str
     learning_rate: float
     optimizer: str
     early_stopping_patience: int
@@ -66,6 +67,11 @@ class RaySettings:
     num_workers: int
     use_gpu: bool
     cpus_per_worker: float
+    data_num_blocks: int
+    data_decode_workers: int
+    data_decode_batch_size: int
+    data_prefetch_batches: int
+    data_cache_decoded: bool
     memory_per_worker_bytes: int
     placement_strategy: str
     max_failures: int
@@ -129,6 +135,11 @@ class ProjectConfig:
                 "num_workers": self.ray.num_workers,
                 "use_gpu": self.ray.use_gpu,
                 "cpus_per_worker": self.ray.cpus_per_worker,
+                "data_num_blocks": self.ray.data_num_blocks,
+                "data_decode_workers": self.ray.data_decode_workers,
+                "data_decode_batch_size": self.ray.data_decode_batch_size,
+                "data_prefetch_batches": self.ray.data_prefetch_batches,
+                "data_cache_decoded": self.ray.data_cache_decoded,
             },
             "evaluation": _json_ready(asdict(self.evaluation)),
         }
@@ -314,6 +325,7 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
         {
             "epochs",
             "per_worker_batch_size",
+            "mixed_precision",
             "learning_rate",
             "optimizer",
             "early_stopping_patience",
@@ -329,6 +341,11 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
             "num_workers",
             "use_gpu",
             "cpus_per_worker",
+            "data_num_blocks",
+            "data_decode_workers",
+            "data_decode_batch_size",
+            "data_prefetch_batches",
+            "data_cache_decoded",
             "memory_per_worker_gb",
             "placement_strategy",
             "max_failures",
@@ -395,6 +412,7 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
         training=TrainingSettings(
             epochs=int(training_values["epochs"]),
             per_worker_batch_size=int(training_values["per_worker_batch_size"]),
+            mixed_precision=str(training_values["mixed_precision"]).lower(),
             learning_rate=float(training_values["learning_rate"]),
             optimizer=str(training_values["optimizer"]).lower(),
             early_stopping_patience=int(training_values["early_stopping_patience"]),
@@ -410,6 +428,11 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
             num_workers=int(ray_values["num_workers"]),
             use_gpu=bool(ray_values["use_gpu"]),
             cpus_per_worker=float(ray_values["cpus_per_worker"]),
+            data_num_blocks=int(ray_values["data_num_blocks"]),
+            data_decode_workers=int(ray_values["data_decode_workers"]),
+            data_decode_batch_size=int(ray_values["data_decode_batch_size"]),
+            data_prefetch_batches=int(ray_values["data_prefetch_batches"]),
+            data_cache_decoded=bool(ray_values["data_cache_decoded"]),
             memory_per_worker_bytes=int(
                 float(ray_values["memory_per_worker_gb"]) * 1024**3
             ),
@@ -470,6 +493,8 @@ def _validate(config: ProjectConfig) -> None:
 
     if config.training.epochs < 1 or config.training.per_worker_batch_size < 1:
         raise ValueError("epochs and per_worker_batch_size must be positive")
+    if config.training.mixed_precision not in {"none", "bf16"}:
+        raise ValueError("training.mixed_precision must be none or bf16")
     if config.training.learning_rate <= 0:
         raise ValueError("training.learning_rate must be positive")
     if config.training.optimizer not in {"adam", "rmsprop"}:
@@ -486,6 +511,16 @@ def _validate(config: ProjectConfig) -> None:
 
     if config.ray.num_workers < 1 or config.ray.cpus_per_worker <= 0:
         raise ValueError("Ray requires at least one worker and positive worker CPUs")
+    if config.ray.data_num_blocks < 1:
+        raise ValueError("ray.data_num_blocks must be positive")
+    if config.ray.data_decode_workers < 1:
+        raise ValueError("ray.data_decode_workers must be positive")
+    if config.ray.data_num_blocks < config.ray.data_decode_workers:
+        raise ValueError("ray.data_num_blocks must be at least data_decode_workers")
+    if config.ray.data_decode_batch_size < 1:
+        raise ValueError("ray.data_decode_batch_size must be positive")
+    if config.ray.data_prefetch_batches < 0:
+        raise ValueError("ray.data_prefetch_batches cannot be negative")
     if config.ray.memory_per_worker_bytes <= 0:
         raise ValueError("Ray worker memory must be positive")
     if config.ray.placement_strategy not in {"PACK", "SPREAD", "STRICT_PACK", "STRICT_SPREAD"}:

@@ -8,10 +8,21 @@ MLflow 数据血缘和测试集门禁思想，并把配置、实现、入口与�
 只有 Driver/Train Controller：Worker 只做计算、向 Ray 上报指标和 Checkpoint，不创建、
 结束或直接写入 MLflow Run。
 
+单 GPU 基线使用流水线并行而不是让多个 DDP Rank 争抢同一张卡：24 个 Ray Data CPU Task
+把 Manifest 分成 96 个 Block，并行读取和缩放图片；紧凑的 `uint8` NCHW Tensor 缓存在 Ray
+Object Store。训练 Worker 以 4 Batch 预取，传入 GPU 后执行向量化随机仿射增强，并以 BF16、
+Channels Last 和 TF32 训练。`iter_torch_batches(device="auto", pin_memory=True)` 在独立线程
+完成 Tensor 拼装和主机到设备传输，使 CPU 数据准备与 GPU 计算各用适合自己的 Ray 资源。
+
+正式训练入口会在导入训练框架前启用 `mlflow.autolog()`，并为完整 Driver 工作流写入一条
+MLflow Trace。Tracking URI 优先读取 `MLFLOW_TRACKING_URI`，未设置时使用 YAML 中的
+`mlflow.tracking_uri`；Trace 和 Run 都写入同一 `ray-cats-and-dogs` Experiment。
+
 ```text
 scripts/train.py
   ├── 校验 YAML、MLflow、数据摘要与幂等键
   ├── 创建一个 MLflow Run
+  ├── Ray Data Task Pool ── 并行解码 ── Object Store Tensor Cache
   └── Ray Train Controller
       ├── Worker 0 ─┐
       ├── Worker 1 ─┼── 全局验证指标 + 可恢复 Checkpoint
@@ -83,7 +94,12 @@ systemctl is-active minio.service mlflow.service
 curl -fsS -H 'Host: localhost' http://127.0.0.1:5000/health
 curl -fsS http://127.0.0.1:9000/minio/health/live
 ray status
+nvidia-smi -L
 ```
+
+`ray status` 中的 GPU 总数必须与 `nvidia-smi -L` 的实体设备数一致。Ray 的 GPU 数是调度
+资源而不是显存百分比；单卡节点应以 `--num-gpus=1` 启动 Ray。把一张实体卡声明成 4 张逻辑
+GPU 会让调度器错误地把多个 DDP Rank 放到不存在或重复的设备上。
 
 默认数据目录与原项目相同：
 
@@ -149,6 +165,11 @@ python train-model/ray-cats-and-dogs/scripts/train.py \
   --config train-model/ray-cats-and-dogs/configs/baseline.yaml
 ```
 
+基线默认使用 `per_worker_batch_size: 128` 和 `mixed_precision: bf16`。当前 Blackwell GPU 的
+短基准显示 Batch 128 只使用约 1.3 GiB 训练显存，同时减少 Ray Data 到 GPU 的交接次数。
+需要复现实验时，不要在同一个 Run 中动态改变 Batch 或精度；通过 YAML Override 创建新的
+配置身份。
+
 两 Worker Trial：
 
 ```bash
@@ -193,6 +214,11 @@ precision/recall/F1、样本吞吐、batch 数、学习率和各阶段耗时。S
 单元会轮询 Ray Job，并优先从 MLflow Metric History 展示这些指标；MLflow 尚未刷新时，会
 回退到 Worker 输出的 epoch JSON。`FOLLOW_JOB=False` 可关闭持续轮询。
 
+每个 Epoch 还会上报 `train_data_wait_seconds` 和 `train_data_wait_fraction`。如果 GPU 利用率
+仍低而等待比例较高，应先调整 `ray.data_decode_workers`、`ray.data_num_blocks` 和 Object
+Store；如果等待比例接近零，再增大模型或 Batch。`data_preparation_seconds` 单独记录首次
+并行解码和 Tensor Cache 构建时间，不混入 Epoch 吞吐。
+
 入口会同时记录 Ray Job ID、MLflow Run ID、数据/切分/代码摘要、完整资源与超参数，以及 Ray
 Checkpoint URI。`configs/*.yaml` 默认将 Ray 执行态保存在
 `platform-data/ray-results/`。跨主机集群必须让所有节点挂载同一绝对路径，或把
@@ -220,9 +246,13 @@ ROC AUC、预测摘要和质量门禁，并生成 MLflow Logged Model。未通�
 ## 7. 资源和确定性说明
 
 - `ray.num_workers`、每 Worker CPU/GPU/内存、Placement、重试次数及评测资源均在 YAML 明确声明。
+- `ray.data_decode_workers` 限制并行 `map_batches` Task 数；`data_num_blocks` 决定可调度粒度，
+  `data_prefetch_batches` 控制训练 Worker 的前瞻读取。
+- `ray.data_cache_decoded: true` 只缓存缩放后的 `uint8` Tensor，不缓存随机增强结果；随机水平
+  翻转、旋转和平移在 GPU 上逐 Batch 生成，因此不同 Epoch 仍获得不同增强。
 - 每个 Worker 接收同一份模型、数据摘要、配置、Seed、MLflow Run ID 和幂等键。
 - 训练集和验证集必须能被 Worker 数整除，避免 Ray `equal` Shard 静默丢弃余数样本。
-- 文件切分和本地 Shuffle 使用固定 Seed；多 Worker 浮点归约、GPU Kernel 和部分图片算子仍可能产生细微非确定性，Run 不宣称逐位复现。
+- 文件切分和缓存前的全局 Shuffle 使用固定 Seed；多 Worker 浮点归约、GPU Kernel 和随机增强仍可能产生细微非确定性，Run 不宣称逐位复现。
 - 每个 Epoch 的 Ray Checkpoint 同时包含当前 PyTorch `state_dict`、验证集最佳模型和训练状态；失败恢复不会覆盖其他 MLflow Attempt。
 - 最佳 Checkpoint 会通过 MLflow Artifact API 下载并核对 SHA-256；Logged Model 也会回读
   `MLmodel` 描述文件。任何回读失败都会让 Run 标记为失败。

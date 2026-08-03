@@ -12,7 +12,7 @@ from typing import Any
 import pandas as pd
 from PIL import Image, UnidentifiedImageError
 
-from ray_cats_dogs.config import DatasetSettings
+from ray_cats_dogs.config import DatasetSettings, ProjectConfig
 
 
 CLASS_NAMES = ("Cat", "Dog")
@@ -234,13 +234,19 @@ def prepare_dataset(config: DatasetSettings, seed: int) -> PreparedDataset:
     )
 
 
-def build_ray_datasets(dataset: PreparedDataset, config: DatasetSettings) -> dict[str, Any]:
-    """Create lightweight Ray Datasets; image decoding stays on Train workers."""
+def build_ray_datasets(
+    dataset: PreparedDataset,
+    config: ProjectConfig,
+) -> dict[str, Any]:
+    """Build shuffled, parallel-decoded Ray Datasets for the Train workers."""
 
     import ray
+    from ray.data import TaskPoolStrategy
+
+    from ray_cats_dogs.input_pipeline import decode_image_batch
 
     datasets = {}
-    pet_images_root = config.root / "PetImages"
+    pet_images_root = config.data.root / "PetImages"
     for split_name in ("training", "validation"):
         frame = dataset.split_frame(split_name)[["relative_path", "label"]]
         frame.insert(
@@ -250,7 +256,33 @@ def build_ray_datasets(dataset: PreparedDataset, config: DatasetSettings) -> dic
                 lambda relative: str(pet_images_root / str(relative))
             ),
         )
-        datasets[split_name] = ray.data.from_pandas(frame)
+        requested_blocks = max(
+            config.ray.data_decode_workers,
+            (len(frame) + config.ray.data_decode_batch_size - 1)
+            // config.ray.data_decode_batch_size,
+        )
+        num_blocks = max(
+            1,
+            min(len(frame), config.ray.data_num_blocks, requested_blocks),
+        )
+        ray_dataset = ray.data.from_pandas(
+            frame,
+            override_num_blocks=num_blocks,
+        ).random_shuffle(
+            seed=config.run.seed + (0 if split_name == "training" else 1),
+        )
+        ray_dataset = ray_dataset.map_batches(
+            decode_image_batch,
+            batch_size=config.ray.data_decode_batch_size,
+            batch_format="pandas",
+            zero_copy_batch=True,
+            fn_kwargs={"image_size": config.image_size},
+            num_cpus=1,
+            compute=TaskPoolStrategy(size=config.ray.data_decode_workers),
+        )
+        if config.ray.data_cache_decoded:
+            ray_dataset = ray_dataset.materialize()
+        datasets[split_name] = ray_dataset
     return datasets
 
 

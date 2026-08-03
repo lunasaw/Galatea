@@ -6,12 +6,14 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import mlflow
 import pandas as pd
+from mlflow.entities import SpanType
 
 from ray_cats_dogs.config import ProjectConfig
 from ray_cats_dogs.data import (
@@ -57,6 +59,11 @@ def config_plan(config: ProjectConfig) -> dict[str, Any]:
             "cpu_per_worker": config.ray.cpus_per_worker,
             "gpu_per_worker": 1 if config.ray.use_gpu else 0,
             "memory_per_worker_bytes": config.ray.memory_per_worker_bytes,
+            "ray_data_decode_workers": config.ray.data_decode_workers,
+            "ray_data_num_blocks": config.ray.data_num_blocks,
+            "ray_data_decode_batch_size": config.ray.data_decode_batch_size,
+            "ray_data_prefetch_batches": config.ray.data_prefetch_batches,
+            "ray_data_cache_decoded": config.ray.data_cache_decoded,
             "placement_strategy": config.ray.placement_strategy,
             "evaluation_cpu": config.ray.evaluation_cpus,
             "evaluation_gpu": config.ray.evaluation_gpus,
@@ -107,8 +114,14 @@ def _check_cluster_resources(ray_module: Any, config: ProjectConfig) -> dict[str
     available = {
         name: float(value) for name, value in ray_module.available_resources().items()
     }
+    training_cpus = config.ray.num_workers * config.ray.cpus_per_worker
+    data_cpus = float(config.ray.data_decode_workers)
     requirements = {
-        "CPU": config.ray.num_workers * config.ray.cpus_per_worker,
+        "CPU": (
+            max(training_cpus, data_cpus)
+            if config.ray.data_cache_decoded
+            else training_cpus + data_cpus
+        ),
         "memory": config.ray.num_workers * config.ray.memory_per_worker_bytes,
     }
     if config.ray.use_gpu:
@@ -153,6 +166,7 @@ def _worker_loop_config(
             validation_examples_per_worker + batch_size - 1
         )
         // batch_size,
+        "data_prefetch_batches": config.ray.data_prefetch_batches,
     }
 
 
@@ -316,6 +330,7 @@ def _log_mlflow_model(checkpoint: Any, config: ProjectConfig) -> str:
     return model_info.model_uri
 
 
+@mlflow.trace(name="ray_cats_dogs_training", span_type=SpanType.WORKFLOW)
 def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any]:
     """Run one idempotent Ray Train workload and one authoritative MLflow Run."""
 
@@ -411,7 +426,24 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                 )
                 if "://" not in config.ray.storage_path:
                     Path(config.ray.storage_path).mkdir(parents=True, exist_ok=True)
-                ray_datasets = build_ray_datasets(dataset, config.data)
+                phase = "ray-data-preparation"
+                data_started_at = time.perf_counter()
+                ray_datasets = build_ray_datasets(dataset, config)
+                data_preparation_seconds = time.perf_counter() - data_started_at
+                mlflow.log_metric(
+                    "data_preparation_seconds", data_preparation_seconds
+                )
+                mlflow.log_dict(
+                    {
+                        "decode_workers": config.ray.data_decode_workers,
+                        "configured_blocks": config.ray.data_num_blocks,
+                        "decode_batch_size": config.ray.data_decode_batch_size,
+                        "prefetch_batches": config.ray.data_prefetch_batches,
+                        "cache_decoded": config.ray.data_cache_decoded,
+                        "preparation_seconds": data_preparation_seconds,
+                    },
+                    "ray/data-pipeline.json",
+                )
                 phase = "ray-training"
                 with controller_pickle_by_value():
                     trainer = TorchTrainer(

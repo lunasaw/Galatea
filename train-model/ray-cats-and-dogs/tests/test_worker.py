@@ -11,8 +11,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from ray_cats_dogs.worker import (  # noqa: E402
+    _augment_batch,
     _global_epoch_metrics,
     _is_better,
+    _prepare_images,
     _run_epoch,
 )
 
@@ -26,6 +28,24 @@ class ObjectiveTest(unittest.TestCase):
 
 
 class EpochMetricsTest(unittest.TestCase):
+    def test_uint8_images_are_normalized_and_augmented_as_a_batch(self) -> None:
+        import torch
+
+        images = torch.full((4, 3, 12, 10), 255, dtype=torch.uint8)
+        normalized = _prepare_images(
+            images,
+            torch.device("cpu"),
+            augmentation=False,
+        )
+        self.assertEqual(torch.float32, normalized.dtype)
+        self.assertTrue(torch.allclose(normalized, torch.ones_like(normalized)))
+
+        torch.manual_seed(42)
+        augmented = _augment_batch(normalized)
+        self.assertEqual(normalized.shape, augmented.shape)
+        self.assertGreaterEqual(float(augmented.min()), 0.0)
+        self.assertLessEqual(float(augmented.max()), 1.0)
+
     def test_global_epoch_metrics_include_binary_and_macro_scores(self) -> None:
         import torch
 
@@ -73,6 +93,7 @@ class EpochMetricsTest(unittest.TestCase):
             )
 
         self.assertEqual(4.0, metrics["examples"])
+        self.assertIn("data_wait_seconds", metrics)
         self.assertIn("epoch 1/1 train", output.getvalue())
         self.assertIn("2/2", output.getvalue())
 

@@ -17,7 +17,7 @@ data:
   test_fraction: 0.05
   image_height: 150
   image_width: 150
-  preprocessing_version: ray-torchvision-image-v2
+  preprocessing_version: ray-data-uint8-gpu-augment-v3
 
 model:
   family: custom_cnn
@@ -27,8 +27,9 @@ model:
   pretrained_weights: null
 
 training:
-  epochs: 10
-  per_worker_batch_size: 32
+  epochs: 20
+  per_worker_batch_size: 128
+  mixed_precision: bf16
   learning_rate: 0.001
   optimizer: rmsprop
   early_stopping_patience: 3
@@ -40,6 +41,11 @@ ray:
   num_workers: 1
   use_gpu: true
   cpus_per_worker: 2
+  data_num_blocks: 96
+  data_decode_workers: 24
+  data_decode_batch_size: 64
+  data_prefetch_batches: 4
+  data_cache_decoded: true
   memory_per_worker_gb: 4
   placement_strategy: PACK
   max_failures: 1

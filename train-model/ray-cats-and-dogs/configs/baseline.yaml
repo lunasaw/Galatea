@@ -27,7 +27,11 @@ model:
   pretrained_weights: null
 
 training:
-  epochs: 20
+  epochs: 36
+  # 该批大小作用于每个 Ray Train Worker。有效全局批大小等于
+  # per_worker_batch_size * ray.num_workers：当前基线为 128，
+  # distributed.yaml 为 256。因此，修改 num_workers 时会改变优化语义，
+  # 除非同时有意调整批大小或学习率。
   per_worker_batch_size: 128
   mixed_precision: bf16
   learning_rate: 0.001
@@ -37,24 +41,70 @@ training:
   objective_mode: max
 
 ray:
+  # 连接由 RAY_ADDRESS 选定的现有 Ray 集群。只有明确使用本地 Ray Runtime 时
+  # 才设置为 "local"；正式任务通常使用共享集群及项目 README 中说明的
+  # Ray Jobs API。
   address: auto
+
+  # 同一次实验中启动的 PyTorch 训练进程数。大于 1 时启用同步
+  # DistributedDataParallel（DDP）：Ray 为每个 Worker 分配不同的数据分片，
+  # PyTorch 在每次反向传播后同步梯度。单 GPU 基线应保持为 1。
   num_workers: 1
+
+  # use_gpu=true 且 resources_per_worker 中未显式设置 GPU 时，Ray Train
+  # 会为每个 Worker 预留一张完整 GPU。本项目没有为训练 Worker 暴露
+  # fractional GPU：两个 0.5 GPU 的 DDP Worker 会共享同一物理设备，
+  # 无法获得双 GPU 训练的加速效果。
   use_gpu: true
+
+  # 每个训练 Worker 的逻辑 CPU 预留量，不包含下方单独配置的
+  # Ray Data 图片解码 Task。
   cpus_per_worker: 2
-  data_num_blocks: 96
-  data_decode_workers: 24
+
+  # Ray Dataset 的最大 Block 数。Block 是调度和数据分片单位，不是训练
+  # Worker；增加 Block 可提升数据流水线并行度，但也会增加 Task 和
+  # Object Store 开销。
+  data_num_blocks: 64
+
+  # 用于解码和缩放图片的 CPU map_batches Task 最大并发数。
+  # 该并行度用于向 GPU 供数，不会创建额外的模型副本。
+  data_decode_workers: 16
+
+  # 每次调用一个 Ray Data Task 时解码的图片路径数量。
   data_decode_batch_size: 64
+
+  # 为每个训练 Worker 提前准备的已解码 Batch 数。仅当
+  # train_data_wait_fraction 表明 GPU 等待数据且内存仍有余量时再增大。
   data_prefetch_batches: 4
+
+  # 训练前将缩放后的 uint8 图片物化到 Ray Object Store。这样可避免每个
+  # Epoch 重复从磁盘解码，但会消耗 Object Store 内存；随机数据增强仍会
+  # 在 GPU 上按 Batch 执行。
   data_cache_decoded: true
+
+  # 每个训练 Worker 的 Ray 调度内存预留量。它不是进程 RSS 的硬限制，
+  # 因此主机内存仍需保留运行余量。
   memory_per_worker_gb: 4
+
+  # PACK 让单 Worker 基线尽量紧凑地放置。多 Worker 变体可使用 SPREAD，
+  # 在条件允许时将 DDP Worker 分散到可用节点。
   placement_strategy: PACK
+
+  # Ray Train 允许从最近 Checkpoint 恢复的失败次数。该参数用于故障恢复，
+  # 不是并发运行的训练 Attempt 数量。
   max_failures: 1
+
+  # Ray Train Checkpoint 和 Controller 状态的持久化位置。多节点任务要求
+  # 所有参与节点都能访问该路径或 URI；分布式训练不要使用节点本地的
+  # /tmp 存储。
   storage_path: ${REPO_ROOT}/platform-data/ray-results
 
   # Driver 在 Job 结束前导出只包含当前 Ray Job 的 Dashboard 任务时间线，
   # 并通过 MLflow Artifact API 将其保存到 MinIO 后执行 SHA-256 回读校验。
   record_task_timeline: true
 
+  # 独立最终测试评测 Task 使用的资源。评测只在训练结束后执行，并且仅在
+  # evaluation.evaluate_test 启用时运行。
   evaluation_cpus: 2
   evaluation_gpus: 1
   evaluation_memory_gb: 4

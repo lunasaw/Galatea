@@ -31,7 +31,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual("val_accuracy", config.training.objective_metric)
         self.assertEqual("max", config.training.objective_mode)
         self.assertEqual("bf16", config.training.mixed_precision)
-        self.assertEqual(24, config.ray.data_decode_workers)
+        self.assertEqual(16, config.ray.data_decode_workers)
         self.assertTrue(config.ray.data_cache_decoded)
 
     def test_distributed_config_declares_worker_resources(self) -> None:

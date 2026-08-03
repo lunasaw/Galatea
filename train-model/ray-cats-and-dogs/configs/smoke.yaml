@@ -1,3 +1,5 @@
+# 从 baseline.yaml 继承单 Worker、单完整 GPU 的训练拓扑。该 Smoke Run
+# 只减少 Epoch 数，不改变训练并行模型。
 extends: baseline.yaml
 
 run:

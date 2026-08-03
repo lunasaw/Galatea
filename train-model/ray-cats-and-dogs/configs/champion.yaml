@@ -1,3 +1,4 @@
+# 从 distributed.yaml 继承双 Worker、双完整 GPU 的 DDP 拓扑。
 extends: distributed.yaml
 
 run:

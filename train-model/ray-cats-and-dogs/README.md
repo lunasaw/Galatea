@@ -8,8 +8,8 @@ MLflow 数据血缘和测试集门禁思想，并把配置、实现、入口与�
 只有 Driver/Train Controller：Worker 只做计算、向 Ray 上报指标和 Checkpoint，不创建、
 结束或直接写入 MLflow Run。
 
-单 GPU 基线使用流水线并行而不是让多个 DDP Rank 争抢同一张卡：24 个 Ray Data CPU Task
-把 Manifest 分成 96 个 Block，并行读取和缩放图片；紧凑的 `uint8` NCHW Tensor 缓存在 Ray
+单 GPU 基线使用流水线并行而不是让多个 DDP Rank 争抢同一张卡：16 个 Ray Data CPU Task
+把 Manifest 分成 64 个 Block，并行读取和缩放图片；紧凑的 `uint8` NCHW Tensor 缓存在 Ray
 Object Store。训练 Worker 以 4 Batch 预取，传入 GPU 后执行向量化随机仿射增强，并以 BF16、
 Channels Last 和 TF32 训练。`iter_torch_batches(device="auto", pin_memory=True)` 在独立线程
 完成 Tensor 拼装和主机到设备传输，使 CPU 数据准备与 GPU 计算各用适合自己的 Ray 资源。

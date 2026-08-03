@@ -45,6 +45,11 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual("s3://training/ray-results", config.ray.storage_path)
         self.assertGreater(config.ray.memory_per_worker_bytes, 0)
 
+    def test_task_timeline_recording_is_enabled_by_default(self) -> None:
+        config = self.load("baseline.yaml")
+
+        self.assertTrue(config.ray.record_task_timeline)
+
     def test_ray_data_parallelism_is_validated(self) -> None:
         with self.assertRaisesRegex(ValueError, "at least data_decode_workers"):
             self.load(

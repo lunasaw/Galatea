@@ -225,6 +225,14 @@ Checkpoint URI。`configs/*.yaml` 默认将 Ray 执行态保存在
 `ray.storage_path` 改成集群已配置凭据的共享 URI，例如 S3；训练客户端不应读取 MLflow
 服务端的 MinIO 文件系统。
 
+`ray.record_task_timeline: true` 默认让 Driver 在任务收尾时通过 Ray State API 导出当前
+Ray Job 的 Dashboard 时间线，而不是导出可能混入其他 Job 的集群级 Timeline。Trace 保存为
+当前 MLflow Run 下的 `ray/task-timeline.json`，元数据保存为
+`ray/task-timeline-metadata.json`。Driver 会再次通过 MLflow Artifact API 下载 Trace 并核对
+SHA-256；因此训练进程不直接访问 MinIO 文件系统，也不需要 MinIO 长期凭据。可以在 MLflow
+Artifacts 页面下载 JSON，再用 Perfetto UI 或 `chrome://tracing` 打开。正常完成时 Trace
+写入或回读失败会让 Run 失败；训练本身已失败时则尽力保留 Trace，同时不覆盖原始异常。
+
 ## 6. Champion 与最终测试
 
 Trial 的唯一主目标是 `val_accuracy`，方向为 `max`。测试集不参与搜索、Early Stopping、

@@ -50,6 +50,11 @@ ray:
   placement_strategy: PACK
   max_failures: 1
   storage_path: ${REPO_ROOT}/platform-data/ray-results
+
+  # Driver 在 Job 结束前导出只包含当前 Ray Job 的 Dashboard 任务时间线，
+  # 并通过 MLflow Artifact API 将其保存到 MinIO 后执行 SHA-256 回读校验。
+  record_task_timeline: true
+
   evaluation_cpus: 2
   evaluation_gpus: 1
   evaluation_memory_gb: 4

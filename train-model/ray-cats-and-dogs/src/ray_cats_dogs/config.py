@@ -76,6 +76,7 @@ class RaySettings:
     placement_strategy: str
     max_failures: int
     storage_path: str
+    record_task_timeline: bool
     evaluation_cpus: float
     evaluation_gpus: float
     evaluation_memory_bytes: int
@@ -350,6 +351,7 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
             "placement_strategy",
             "max_failures",
             "storage_path",
+            "record_task_timeline",
             "evaluation_cpus",
             "evaluation_gpus",
             "evaluation_memory_gb",
@@ -441,6 +443,7 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
             storage_path=_storage_path(
                 ray_values["storage_path"], repo_root, project_root
             ),
+            record_task_timeline=bool(ray_values["record_task_timeline"]),
             evaluation_cpus=float(ray_values["evaluation_cpus"]),
             evaluation_gpus=float(ray_values["evaluation_gpus"]),
             evaluation_memory_bytes=int(

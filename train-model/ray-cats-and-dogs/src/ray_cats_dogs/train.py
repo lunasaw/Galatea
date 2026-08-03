@@ -34,6 +34,7 @@ from ray_cats_dogs.tracking import (
     idempotency_key,
     inspect_tracking,
     log_run_inputs,
+    log_ray_task_timeline,
     preflight_tracking,
     runs_for_identity,
     successful_run,
@@ -53,6 +54,9 @@ def config_plan(config: ProjectConfig) -> dict[str, Any]:
             "metric": config.training.objective_metric,
             "mode": config.training.objective_mode,
             "uses_test_holdout": False,
+        },
+        "artifacts": {
+            "ray_task_timeline": config.ray.record_task_timeline,
         },
         "requested_resources": {
             "training_workers": config.ray.num_workers,
@@ -394,6 +398,9 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
             "execution.type": "ray-train",
             "test.evaluated": "false",
             "registry.promotion": "manual-only",
+            "ray.task_timeline.requested": str(
+                config.ray.record_task_timeline
+            ).lower(),
         }
         phase = "run-setup"
         with mlflow.start_run(
@@ -419,6 +426,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                 ),
                 flush=True,
             )
+            timeline_metadata = None
             try:
                 log_run_inputs(config, dataset, code, ray_job_id, identity_key)
                 mlflow.log_dict(
@@ -500,6 +508,10 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                     model_uri = _log_mlflow_model(result.checkpoint, config)
                     mlflow.set_tag("model.uri", model_uri)
 
+                if config.ray.record_task_timeline:
+                    phase = "ray-task-timeline-logging"
+                    timeline_metadata = log_ray_task_timeline(run_id, ray_job_id)
+
                 phase = "artifact-verification"
                 with tempfile.TemporaryDirectory(
                     prefix="ray-cats-dogs-artifact-check-"
@@ -529,16 +541,35 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                     "idempotency_key": identity_key,
                     "test_metrics": test_metrics,
                     "quality_gate_passed": quality_passed,
+                    "ray_task_timeline": timeline_metadata,
                     "training_started": True,
                 }
             except BaseException as error:
-                mlflow.set_tags(
-                    {
-                        "run.outcome": "failed",
-                        "failure.phase": phase,
-                        "failure.type": type(error).__name__,
-                    }
-                )
+                failure_tags = {
+                    "run.outcome": "failed",
+                    "failure.phase": phase,
+                    "failure.type": type(error).__name__,
+                }
+                if phase == "ray-task-timeline-logging":
+                    failure_tags["ray.task_timeline.logged"] = "false"
+                if (
+                    isinstance(error, Exception)
+                    and config.ray.record_task_timeline
+                    and timeline_metadata is None
+                    and phase != "ray-task-timeline-logging"
+                ):
+                    try:
+                        log_ray_task_timeline(run_id, ray_job_id)
+                    except Exception as timeline_error:
+                        failure_tags.update(
+                            {
+                                "ray.task_timeline.logged": "false",
+                                "ray.task_timeline.failure_type": type(
+                                    timeline_error
+                                ).__name__,
+                            }
+                        )
+                mlflow.set_tags(failure_tags)
                 raise
     finally:
         if initialized_here:

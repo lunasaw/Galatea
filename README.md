@@ -275,7 +275,8 @@ jupyter nbconvert --execute --to notebook \
 - [MinIO 安装与运维](doc/minio-start.md)
 - [Ray 安装、启动与任务提交](doc/ray-start.md)
 - [code-server 代理配置](doc/code-server-proxy.md)
-- [数据到训练到模型的端到端实施手册](doc/data-to-training-to-model-imp-guide.md)
+- [数据到训练到模型的端到端实施手册](doc/train-guide/data-to-training-to-model-imp-guide.md)
+- [MLflow 训练指标手册](doc/train-guide/mlflow-training-integration-spec.md)
 - [仓库开发规范](AGENTS.md)
 
 ## 安全与持久化

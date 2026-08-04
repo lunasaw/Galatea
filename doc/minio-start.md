@@ -132,6 +132,14 @@ chown root:root /etc/minio/mlflow-s3.env
 
 训练数据读写使用另一个 `training-data` 账号；不要复用 `mlflow` 或管理员凭据。
 
+三类身份要像三把齿形不同的钥匙：训练任务只打开 `training-data`，MLflow Server 只打开
+`mlflow-artifacts`，管理员钥匙则封存给初始化和运维操作。这样即使某个训练进程的凭据
+泄露，影响范围也被限制在它真正需要访问的 Bucket 内。
+
+![小黑在钥匙工位上为训练数据和 MLflow Artifact 分别制作最小权限钥匙](../images/minio-least-privilege-xiaohei.png)
+
+*账号与 Bucket 一一对应；管理员凭据不进入训练脚本，也不与服务账号混用。*
+
 为训练账号保存只供受控脚本读取的环境文件：
 
 ```bash
@@ -367,6 +375,14 @@ du -sh /data/ai/chenzhangyue/code/galatea/platform-data/minio/data
 删除对象时，启用版本控制的 Bucket 会先产生 delete marker；需要清理历史版本时必须明确评估恢复需求，不能把 `mc rm --recursive --force` 当作日常清理命令。
 
 ## 12. 备份与恢复
+
+Bucket 版本控制只能保留同一套存储中的历史对象，不能消除单机、单盘这个共同故障域。
+下图中的抽屉虽然有多个版本，却仍共用一条已经开裂的支腿；真正的备份需要把对象、
+MLflow 数据库和密钥一起搬到独立位置，并通过恢复演练证明它们能重新组成完整系统。
+
+![小黑把对象、数据库和密钥拖离单机单盘的 MinIO 柜子，送往独立备份与恢复演练位置](../images/minio-single-node-backup-xiaohei.png)
+
+*版本控制解决误覆盖，独立备份解决故障域；两者不能互相替代。*
 
 至少同时备份以下三类内容：
 

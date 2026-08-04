@@ -9,6 +9,8 @@ scikit-learn、XGBoost/LightGBM、Ray Train 及其他能够接入 MLflow 的训�
 项目可以覆盖分类、回归、检测、分割、排序、推荐、时序预测和大模型微调等任务，并在同一
 Experiment 中管理多个基线、模型结构和参数方案。
 
+![小黑转动由 JupyterLab、Ray、MLflow 和 MinIO 共同组成的训练装置](images/01-platform-integration.png)
+
 ## 平台目标
 
 - **统一开发入口**：通过 JupyterLab 完成数据探索、Notebook 实验和小规模验证。
@@ -68,6 +70,8 @@ Ray Job / Ray Train：CPU、GPU、分布式执行
 也不需要持有 MLflow Artifact Bucket 的长期 MinIO 密钥。这样 MLflow 可以部署在当前节点，
 也可以迁移到其他节点而不改变训练项目的元数据访问方式。
 
+![小黑踩动训练闭环，所有运行记录和 Artifact 只通过 API 流转](images/02-recoverable-architecture.png)
+
 ## 通用训练生命周期
 
 每个训练项目都应遵循同一条主链路：
@@ -83,6 +87,8 @@ Ray Job / Ray Train：CPU、GPU、分布式执行
 
 一次可审计训练至少应回答：使用哪个数据和切分、哪份配置和代码、由哪个 Ray Job 执行、
 对应哪个 MLflow Run、指标为何满足门禁，以及模型和 Checkpoint 从哪里恢复。
+
+![小黑转动训练鼓，让数据版本和 Run ID 贯穿选参、重训、测试、门禁与晋级](images/03-auditable-training-lifecycle.png)
 
 ## 当前部署形态
 
@@ -173,6 +179,8 @@ train-model/<project-name>/
 ├── scripts/                 # validate/train/evaluate/promote 入口
 └── tests/                   # 数据、模型、选择逻辑和 Smoke Test
 ```
+
+![小黑把配置、源码、脚本和测试收进可复现、可恢复的训练项目箱](images/04-training-project-contract.png)
 
 现有项目可以保留较轻量的平铺结构，但必须满足以下平台契约：
 
@@ -275,7 +283,8 @@ jupyter nbconvert --execute --to notebook \
 - [MinIO 安装与运维](doc/minio-start.md)
 - [Ray 安装、启动与任务提交](doc/ray-start.md)
 - [code-server 代理配置](doc/code-server-proxy.md)
-- [数据到训练到模型的端到端实施手册](doc/data-to-training-to-model-imp-guide.md)
+- [数据到训练到模型的端到端实施手册](doc/train-guide/data-to-training-to-model-imp-guide.md)
+- [MLflow 训练指标手册](doc/train-guide/mlflow-training-integration-spec.md)
 - [仓库开发规范](AGENTS.md)
 
 ## 安全与持久化

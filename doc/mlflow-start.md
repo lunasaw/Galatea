@@ -26,6 +26,16 @@ systemd 常驻、客户端接入、备份和故障排查。
 
 当前服务采用 SQLite 元数据加本机 MinIO Artifact：
 
+可以先把一个 Run 想成被小黑拆开的双层行李箱：参数、指标等轻量卡片进入 SQLite，
+模型、Checkpoint 和报告等重物进入 MinIO；两边仍由同一个 Run 身份连接，并通过
+MLflow Tracking Server 统一访问。
+
+![小黑拆开同一个 MLflow Run 的两层行李箱，分别把元数据放入 SQLite、Artifact 放入 MinIO](../images/mlflow-run-storage-split-xiaohei.png)
+
+*一个 Run、两类存储：SQLite 保存可查询的元数据，MinIO 保存体积更大的 Artifact。*
+
+下面的等宽图给出这套关系对应的实际端口、URI 和代理方向：
+
 ```text
 Jupyter / Python 训练脚本
           |
@@ -360,6 +370,14 @@ mc du --recursive local/mlflow-artifacts
 
 最稳妥的本地备份方式是短暂停止服务，同时复制数据库和 MinIO 对象。以下命令会造成短暂
 不可用，应安排在没有训练写入时执行：
+
+备份的最小完整单位不是单独的 `mlflow.db`，而是数据库与其引用的 Artifact 集合。下图
+用一条拉链把两者固定到同一个恢复包中：只复制右侧那本数据库账簿，会留下无法还原模型
+文件的“不完整备份”。
+
+![小黑用一条拉链把 mlflow.db 与 Artifact 绑成同一个备份和恢复单元](../images/mlflow-consistent-backup-xiaohei.png)
+
+*数据库与 Artifact 必须一起备份、一起恢复，并在恢复演练中验证引用关系。*
 
 ```bash
 MLFLOW_BACKUP_DIR=/data/ai/chenzhangyue/code/galatea/platform-data/backups/mlflow-$(date +%Y%m%d-%H%M%S)

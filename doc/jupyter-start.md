@@ -36,6 +36,14 @@
 `ServerApp.base_url` 和 `ServerApp.custom_display_url`。代理原理与 code-server 配置见
 [`code-server-proxy.md`](./code-server-proxy.md)。
 
+这两种访问方式最终都到达 8888 端口，但只有 code-server 代理需要让公开路径与
+`ServerApp.base_url` 逐段一致；SSH 隧道只改变网络入口，不会替 Jupyter 改写 base URL。
+下图中的橙色长条必须完整穿过门框，正对应这种“路径不能只对一半”的约束。
+
+![小黑把 Jupyter 的完整代理路径对准入口，SSH 隧道从下方接入同一端口](../images/jupyter-access-paths-xiaohei.png)
+
+*Jupyter 的两种入口：代理路径必须完整匹配，SSH 隧道则保留服务已有的 base URL。*
+
 ## 2. 部署前检查
 
 确认 Conda、训练目录和端口状态：
@@ -266,6 +274,14 @@ http://127.0.0.1:8888/GC5026/absproxy/8888/
 SSH 隧道只改变网络路径，不会移除 Jupyter 配置的 base URL。
 
 ## 9. 完整验证
+
+能打开登录页只说明第一层链路可用。一次完整验收还要继续检查 API 状态与 Notebook
+实际使用的 Python 内核；下图用一台手摇验收机把三项结果串在一起，任何一张回执缺失都
+不应视为部署完成。
+
+![小黑转动手摇验收机，依次检查 Jupyter 页面响应、API 状态和内核路径](../images/jupyter-verification-xiaohei.png)
+
+*页面、API、内核三项都通过，才能确认服务入口与训练环境同时可用。*
 
 ### 9.1 服务与登录页
 

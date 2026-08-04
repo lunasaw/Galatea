@@ -4,6 +4,12 @@
 可审计、可由 Ray Job 提交的正式 PyTorch CUDA 13 训练项目。它复用确定性数据切分、
 MLflow 数据血缘和测试集门禁思想，并把配置、实现、入口与测试分开。
 
+本页说明本项目的具体命令和配置。跨项目的 Ray Jobs、Ray Train、Ray Data、Runtime
+Environment、资源和恢复规则以
+[`doc/train-guide/ray-training-guide.md`](../../doc/train-guide/ray-training-guide.md) 为准；MLflow
+所有权和 Artifact 契约见
+[`mlflow-training-integration-spec.md`](../../doc/train-guide/mlflow-training-integration-spec.md)。
+
 当前阶段使用 Ray Train 做单 Worker 或多 Worker 数据并行训练。MLflow 的权威写入者始终
 只有 Driver/Train Controller：Worker 只做计算、向 Ray 上报指标和 Checkpoint，不创建、
 结束或直接写入 MLflow Run。
@@ -43,6 +49,10 @@ train-model/ray-cats-and-dogs/
 │   ├── smoke.yaml          # 1 Epoch 链路检查，不读取测试集
 │   ├── distributed.yaml    # 2 Worker Trial
 │   └── champion.yaml       # 干净重训并执行一次最终测试
+├── job/
+│   ├── ci.py               # 构建、发布并默认执行 CD 配置检查
+│   ├── cd.py               # 提交已发布的不可变 Runtime Environment
+│   └── README.md            # MinIO Release、凭据和排错说明
 ├── scripts/train.py        # 正式参数化入口
 ├── notebooks/
 │   └── smoke-run-guide.ipynb  # 配置、计划、提交与结果查看
@@ -120,6 +130,10 @@ GPU 会让调度器错误地把多个 DDP Rank 放到不存在或重复的设备
 export CATS_DOGS_DATASET_SOURCE_URI=\
 s3://training-data/datasets/raw/microsoft-cats-vs-dogs/2026-07-30/PetImages
 ```
+
+`CATS_DOGS_DATASET_SOURCE_URI` 只记录经过核对的来源血缘；当前数据加载仍读取 `data.root/PetImages`
+的本地路径，不会因为设置该变量而切换成 S3 Datasource。多节点训练必须让所有解码节点以相同绝对
+路径只读挂载同一快照，或先实现并验证真正的远程 Datasource。
 
 ## 3. 先做不训练的检查
 
@@ -224,6 +238,10 @@ Checkpoint URI。`configs/*.yaml` 默认将 Ray 执行态保存在
 `platform-data/ray-results/`。跨主机集群必须让所有节点挂载同一绝对路径，或把
 `ray.storage_path` 改成集群已配置凭据的共享 URI，例如 S3；训练客户端不应读取 MLflow
 服务端的 MinIO 文件系统。
+
+`ray.max_failures` 只恢复同一次 `trainer.fit()` 内失败的 Worker 组。当前项目没有 Driver、Head 或
+整 Job 失败后的自动跨 Job 续训入口；这种失败必须保留原 Job、Run 和 Checkpoint 证据，评估后用新
+Submission ID 和新 MLflow Attempt 重提，不能用 `--force` 冒充断点恢复。
 
 `ray.record_task_timeline: true` 默认让 Driver 在任务收尾时通过 Ray State API 导出当前
 Ray Job 的 Dashboard 时间线，而不是导出可能混入其他 Job 的集群级 Timeline。Trace 保存为

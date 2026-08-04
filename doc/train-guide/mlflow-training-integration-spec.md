@@ -6,6 +6,8 @@
 
 本文描述的是当前代码已经实现的行为。MLflow Server 和 MinIO 的部署、凭据与备份分别见
 [`mlflow-start.md`](../mlflow-start.md) 和 [`minio-start.md`](../minio-start.md)。
+Ray Jobs、Ray Train、Ray Data、Runtime Environment、资源和恢复语义见
+[`ray-training-guide.md`](ray-training-guide.md)。
 
 ## 1. 目标与边界
 

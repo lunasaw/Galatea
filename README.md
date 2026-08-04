@@ -1,15 +1,33 @@
-# AI 训练一体化平台
+# Galatea：让模型从数据中苏醒
 
-本仓库是一套面向多项目、多模型和多框架的训练一体化平台，而不是单一模型工程。
-平台以 **JupyterLab + Ray + MLflow + MinIO** 为核心，把交互开发、数据版本、分布式执行、
-实验追踪、模型管理和 Artifact 持久化连接成可重复、可审计、可恢复的训练流程。
+> **一句话定位：** 用 JupyterLab 开发，用 Ray 执行，用训练框架计算，用 MLflow 记录和治理，
+> 用 MinIO 长期保存，把一次实验变成可重复、可审计、可恢复的训练资产。
 
-当前仓库中的 Cats vs Dogs 只是 TensorFlow/Keras 示例工作负载；平台同样可承载 PyTorch、
-scikit-learn、XGBoost/LightGBM、Ray Train 及其他能够接入 MLflow 的训练项目。
-项目可以覆盖分类、回归、检测、分割、排序、推荐、时序预测和大模型微调等任务，并在同一
-Experiment 中管理多个基线、模型结构和参数方案。
+本仓库面向多项目、多模型和多框架，不是某一个模型的工程模板。当前的 Cats vs Dogs 只是
+TensorFlow/Keras 示例工作负载；平台同样可承载 PyTorch、scikit-learn、XGBoost/LightGBM、
+Ray Train 及其他能够接入 MLflow 的训练项目，覆盖分类、回归、检测、分割、排序、推荐、
+时序预测和大模型微调等任务。
 
-## 平台目标
+README 分为两层：先沿着四张图理解平台如何运转，再进入可检索的部署与运维手册。
+
+## 图解导览
+
+### 1. 平台不是单一模型，而是一台训练装置
+
+单个 Notebook 可以完成一次实验，却很难独自回答数据来自哪里、任务由谁执行、指标记录在哪、
+模型如何恢复。平台的价值，是把原本分散的开发、计算、治理和存储连接成同一条可靠链路。
+
+![小黑转动由 JupyterLab、Ray、MLflow 和 MinIO 共同组成的训练装置](images/01-platform-integration.png)
+
+#### 读图：四种能力怎样合成一次可复现训练
+
+- **JupyterLab 是工作台**：承接数据探索、Notebook 实验、配置编写和小规模验证。
+- **Ray 是动力轮**：把参数化任务调度到 CPU/GPU，并负责分布式执行和失败重试。
+- **MLflow 是实验账本**：让参数、指标、数据血缘、Artifact 和模型版本归属于明确的 Run。
+- **MinIO 是耐久仓库**：保存数据版本、Checkpoint、模型、预测结果和可视化 Artifact。
+- **小黑转动的是连接关系**：任何单一组件都不等于平台，只有链路完整才能得到“可复现”。
+
+#### 平台统一的六件事
 
 - **统一开发入口**：通过 JupyterLab 完成数据探索、Notebook 实验和小规模验证。
 - **统一执行入口**：通过 Ray Jobs、Ray Core 或 Ray Train 调度 CPU/GPU 训练任务。
@@ -18,7 +36,23 @@ Experiment 中管理多个基线、模型结构和参数方案。
 - **统一对象存储**：通过 MinIO 保存数据版本、Checkpoint、模型、预测结果和可视化 Artifact。
 - **统一运维方式**：通过 systemd、健康检查、受控环境文件和备份流程管理平台服务。
 
-## 组件职责
+### 2. 组件各司其职，实验记录和 Artifact 只走 API
+
+平台不是把多个服务并排安装，而是给每个组件划清责任边界。训练客户端只通过 MLflow
+Tracking/Artifact API 访问平台，不读取 MLflow 后端数据库，也不直接持有 Artifact Bucket
+的长期 MinIO 密钥。
+
+![小黑踩动训练闭环，所有运行记录和 Artifact 只通过 API 流转](images/02-recoverable-architecture.png)
+
+#### 读图：为什么这个闭环可以恢复
+
+- **橙色路径持续向前**：探索、执行、记录、持久化和恢复属于同一个训练上下文。
+- **Run ID 与 Checkpoint 一起流转**：任务失败后能找到原始证据和恢复位置，而不是依赖 Kernel 记忆。
+- **API 是唯一入口**：实验元数据和 Artifact 使用稳定接口，MLflow 可以迁移而不改变训练项目的访问方式。
+- **后端抽屉被锁住**：`mlflow.db` 和服务端对象存储实现属于平台内部，不能成为客户端集成接口。
+- **小黑必须持续踩动**：可恢复性来自每次训练都遵循规则，而不是事后补写一份实验记录。
+
+#### 组件职责边界
 
 | 组件 | 负责 | 不负责 |
 | --- | --- | --- |
@@ -30,12 +64,7 @@ Experiment 中管理多个基线、模型结构和参数方案。
 | MinIO | 训练数据、Checkpoint、模型和 Artifact 的 S3 兼容持久化 | 训练逻辑和实验选择 |
 | systemd | JupyterLab、MLflow、MinIO 的服务生命周期 | Ray 训练业务逻辑 |
 
-一句话概括：
-
-> JupyterLab 负责开发，Ray 负责执行，训练框架负责计算，MLflow 负责记录和治理，
-> MinIO 负责长期保存。
-
-## 总体架构
+#### 参考架构
 
 ```text
 算法工程师 / 平台工程师
@@ -64,13 +93,22 @@ Ray Job / Ray Train：CPU、GPU、分布式执行
                                                candidate / champion
 ```
 
-训练客户端只通过 MLflow Tracking/Artifact API 访问平台，不直接依赖 MLflow 后端数据库，
-也不需要持有 MLflow Artifact Bucket 的长期 MinIO 密钥。这样 MLflow 可以部署在当前节点，
-也可以迁移到其他节点而不改变训练项目的元数据访问方式。
+### 3. 一次训练必须带着身份走到晋级
 
-## 通用训练生命周期
+“模型指标不错”不足以证明结果可信。数据版本、切分、代码、配置、环境和 Run ID 必须从训练
+开始就绑定在一起；验证集负责选择，测试集只做最终评测，生产别名只能在质量门禁和人工审核后更新。
 
-每个训练项目都应遵循同一条主链路：
+![小黑转动训练鼓，让数据版本和 Run ID 贯穿选参、重训、测试、门禁与晋级](images/03-auditable-training-lifecycle.png)
+
+#### 读图：训练鼓里的四条治理规则
+
+- **数据袋有封签**：原始数据、Manifest、内容摘要和切分摘要共同确定不可变的数据身份。
+- **Run ID 不离身**：参数、指标、代码、环境、Checkpoint 和报告始终能够回到同一次运行。
+- **最终测试禁止回流**：Trial 只使用训练集和验证集，不能反复看测试集再调整超参数。
+- **Champion 从干净状态重训**：选定配置后重新训练，再执行一次最终测试集评测。
+- **晋级前还有一只手**：质量门禁通过不等于自动上线，模型别名变更需要明确的人工审核。
+
+#### 完整训练生命周期
 
 1. **数据进入**：原始数据以不可变版本写入 MinIO，并生成 Manifest、内容摘要和切分摘要。
 2. **实验开发**：在 JupyterLab 中完成数据检查、单 Batch 和少量 Epoch 验证。
@@ -84,85 +122,23 @@ Ray Job / Ray Train：CPU、GPU、分布式执行
 一次可审计训练至少应回答：使用哪个数据和切分、哪份配置和代码、由哪个 Ray Job 执行、
 对应哪个 MLflow Run、指标为何满足门禁，以及模型和 Checkpoint 从哪里恢复。
 
-## 当前部署形态
+### 4. 新项目是一只工程箱，不是一份长期运行的 Notebook
 
-当前实现是一套单节点训练平台基线：
+新训练项目统一放在 `train-model/<project-name>/` 下。一个项目可以包含多个模型、算法和参数
+变体，但正式训练必须有可以脱离 Notebook 执行的参数化入口，并能从 Artifact 服务恢复。
 
-- Conda 环境：`/data/conda/envs/attend-ray-py312`
-- 工作目录：`/data/ai/chenzhangyue/code/galatea`
-- JupyterLab、MLflow、MinIO：由 systemd 管理
-- Ray：已安装，Head 在提交训练前按需启动，当前没有仓库内 systemd Unit
-- MLflow Backend Store：本机 `platform-data/mlflow/mlflow.db`
-- MLflow Artifact Store：由 Tracking Server 代理写入 MinIO `s3://mlflow-artifacts`
-- 运行数据：`platform-data/`，不进入 Git
+![小黑把配置、源码、脚本和测试收进可复现、可恢复的训练项目箱](images/04-training-project-contract.png)
 
-Backend Store 是服务端实现细节。Notebook、Ray Worker、分析脚本和其他客户端必须使用
-MLflow API，不应读取 `mlflow.db`。当前 MinIO 是单机单盘部署，不提供主机故障容错；
-数据库、对象数据和密钥需要成组备份到其他主机或独立存储。
+#### 读图：项目箱里每个部件解决什么问题
 
-## 快速开始
+- **`configs/` 是旋钮**：开发、调优和正式训练使用显式配置，而不是散落在 Notebook 全局变量中。
+- **`src/` 是发动机**：数据、模型、训练、评测和注册逻辑可以被脚本、Notebook 和测试复用。
+- **`scripts/` 是启动绳**：`validate`、`train`、`evaluate`、`promote` 提供可调度、可恢复的正式入口。
+- **`tests/` 是放大镜**：验证数据切分、指标语义、选择逻辑和最小训练路径没有悄悄改变。
+- **`notebooks/` 拴在箱外**：它适合探索、展示和 Smoke Test，但不承载不可恢复的长期状态。
+- **Run ID 和 Artifact 是行李牌与安全绳**：失败任务知道自己是谁，也知道从哪里继续。
 
-### 1. 激活环境
-
-```bash
-source /data/conda/etc/profile.d/conda.sh
-conda activate attend-ray-py312
-cd /data/ai/chenzhangyue/code/galatea
-```
-
-### 2. 检查平台服务
-
-```bash
-systemctl is-active minio.service
-systemctl is-active mlflow.service
-systemctl is-active jupyterlab.service
-
-curl -fsS -H 'Host: localhost' http://127.0.0.1:5000/health
-curl -fsS http://127.0.0.1:9000/minio/health/live
-ray status
-```
-
-如果 Ray Head 尚未启动，按照 [Ray 部署指南](doc/ray-start.md) 配置节点 IP、CPU、GPU、
-Object Store Memory 和 Dashboard 后再提交正式任务。
-
-### 3. 配置 MLflow 客户端
-
-```bash
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
-export MLFLOW_EXPERIMENT_NAME="project-experiment-name"
-```
-
-远程 MLflow 使用对应的 HTTPS Tracking URI 和受控认证配置，不复制服务端数据库或 MinIO
-长期密钥到训练项目。
-
-### 4. 本地启动 JupyterLab（仅在未使用 systemd 时）
-
-```bash
-jupyter lab --no-browser --allow-root --ServerApp.root_dir="$PWD"
-```
-
-## 服务与端口
-
-| 服务 | 默认端口 | 当前管理方式 | 说明 |
-| --- | ---: | --- | --- |
-| JupyterLab | 8888 | systemd | 交互开发入口，当前配置带 code-server 代理前缀 |
-| MLflow Tracking | 5000 | systemd | Run、模型和 Artifact API |
-| MinIO API | 9000 | systemd | S3 兼容对象接口 |
-| MinIO Console | 9001 | systemd | 对象存储管理界面 |
-| Ray Dashboard | 8265 | 按需启动 | Ray 状态、任务和资源观察 |
-
-`systemd/` 中的用户、路径、监听地址、代理前缀和允许域名都是当前主机配置。安装前先验证：
-
-```bash
-systemd-analyze verify systemd/*.service
-```
-
-监听 `0.0.0.0` 的服务必须由防火墙、认证代理或受控内网保护，不能直接暴露到公网。
-
-## 接入新的训练项目
-
-新训练项目统一放在 `train-model/<project-name>/` 下；一个项目可以包含多个模型、算法和
-参数变体。推荐结构如下：
+#### 推荐项目结构
 
 ```text
 train-model/<project-name>/
@@ -188,7 +164,88 @@ train-model/<project-name>/
 正式项目应优先采用参数化脚本提交 Ray Job。Notebook 负责调用和展示，不承载不可恢复的
 长期训练状态。
 
-## MLflow 实验分析与通用调优
+---
+
+## 运维与参考手册
+
+以下章节保留当前单节点基线的实际路径、命令和边界，供部署、接入和故障排查时检索。
+
+### 当前部署形态
+
+当前实现是一套单节点训练平台基线：
+
+- Conda 环境：`/data/conda/envs/attend-ray-py312`
+- 工作目录：`/data/ai/chenzhangyue/code/galatea`
+- JupyterLab、MLflow、MinIO：由 systemd 管理
+- Ray：已安装，Head 在提交训练前按需启动，当前没有仓库内 systemd Unit
+- MLflow Backend Store：本机 `platform-data/mlflow/mlflow.db`
+- MLflow Artifact Store：由 Tracking Server 代理写入 MinIO `s3://mlflow-artifacts`
+- 运行数据：`platform-data/`，不进入 Git
+
+Backend Store 是服务端实现细节。Notebook、Ray Worker、分析脚本和其他客户端必须使用
+MLflow API，不应读取 `mlflow.db`。当前 MinIO 是单机单盘部署，不提供主机故障容错；
+数据库、对象数据和密钥需要成组备份到其他主机或独立存储。
+
+### 快速开始
+
+#### 1. 激活环境
+
+```bash
+source /data/conda/etc/profile.d/conda.sh
+conda activate attend-ray-py312
+cd /data/ai/chenzhangyue/code/galatea
+```
+
+#### 2. 检查平台服务
+
+```bash
+systemctl is-active minio.service
+systemctl is-active mlflow.service
+systemctl is-active jupyterlab.service
+
+curl -fsS -H 'Host: localhost' http://127.0.0.1:5000/health
+curl -fsS http://127.0.0.1:9000/minio/health/live
+ray status
+```
+
+如果 Ray Head 尚未启动，按照 [Ray 部署指南](doc/ray-start.md) 配置节点 IP、CPU、GPU、
+Object Store Memory 和 Dashboard 后再提交正式任务。
+
+#### 3. 配置 MLflow 客户端
+
+```bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export MLFLOW_EXPERIMENT_NAME="project-experiment-name"
+```
+
+远程 MLflow 使用对应的 HTTPS Tracking URI 和受控认证配置，不复制服务端数据库或 MinIO
+长期密钥到训练项目。
+
+#### 4. 本地启动 JupyterLab（仅在未使用 systemd 时）
+
+```bash
+jupyter lab --no-browser --allow-root --ServerApp.root_dir="$PWD"
+```
+
+### 服务与端口
+
+| 服务 | 默认端口 | 当前管理方式 | 说明 |
+| --- | ---: | --- | --- |
+| JupyterLab | 8888 | systemd | 交互开发入口，当前配置带 code-server 代理前缀 |
+| MLflow Tracking | 5000 | systemd | Run、模型和 Artifact API |
+| MinIO API | 9000 | systemd | S3 兼容对象接口 |
+| MinIO Console | 9001 | systemd | 对象存储管理界面 |
+| Ray Dashboard | 8265 | 按需启动 | Ray 状态、任务和资源观察 |
+
+`systemd/` 中的用户、路径、监听地址、代理前缀和允许域名都是当前主机配置。安装前先验证：
+
+```bash
+systemd-analyze verify systemd/*.service
+```
+
+监听 `0.0.0.0` 的服务必须由防火墙、认证代理或受控内网保护，不能直接暴露到公网。
+
+### MLflow 实验分析与通用调优
 
 工程内置通用 Skill：
 
@@ -220,9 +277,9 @@ python .codex/skills/mlflow-optimize-models/scripts/analyze_experiment.py \
 也可以在 Codex 中使用 `$mlflow-optimize-models`，针对任意 Experiment 生成分析、调优和
 代码修改方案。分析或代码优化请求本身不会自动启动 CPU/GPU 训练。
 
-## 示例工作负载
+### 示例工作负载
 
-### Cats vs Dogs 图像分类
+#### Cats vs Dogs 图像分类
 
 [`train-model/cats-and-dogs/`](train-model/cats-and-dogs/) 是当前端到端示例，展示：
 
@@ -234,7 +291,7 @@ python .codex/skills/mlflow-optimize-models/scripts/analyze_experiment.py \
 
 示例用于验证平台能力，不定义平台支持的模型类型或框架边界。
 
-## 仓库结构
+### 仓库结构
 
 ```text
 train/
@@ -250,7 +307,7 @@ train/
 └── README.md
 ```
 
-## 验证
+### 验证
 
 运行调优器单元测试：
 
@@ -268,7 +325,7 @@ jupyter nbconvert --execute --to notebook \
   --output-dir /tmp --output cats-vs-dogs-smoke.ipynb
 ```
 
-## 文档
+### 文档
 
 - [JupyterLab 安装与运维](doc/jupyter-start.md)
 - [MLflow Tracking Server 安装与运维](doc/mlflow-start.md)
@@ -280,7 +337,7 @@ jupyter nbconvert --execute --to notebook \
 - [MLflow 训练指标手册](doc/train-guide/mlflow-training-integration-spec.md)
 - [仓库开发规范](AGENTS.md)
 
-## 安全与持久化
+### 安全与持久化
 
 - 不提交 Token、对象存储密钥、环境文件或包含凭据的 Notebook 输出。
 - `platform-data/` 只保存运行状态，不作为源码分发；MLflow 元数据与 MinIO 对象必须一致备份。

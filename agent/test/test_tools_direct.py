@@ -8,8 +8,8 @@ Galatea 检查工具的简单测试，无需完整的 agent 运行时。
 import sys
 from pathlib import Path
 
-# 添加父目录到路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# 添加仓库根目录到路径
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from agent.tools.inspection import (
     list_training_projects,

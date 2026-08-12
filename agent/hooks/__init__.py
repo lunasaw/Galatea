@@ -28,6 +28,11 @@ from agent.hooks.builtin import (
     cost_tracking_hook,
     audit_hook,
     validation_hook,
+    make_permission_hook,
+    deny_builtin_mutation_hook,
+    summarize_large_tool_output_hook,
+    classify_tool_failure_hook,
+    compact_context_hook,
 )
 
 __all__ = [
@@ -43,4 +48,9 @@ __all__ = [
     "cost_tracking_hook",
     "audit_hook",
     "validation_hook",
+    "make_permission_hook",
+    "deny_builtin_mutation_hook",
+    "summarize_large_tool_output_hook",
+    "classify_tool_failure_hook",
+    "compact_context_hook",
 ]

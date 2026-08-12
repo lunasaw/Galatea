@@ -1,15 +1,9 @@
-"""
-Session state management for Galatea agents.
-
-Provides abstractions for storing and retrieving agent session state,
-transcript storage, and session resumption.
-
-Reference: Claude SDK's session_store.py and session management system.
-"""
+"""Session state management for Galatea agents."""
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+import copy
 
 
 class SessionStore(ABC):
@@ -120,7 +114,7 @@ class MemorySessionStore(SessionStore):
             "session_id": session_id,
             "transcript": transcript,
             "metadata": metadata,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
     async def load_session(
@@ -192,10 +186,18 @@ class SessionManager:
         Returns:
             Session ID
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Session creation")
+        existing = await self.store.load_session(session_id)
+        if existing is not None:
+            raise ValueError(f"Session already exists: {session_id}")
+        data = {
+            "agent_type": agent_type,
+            "project_name": project_name,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            **(metadata or {}),
+        }
+        await self.store.save_session(session_id, transcript=[], metadata=data)
+        return session_id
 
     async def resume_session(
         self,
@@ -210,10 +212,11 @@ class SessionManager:
         Returns:
             Session state with transcript
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Session resumption")
+        session = await self.store.load_session(session_id)
+        if session is None:
+            raise KeyError(f"Session not found: {session_id}")
+        return session
 
     async def fork_session(
         self,
@@ -230,7 +233,17 @@ class SessionManager:
         Returns:
             New session ID
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Session forking")
+        source = await self.resume_session(source_session_id)
+        if await self.store.load_session(new_session_id) is not None:
+            raise ValueError(f"Session already exists: {new_session_id}")
+        metadata = copy.deepcopy(source.get("metadata", {}))
+        metadata.update(
+            {
+                "forked_from": source_session_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        transcript = copy.deepcopy(source.get("transcript", []))
+        await self.store.save_session(new_session_id, transcript=transcript, metadata=metadata)
+        return new_session_id

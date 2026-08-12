@@ -186,6 +186,12 @@ agent/
 
 from agent.runtime import GalateaRuntime
 from agent.client import GalateaAgentClient
+from agent.sdk_core import (
+    AgentSDKConfig,
+    ContextCompressionConfig,
+    GalateaSDKRuntime,
+    SDKRunResult,
+)
 
 # Schema exports
 from agent.schemas.common import (
@@ -228,10 +234,15 @@ from agent.workflows import (
     WorkflowOrchestrator,
 )
 
-# Agent definitions (interfaces)
+# Agent definitions - pre-defined agents only
+# Note: AgentDefinition comes from claude_agent_sdk, not from agent.agents
 from agent.agents import (
-    AgentDefinition,
-    AgentRegistry,
+    PLATFORM_INSPECTOR,
+    DATA_PREPARER,
+    TRAINING_ORCHESTRATOR,
+    MODEL_EVALUATOR,
+    EXPERIMENT_ANALYZER,
+    DOCUMENTATION_GENERATOR,
 )
 
 __version__ = "0.1.0-stage1"
@@ -240,6 +251,10 @@ __all__ = [
     # Runtime
     "GalateaRuntime",
     "GalateaAgentClient",
+    "AgentSDKConfig",
+    "ContextCompressionConfig",
+    "GalateaSDKRuntime",
+    "SDKRunResult",
     # Schemas
     "StageResult",
     "StageStatus",
@@ -266,7 +281,11 @@ __all__ = [
     "WorkflowState",
     "WorkflowDefinition",
     "WorkflowOrchestrator",
-    # Agents
-    "AgentDefinition",
-    "AgentRegistry",
+    # Agents - pre-defined
+    "PLATFORM_INSPECTOR",
+    "DATA_PREPARER",
+    "TRAINING_ORCHESTRATOR",
+    "MODEL_EVALUATOR",
+    "EXPERIMENT_ANALYZER",
+    "DOCUMENTATION_GENERATOR",
 ]

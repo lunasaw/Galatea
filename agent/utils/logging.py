@@ -1,51 +1,33 @@
-"""
-Structured logging for Galatea agents.
+"""Structured logging for Galatea agents."""
 
-Provides consistent logging format, audit trails, and log aggregation.
-"""
+from __future__ import annotations
 
-import logging
 import json
-from typing import Dict, Any, Optional
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 
-def setup_logging(
-    level: int = logging.INFO,
-    format_json: bool = False,
-) -> None:
-    """
-    Set up logging configuration.
-
-    Args:
-        level: Logging level
-        format_json: If True, output JSON format
-
-    Raises:
-        NotImplementedError: Future: Stage 2+
-    """
-    raise NotImplementedError("Future: Stage 2+ - Logging setup")
+def setup_logging(level: int = logging.INFO, format_json: bool = False) -> None:
+    """Set up root logging configuration."""
+    if format_json:
+        formatter = _JsonFormatter()
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        logging.basicConfig(level=level, handlers=[handler], force=True)
+    else:
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+            force=True,
+        )
 
 
 class StructuredLogger:
-    """
-    Structured logger with consistent format.
+    """Structured logger with consistent event payloads."""
 
-    Logs events with context, metadata, and timestamps in JSON format.
-    """
-
-    def __init__(
-        self,
-        name: str,
-        context: Optional[Dict[str, Any]] = None,
-    ):
-        """
-        Initialize structured logger.
-
-        Args:
-            name: Logger name
-            context: Default context to include in all logs
-        """
+    def __init__(self, name: str, context: Optional[Dict[str, Any]] = None) -> None:
         self.logger = logging.getLogger(name)
         self.context = context or {}
 
@@ -55,37 +37,14 @@ class StructuredLogger:
         level: int = logging.INFO,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """
-        Log structured event.
+        payload = self._payload(event, metadata)
+        self.logger.log(level, json.dumps(payload, ensure_ascii=False, default=str))
 
-        Args:
-            event: Event name
-            level: Log level
-            metadata: Additional metadata
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Event logging")
-
-    def log_tool_use(
-        self,
-        tool_name: str,
-        tool_input: Dict[str, Any],
-        session_id: str,
-    ) -> None:
-        """
-        Log tool use event.
-
-        Args:
-            tool_name: Tool being used
-            tool_input: Tool input parameters
-            session_id: Session ID
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Tool use logging")
+    def log_tool_use(self, tool_name: str, tool_input: Dict[str, Any], session_id: str) -> None:
+        self.log_event(
+            "tool_use",
+            metadata={"tool_name": tool_name, "tool_input": tool_input, "session_id": session_id},
+        )
 
     def log_tool_result(
         self,
@@ -95,39 +54,23 @@ class StructuredLogger:
         session_id: str,
         error: Optional[str] = None,
     ) -> None:
-        """
-        Log tool result event.
+        self.log_event(
+            "tool_result",
+            level=logging.INFO if success else logging.ERROR,
+            metadata={
+                "tool_name": tool_name,
+                "success": success,
+                "duration_ms": duration_ms,
+                "session_id": session_id,
+                "error": error,
+            },
+        )
 
-        Args:
-            tool_name: Tool that executed
-            success: Whether execution succeeded
-            duration_ms: Execution duration in milliseconds
-            session_id: Session ID
-            error: Optional error message
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Tool result logging")
-
-    def log_stage_transition(
-        self,
-        from_stage: str,
-        to_stage: str,
-        workflow_id: str,
-    ) -> None:
-        """
-        Log workflow stage transition.
-
-        Args:
-            from_stage: Previous stage
-            to_stage: Next stage
-            workflow_id: Workflow ID
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Stage transition logging")
+    def log_stage_transition(self, from_stage: str, to_stage: str, workflow_id: str) -> None:
+        self.log_event(
+            "stage_transition",
+            metadata={"from_stage": from_stage, "to_stage": to_stage, "workflow_id": workflow_id},
+        )
 
     def log_api_call(
         self,
@@ -137,37 +80,31 @@ class StructuredLogger:
         cost_usd: float,
         session_id: str,
     ) -> None:
-        """
-        Log API call event.
+        self.log_event(
+            "api_call",
+            metadata={
+                "model": model,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost_usd": cost_usd,
+                "session_id": session_id,
+            },
+        )
 
-        Args:
-            model: Model name
-            input_tokens: Input token count
-            output_tokens: Output token count
-            cost_usd: Cost in USD
-            session_id: Session ID
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - API call logging")
+    def _payload(self, event: str, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        return {
+            "event": event,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **self.context,
+            **(metadata or {}),
+        }
 
 
 class AuditLogger:
-    """
-    Audit logger for compliance and tracking.
+    """Audit logger for compliance and approval trails."""
 
-    Logs all actions with timestamps, user context, and approval trails.
-    """
-
-    def __init__(self, audit_file: Optional[str] = None):
-        """
-        Initialize audit logger.
-
-        Args:
-            audit_file: Optional file path for audit logs
-        """
-        self.audit_file = audit_file
+    def __init__(self, audit_file: Optional[str] = None) -> None:
+        self.audit_file = Path(audit_file) if audit_file else None
         self.logger = logging.getLogger("galatea.audit")
 
     def log_action(
@@ -177,19 +114,15 @@ class AuditLogger:
         resource: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """
-        Log audited action.
-
-        Args:
-            action: Action performed
-            actor: Who performed the action
-            resource: Resource affected
-            metadata: Additional metadata
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Audit logging")
+        payload = {
+            "event": "audit_action",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action": action,
+            "actor": actor,
+            "resource": resource,
+            "metadata": metadata or {},
+        }
+        self._write(payload)
 
     def log_approval(
         self,
@@ -198,33 +131,35 @@ class AuditLogger:
         approved: bool,
         approver: str,
     ) -> None:
-        """
-        Log approval decision.
+        self.log_action(
+            action="approval_decision",
+            actor=approver,
+            resource=approval_id,
+            metadata={"requested_action": action, "approved": approved},
+        )
 
-        Args:
-            approval_id: Approval request ID
-            action: Action being approved/denied
-            approved: Whether action was approved
-            approver: Who made the decision
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Approval logging")
+    def _write(self, payload: Dict[str, Any]) -> None:
+        line = json.dumps(payload, ensure_ascii=False, default=str)
+        self.logger.info(line)
+        if self.audit_file:
+            self.audit_file.parent.mkdir(parents=True, exist_ok=True)
+            with self.audit_file.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
 
 
 def get_logger(name: str, context: Optional[Dict[str, Any]] = None) -> StructuredLogger:
-    """
-    Get or create structured logger.
+    """Get a structured logger."""
+    return StructuredLogger(name, context)
 
-    Args:
-        name: Logger name
-        context: Default context
 
-    Returns:
-        StructuredLogger instance
-
-    Raises:
-        NotImplementedError: Future: Stage 2+
-    """
-    raise NotImplementedError("Future: Stage 2+ - Logger factory")
+class _JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return json.dumps(
+            {
+                "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+            },
+            ensure_ascii=False,
+        )

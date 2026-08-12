@@ -1,134 +1,74 @@
-"""
-Agent registry for discovery and management.
+"""Agent registry for discovery and management."""
 
-Manages agent definitions and provides lookup capabilities.
-"""
+from __future__ import annotations
 
 from typing import Dict, List, Optional
+
 from agent.agents.definition import AgentDefinition
 
 
 class AgentRegistry:
-    """
-    Registry for agent definitions.
+    """Registry for Galatea agent definitions."""
 
-    Provides registration, lookup, and listing of agents.
-    """
-
-    def __init__(self):
-        """Initialize empty registry."""
+    def __init__(self) -> None:
         self._agents: Dict[str, AgentDefinition] = {}
 
     def register(self, definition: AgentDefinition) -> None:
-        """
-        Register agent definition.
-
-        Args:
-            definition: Agent definition to register
-
-        Raises:
-            ValueError: If agent name already exists
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Agent registration")
+        definition.validate()
+        if definition.name in self._agents:
+            raise ValueError(f"Agent already registered: {definition.name}")
+        self._agents[definition.name] = definition
 
     def unregister(self, name: str) -> None:
-        """
-        Unregister agent definition.
-
-        Args:
-            name: Agent name to remove
-
-        Raises:
-            KeyError: If agent not found
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Agent unregistration")
+        if name not in self._agents:
+            raise KeyError(f"Agent not found: {name}")
+        del self._agents[name]
 
     def get(self, name: str) -> Optional[AgentDefinition]:
-        """
-        Get agent definition by name.
-
-        Args:
-            name: Agent name
-
-        Returns:
-            AgentDefinition or None
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Agent lookup")
+        return self._agents.get(name)
 
     def list(self, filter_tags: Optional[List[str]] = None) -> List[str]:
-        """
-        List registered agent names.
-
-        Args:
-            filter_tags: Optional tags to filter by
-
-        Returns:
-            List of agent names
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Agent listing")
+        if not filter_tags:
+            return sorted(self._agents)
+        return sorted(
+            name
+            for name, definition in self._agents.items()
+            if definition.tools and all(tag in definition.tools for tag in filter_tags)
+        )
 
     def list_by_capability(self, capability: str) -> List[str]:
-        """
-        List agents with specific capability.
-
-        Args:
-            capability: Capability name (e.g., "ray_data", "mlflow_tracking")
-
-        Returns:
-            List of agent names
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Capability-based listing")
+        return sorted(
+            name
+            for name, definition in self._agents.items()
+            if _has_capability(definition, capability)
+        )
 
 
-# Global registry instance
 _global_registry = AgentRegistry()
 
 
 def get_registry() -> AgentRegistry:
-    """
-    Get global agent registry.
-
-    Returns:
-        Global AgentRegistry instance
-    """
+    """Get global agent registry."""
     return _global_registry
 
 
 def register_agent(definition: AgentDefinition) -> None:
-    """
-    Register agent in global registry.
-
-    Args:
-        definition: Agent definition to register
-
-    Raises:
-        NotImplementedError: Future: Stage 2+
-    """
-    raise NotImplementedError("Future: Stage 2+ - Global registration")
+    """Register an agent in the global registry."""
+    _global_registry.register(definition)
 
 
 def get_agent(name: str) -> Optional[AgentDefinition]:
-    """
-    Get agent from global registry.
+    """Get an agent from the global registry."""
+    return _global_registry.get(name)
 
-    Args:
-        name: Agent name
 
-    Returns:
-        AgentDefinition or None
-
-    Raises:
-        NotImplementedError: Future: Stage 2+
-    """
-    raise NotImplementedError("Future: Stage 2+ - Global lookup")
+def _has_capability(definition: AgentDefinition, capability: str) -> bool:
+    haystack = [
+        definition.name,
+        definition.description,
+        definition.prompt,
+        *(definition.tools or []),
+        *(definition.skills or []),
+    ]
+    needle = capability.lower()
+    return any(needle in item.lower() for item in haystack)

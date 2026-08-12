@@ -1,9 +1,4 @@
-"""
-Budget policy for cost control.
-
-Implements token/cost budgets and budget enforcement.
-Reference: Claude SDK's max_budget_usd.
-"""
+"""Budget policy for cost, token, and turn control."""
 
 from typing import Optional
 
@@ -40,10 +35,12 @@ class BudgetPolicy:
         Returns:
             True if budget allows more calls, False if exceeded
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Budget checking")
+        if self.max_budget_usd is not None and self.current_cost_usd > self.max_budget_usd:
+            return False
+        if self.max_tokens is not None and self.current_tokens > self.max_tokens:
+            return False
+        return True
 
     def record_usage(
         self,
@@ -57,10 +54,17 @@ class BudgetPolicy:
             cost_usd: Cost in USD
             tokens: Token count
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Usage recording")
+        if cost_usd < 0:
+            raise ValueError("cost_usd must be non-negative")
+        if tokens < 0:
+            raise ValueError("tokens must be non-negative")
+
+        self.current_cost_usd += cost_usd
+        self.current_tokens += tokens
+
+        if self.max_budget_usd is not None and self.current_cost_usd > self.max_budget_usd:
+            raise BudgetExceededError(self.max_budget_usd, self.current_cost_usd)
 
     def remaining_budget_usd(self) -> Optional[float]:
         """
@@ -69,10 +73,10 @@ class BudgetPolicy:
         Returns:
             Remaining budget or None if unlimited
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Budget calculation")
+        if self.max_budget_usd is None:
+            return None
+        return max(self.max_budget_usd - self.current_cost_usd, 0.0)
 
     def remaining_tokens(self) -> Optional[int]:
         """
@@ -81,19 +85,18 @@ class BudgetPolicy:
         Returns:
             Remaining tokens or None if unlimited
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Token calculation")
+        if self.max_tokens is None:
+            return None
+        return max(self.max_tokens - self.current_tokens, 0)
 
     def reset(self) -> None:
         """
         Reset budget counters.
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Budget reset")
+        self.current_cost_usd = 0.0
+        self.current_tokens = 0
 
 
 class BudgetExceededError(Exception):

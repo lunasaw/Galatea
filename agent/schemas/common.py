@@ -2,7 +2,7 @@
 Common data structures shared across all agent stages.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
@@ -32,7 +32,7 @@ class StageEvidence(BaseModel):
     summary: str = Field(..., description="Human-readable summary")
     artifact: Optional[ArtifactRef] = None
     metrics: Dict[str, float] = Field(default_factory=dict)
-    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class ApprovalRequest(BaseModel):

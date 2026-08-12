@@ -1,51 +1,47 @@
 """
-Agent definition and registry framework.
+Galatea Agent Definitions
 
-Provides agent configuration structure and discovery.
+Pre-defined agents using Claude SDK's AgentDefinition pattern.
 
-Key components:
-- AgentDefinition: Agent configuration (tools, model, permissions)
-- AgentMetadata: Runtime metadata tracking
-- AgentRegistry: Agent discovery and management
-- Predefined agents: Inspection, data, training, inference agents
+Usage:
+    from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+    from agent.tools import create_galatea_mcp_server
+    from agent.agents import PLATFORM_INSPECTOR, DATA_PREPARER
 
-Reference: Claude SDK's AgentDefinition and agent patterns.
+    options = ClaudeAgentOptions(
+        mcp_servers={"galatea": create_galatea_mcp_server()},
+        agents={
+            "inspector": PLATFORM_INSPECTOR,
+            "data": DATA_PREPARER,
+        },
+    )
+
+    async with ClaudeSDKClient(options) as client:
+        await client.query("Use inspector to check platform health")
+        async for msg in client.receive_response():
+            # Handle messages
 """
 
-from agent.agents.definition import (
-    AgentDefinition,
-    AgentMetadata,
-    PermissionMode,
-    MemoryScope,
-    EffortLevel,
-    # Predefined agents
-    INSPECTION_AGENT,
-    DATA_AGENT,
-    TRAINING_AGENT,
-    INFERENCE_AGENT,
-)
-from agent.agents.registry import (
-    AgentRegistry,
-    get_registry,
-    register_agent,
-    get_agent,
+from agent.agents.definitions import (
+    # Platform management
+    PLATFORM_INSPECTOR,
+    # Stage agents
+    DATA_PREPARER,
+    TRAINING_ORCHESTRATOR,
+    MODEL_EVALUATOR,
+    # Utility agents
+    EXPERIMENT_ANALYZER,
+    DOCUMENTATION_GENERATOR,
 )
 
 __all__ = [
-    # Definition
-    "AgentDefinition",
-    "AgentMetadata",
-    "PermissionMode",
-    "MemoryScope",
-    "EffortLevel",
-    # Predefined agents
-    "INSPECTION_AGENT",
-    "DATA_AGENT",
-    "TRAINING_AGENT",
-    "INFERENCE_AGENT",
-    # Registry
-    "AgentRegistry",
-    "get_registry",
-    "register_agent",
-    "get_agent",
+    # Platform management
+    "PLATFORM_INSPECTOR",
+    # Stage agents
+    "DATA_PREPARER",
+    "TRAINING_ORCHESTRATOR",
+    "MODEL_EVALUATOR",
+    # Utility agents
+    "EXPERIMENT_ANALYZER",
+    "DOCUMENTATION_GENERATOR",
 ]

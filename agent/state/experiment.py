@@ -1,13 +1,11 @@
-"""
-Experiment state tracking for training workflows.
-
-Manages experiment context, stage transitions, and artifact references
-during multi-stage training workflows.
-"""
+"""Experiment state tracking for training workflows."""
 
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
+
+from agent.state.persistence import load_from_file, save_to_file
 
 
 class ExperimentStage(str, Enum):
@@ -49,7 +47,7 @@ class ExperimentState:
         self.artifacts: Dict[str, str] = {}
         self.transitions: List[Dict[str, Any]] = []
 
-        self.created_at = datetime.utcnow().isoformat()
+        self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
 
     def set_stage(self, stage: ExperimentStage) -> None:
@@ -59,10 +57,19 @@ class ExperimentState:
         Args:
             stage: Target stage
 
-        Raises:
-            NotImplementedError: Future: Stage 2+ - Stage validation
         """
-        raise NotImplementedError("Future: Stage 2+ - Stage transition logic")
+        if not isinstance(stage, ExperimentStage):
+            stage = ExperimentStage(stage)
+        previous = self.current_stage.value if self.current_stage else None
+        self.current_stage = stage
+        self.updated_at = datetime.now(timezone.utc).isoformat()
+        self.transitions.append(
+            {
+                "from": previous,
+                "to": stage.value,
+                "at": self.updated_at,
+            }
+        )
 
     def record_stage_result(
         self,
@@ -76,10 +83,11 @@ class ExperimentState:
             stage: Stage that completed
             result: Stage result dictionary
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Result recording")
+        if not isinstance(stage, ExperimentStage):
+            stage = ExperimentStage(stage)
+        self.stage_results[stage.value] = result
+        self.updated_at = datetime.now(timezone.utc).isoformat()
 
     def add_artifact(
         self,
@@ -95,10 +103,20 @@ class ExperimentState:
             uri: Artifact URI (mlflow-artifacts://, s3://, etc.)
             stage: Stage that produced artifact
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Artifact tracking")
+        if not isinstance(stage, ExperimentStage):
+            stage = ExperimentStage(stage)
+        self.artifacts[name] = uri
+        self.updated_at = datetime.now(timezone.utc).isoformat()
+        self.transitions.append(
+            {
+                "event": "artifact_added",
+                "stage": stage.value,
+                "name": name,
+                "uri": uri,
+                "at": self.updated_at,
+            }
+        )
 
     def get_artifact(self, name: str) -> Optional[str]:
         """
@@ -110,10 +128,8 @@ class ExperimentState:
         Returns:
             Artifact URI or None
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Artifact retrieval")
+        return self.artifacts.get(name)
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -122,10 +138,18 @@ class ExperimentState:
         Returns:
             State dictionary
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - State serialization")
+        return {
+            "experiment_id": self.experiment_id,
+            "project_name": self.project_name,
+            "mlflow_experiment_name": self.mlflow_experiment_name,
+            "current_stage": self.current_stage.value if self.current_stage else None,
+            "stage_results": self.stage_results,
+            "artifacts": self.artifacts,
+            "transitions": self.transitions,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ExperimentState":
@@ -138,10 +162,20 @@ class ExperimentState:
         Returns:
             ExperimentState instance
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - State deserialization")
+        state = cls(
+            experiment_id=data["experiment_id"],
+            project_name=data["project_name"],
+            mlflow_experiment_name=data["mlflow_experiment_name"],
+        )
+        current_stage = data.get("current_stage")
+        state.current_stage = ExperimentStage(current_stage) if current_stage else None
+        state.stage_results = data.get("stage_results", {})
+        state.artifacts = data.get("artifacts", {})
+        state.transitions = data.get("transitions", [])
+        state.created_at = data.get("created_at", state.created_at)
+        state.updated_at = data.get("updated_at", state.updated_at)
+        return state
 
 
 class ExperimentStateManager:
@@ -166,10 +200,11 @@ class ExperimentStateManager:
         Args:
             state: ExperimentState to save
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - State persistence")
+        self._states[state.experiment_id] = state
+        if self.storage_path:
+            path = self._state_path(state.experiment_id)
+            await save_to_file(state.to_dict(), path)
 
     async def load_state(self, experiment_id: str) -> Optional[ExperimentState]:
         """
@@ -181,10 +216,16 @@ class ExperimentStateManager:
         Returns:
             ExperimentState or None
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - State loading")
+        if experiment_id in self._states:
+            return self._states[experiment_id]
+        if self.storage_path:
+            path = self._state_path(experiment_id)
+            if path.exists():
+                state = ExperimentState.from_dict(await load_from_file(path))
+                self._states[experiment_id] = state
+                return state
+        return None
 
     async def list_experiments(
         self,
@@ -199,7 +240,24 @@ class ExperimentStateManager:
         Returns:
             List of experiment IDs
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Experiment listing")
+        ids = set(self._states)
+        if self.storage_path:
+            root = Path(self.storage_path)
+            if root.exists():
+                ids.update(path.stem for path in root.glob("*.json"))
+
+        if project_name is None:
+            return sorted(ids)
+
+        matching = []
+        for experiment_id in sorted(ids):
+            state = await self.load_state(experiment_id)
+            if state and state.project_name == project_name:
+                matching.append(experiment_id)
+        return matching
+
+    def _state_path(self, experiment_id: str) -> Path:
+        if not self.storage_path:
+            raise ValueError("storage_path is not configured")
+        return Path(self.storage_path) / f"{experiment_id}.json"

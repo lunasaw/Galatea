@@ -1,12 +1,11 @@
-"""
-Agent definition framework for Galatea.
+"""Agent definition framework for Galatea."""
 
-Defines agent configuration structure similar to Claude SDK's AgentDefinition.
-Reference: Claude SDK types.py AgentDefinition dataclass.
-"""
+from __future__ import annotations
 
 from typing import Optional, List, Dict, Any, Literal
 from dataclasses import dataclass, field
+
+from claude_agent_sdk import AgentDefinition as SDKAgentDefinition
 
 
 # Type aliases matching Claude SDK
@@ -67,11 +66,16 @@ class AgentDefinition:
         Returns:
             True if valid
 
-        Raises:
-            ValueError: If definition is invalid
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Definition validation")
+        if not self.name:
+            raise ValueError("Agent name is required")
+        if not self.description:
+            raise ValueError("Agent description is required")
+        if not self.prompt:
+            raise ValueError("Agent prompt is required")
+        if self.permission_mode == "bypassPermissions":
+            raise ValueError("Galatea agents must not use bypassPermissions")
+        return True
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -80,10 +84,27 @@ class AgentDefinition:
         Returns:
             Dictionary representation
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Serialization")
+        self.validate()
+        return {
+            "name": self.name,
+            "description": self.description,
+            "prompt": self.prompt,
+            "tools": self.tools,
+            "disallowed_tools": self.disallowed_tools,
+            "model": self.model,
+            "skills": self.skills,
+            "memory": self.memory,
+            "mcp_servers": self.mcp_servers,
+            "initial_prompt": self.initial_prompt,
+            "max_turns": self.max_turns,
+            "max_budget_usd": self.max_budget_usd,
+            "background": self.background,
+            "effort": self.effort,
+            "permission_mode": self.permission_mode,
+            "project_name": self.project_name,
+            "mlflow_experiment_name": self.mlflow_experiment_name,
+        }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentDefinition":
@@ -96,10 +117,27 @@ class AgentDefinition:
         Returns:
             AgentDefinition instance
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Deserialization")
+        return cls(**data)
+
+    def to_sdk(self) -> SDKAgentDefinition:
+        """Convert to Claude SDK AgentDefinition."""
+        self.validate()
+        return SDKAgentDefinition(
+            description=self.description,
+            prompt=self.prompt,
+            tools=self.tools,
+            disallowedTools=self.disallowed_tools,
+            model=self.model,
+            skills=self.skills,
+            memory=self.memory,
+            mcpServers=self.mcp_servers,
+            initialPrompt=self.initial_prompt,
+            maxTurns=self.max_turns,
+            background=self.background,
+            effort=self.effort,
+            permissionMode=self.permission_mode,
+        )
 
 
 @dataclass

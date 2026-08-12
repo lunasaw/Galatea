@@ -1,8 +1,4 @@
-"""
-Workflow orchestrator for multi-agent coordination.
-
-Manages workflow execution, agent coordination, and result aggregation.
-"""
+"""Workflow orchestrator for multi-agent coordination."""
 
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -54,10 +50,11 @@ class WorkflowOrchestrator:
         Returns:
             Workflow ID
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Workflow creation")
+        if workflow_id in self._active_workflows:
+            raise ValueError(f"Workflow already exists: {workflow_id}")
+        self._active_workflows[workflow_id] = WorkflowStateMachine(workflow_id, definition)
+        return workflow_id
 
     async def execute_workflow(
         self,
@@ -74,10 +71,33 @@ class WorkflowOrchestrator:
         Returns:
             Workflow results
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
+        The context may include ``stage_handlers`` mapping stage name to an
+        async callable. Without a handler, stages complete with a skipped result.
         """
-        raise NotImplementedError("Future: Stage 2+ - Workflow execution")
+        machine = self._get_workflow(workflow_id)
+        if machine.state == WorkflowState.PENDING:
+            machine.start()
+
+        while machine.state == WorkflowState.RUNNING and machine.current_stage:
+            stage = machine.current_stage
+            result = await self.execute_stage(workflow_id, stage, context.get(stage, context))
+            if result.get("status") == "failed":
+                machine.fail_stage(stage, result.get("error", "stage failed"))
+                break
+            machine.complete_stage(stage, result)
+
+            next_stages = machine.definition.get_next_stages(stage)
+            if not next_stages:
+                if machine.state != WorkflowState.COMPLETED:
+                    machine.state = WorkflowState.COMPLETED
+                    machine.completed_at = machine.completed_at or result.get("completed_at")
+                break
+            transition = machine.transition_to(next_stages[0])
+            if not transition.allowed:
+                machine.fail_stage(stage, transition.reason)
+                break
+
+        return machine.get_status()
 
     async def execute_stage(
         self,
@@ -96,10 +116,21 @@ class WorkflowOrchestrator:
         Returns:
             Stage result
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
+        If no stage handler is configured, this returns a skipped stage result.
         """
-        raise NotImplementedError("Future: Stage 2+ - Stage execution")
+        self._get_workflow(workflow_id)
+        handlers = stage_input.get("stage_handlers") if isinstance(stage_input, dict) else None
+        handler = handlers.get(stage) if isinstance(handlers, dict) else None
+        if handler is None:
+            return {
+                "stage": stage,
+                "status": "skipped",
+                "reason": "No stage handler configured",
+            }
+        result = handler(stage_input)
+        if hasattr(result, "__await__"):
+            result = await result
+        return result
 
     async def pause_workflow(self, workflow_id: str) -> None:
         """
@@ -108,10 +139,8 @@ class WorkflowOrchestrator:
         Args:
             workflow_id: Workflow to pause
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Workflow pause")
+        self._get_workflow(workflow_id).pause()
 
     async def resume_workflow(self, workflow_id: str) -> None:
         """
@@ -120,10 +149,8 @@ class WorkflowOrchestrator:
         Args:
             workflow_id: Workflow to resume
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Workflow resume")
+        self._get_workflow(workflow_id).resume()
 
     async def cancel_workflow(self, workflow_id: str) -> None:
         """
@@ -132,10 +159,8 @@ class WorkflowOrchestrator:
         Args:
             workflow_id: Workflow to cancel
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Workflow cancellation")
+        self._get_workflow(workflow_id).cancel()
 
     async def get_workflow_status(
         self,
@@ -150,10 +175,8 @@ class WorkflowOrchestrator:
         Returns:
             Status dictionary
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Status retrieval")
+        return self._get_workflow(workflow_id).get_status()
 
     async def list_workflows(
         self,
@@ -168,10 +191,20 @@ class WorkflowOrchestrator:
         Returns:
             List of workflow IDs
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Workflow listing")
+        if state is None:
+            return sorted(self._active_workflows)
+        return sorted(
+            workflow_id
+            for workflow_id, machine in self._active_workflows.items()
+            if machine.state == state
+        )
+
+    def _get_workflow(self, workflow_id: str) -> WorkflowStateMachine:
+        try:
+            return self._active_workflows[workflow_id]
+        except KeyError as exc:
+            raise KeyError(f"Workflow not found: {workflow_id}") from exc
 
 
 # Predefined workflow definitions

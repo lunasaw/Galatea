@@ -1,80 +1,40 @@
-"""
-State persistence utilities.
+"""State persistence utilities."""
 
-Helper functions for serializing and deserializing agent state.
-"""
+from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any, Dict
 
 
-async def save_to_file(
-    data: Dict[str, Any],
-    file_path: Path,
-) -> None:
-    """
-    Save state dictionary to JSON file.
-
-    Args:
-        data: State data to save
-        file_path: Target file path
-
-    Raises:
-        NotImplementedError: Future: Stage 2+
-    """
-    raise NotImplementedError("Future: Stage 2+ - File persistence")
+async def save_to_file(data: Dict[str, Any], file_path: Path) -> None:
+    """Save a state dictionary to JSON."""
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+    tmp_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True, default=str),
+        encoding="utf-8",
+    )
+    tmp_path.replace(file_path)
 
 
-async def load_from_file(
-    file_path: Path,
-) -> Dict[str, Any]:
-    """
-    Load state dictionary from JSON file.
-
-    Args:
-        file_path: Source file path
-
-    Returns:
-        State data dictionary
-
-    Raises:
-        NotImplementedError: Future: Stage 2+
-    """
-    raise NotImplementedError("Future: Stage 2+ - File loading")
+async def load_from_file(file_path: Path) -> Dict[str, Any]:
+    """Load a state dictionary from JSON."""
+    if not file_path.exists():
+        raise FileNotFoundError(file_path)
+    return json.loads(file_path.read_text(encoding="utf-8"))
 
 
 def serialize_state(state: Any) -> str:
-    """
-    Serialize state object to JSON string.
-
-    Args:
-        state: State object with to_dict() method
-
-    Returns:
-        JSON string
-
-    Raises:
-        NotImplementedError: Future: Stage 2+
-    """
-    raise NotImplementedError("Future: Stage 2+ - Serialization")
+    """Serialize an object with to_dict() to JSON."""
+    if hasattr(state, "to_dict"):
+        state = state.to_dict()
+    return json.dumps(state, ensure_ascii=False, sort_keys=True, default=str)
 
 
-def deserialize_state(
-    json_str: str,
-    state_class: type,
-) -> Any:
-    """
-    Deserialize JSON string to state object.
-
-    Args:
-        json_str: JSON string
-        state_class: State class with from_dict() method
-
-    Returns:
-        State object instance
-
-    Raises:
-        NotImplementedError: Future: Stage 2+
-    """
-    raise NotImplementedError("Future: Stage 2+ - Deserialization")
+def deserialize_state(json_str: str, state_class: type) -> Any:
+    """Deserialize JSON into a state object."""
+    data = json.loads(json_str)
+    if hasattr(state_class, "from_dict"):
+        return state_class.from_dict(data)
+    return state_class(**data)

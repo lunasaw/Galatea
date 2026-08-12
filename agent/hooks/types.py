@@ -1,61 +1,52 @@
-"""
-Hook type definitions for Galatea agents.
+"""Hook type definitions and local registry for Galatea agents."""
 
-Defines hook events, contexts, and callback signatures.
-Reference: Claude SDK's HookContext, HookInput, HookJSONOutput.
-"""
+from __future__ import annotations
 
-from typing import Dict, Any, Optional, Callable, Awaitable, List
+import fnmatch
+import inspect
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 
 class HookEvent(str, Enum):
-    """
-    Hook event types.
-
-    Reference: Claude SDK hook events.
-    """
+    """Hook event types supported by Galatea and the Claude SDK."""
 
     SESSION_START = "SessionStart"
     USER_PROMPT_SUBMIT = "UserPromptSubmit"
     PRE_TOOL_USE = "PreToolUse"
     POST_TOOL_USE = "PostToolUse"
+    POST_TOOL_USE_FAILURE = "PostToolUseFailure"
     RESULT_COMPLETE = "ResultComplete"
+    STOP = "Stop"
+    PRE_COMPACT = "PreCompact"
+    SUBAGENT_START = "SubagentStart"
+    SUBAGENT_STOP = "SubagentStop"
+    NOTIFICATION = "Notification"
+    PERMISSION_REQUEST = "PermissionRequest"
 
 
 @dataclass
 class HookContext:
-    """
-    Context passed to hook callbacks.
-
-    Contains session state, agent info, and accumulated metadata.
-    """
+    """Context passed to local hook callbacks."""
 
     session_id: str
     agent_type: str
     project_name: Optional[str] = None
     turn_number: int = 0
-    metadata: Dict[str, Any] = None
+    metadata: Dict[str, Any] | None = None
 
-    def __post_init__(self):
-        """Initialize default metadata."""
+    def __post_init__(self) -> None:
         if self.metadata is None:
             self.metadata = {}
 
 
 @dataclass
 class HookInput:
-    """
-    Input data for hook callbacks.
-
-    Content varies by hook event type.
-    """
+    """Input data for local hook callbacks."""
 
     event: HookEvent
     data: Dict[str, Any]
-
-    # Tool-specific fields (for PreToolUse/PostToolUse)
     tool_name: Optional[str] = None
     tool_input: Optional[Dict[str, Any]] = None
     tool_response: Optional[Any] = None
@@ -64,117 +55,81 @@ class HookInput:
 
 @dataclass
 class HookOutput:
-    """
-    Output from hook callbacks.
+    """Output from local hooks and a helper for SDK hook JSON."""
 
-    Can modify behavior, inject messages, or deny permissions.
-    Reference: Claude SDK's HookJSONOutput.
-    """
-
-    # Permission control
-    permission_decision: Optional[str] = None  # "allow", "deny"
+    permission_decision: Optional[str] = None
     permission_decision_reason: Optional[str] = None
-
-    # Execution control
     continue_: bool = True
     stop_reason: Optional[str] = None
-
-    # Message injection
     system_message: Optional[str] = None
     additional_context: Optional[str] = None
-
-    # Metadata
     reason: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    updated_tool_output: Optional[Any] = None
+    updated_mcp_tool_output: Optional[Any] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        result: Dict[str, Any] = {}
-
+        """Convert to a compact dictionary for local tests and audit logs."""
+        result: Dict[str, Any] = {"continue": self.continue_}
         if self.permission_decision is not None:
             result["permissionDecision"] = self.permission_decision
         if self.permission_decision_reason is not None:
             result["permissionDecisionReason"] = self.permission_decision_reason
-
-        result["continue"] = self.continue_
         if self.stop_reason is not None:
             result["stopReason"] = self.stop_reason
-
         if self.system_message is not None:
             result["systemMessage"] = self.system_message
         if self.additional_context is not None:
             result["additionalContext"] = self.additional_context
-
         if self.reason is not None:
             result["reason"] = self.reason
         if self.metadata is not None:
             result["metadata"] = self.metadata
-
+        if self.updated_tool_output is not None:
+            result["updatedToolOutput"] = self.updated_tool_output
+        if self.updated_mcp_tool_output is not None:
+            result["updatedMCPToolOutput"] = self.updated_mcp_tool_output
         return result
 
 
-# Hook callback signature
-HookCallback = Callable[[HookInput, HookContext], Awaitable[HookOutput]]
+HookCallback = Callable[[HookInput, HookContext], Awaitable[HookOutput] | HookOutput]
 
 
 @dataclass
 class HookMatcher:
-    """
-    Hook matcher for filtering hook invocations.
+    """Hook matcher for filtering hook invocations."""
 
-    Reference: Claude SDK's HookMatcher pattern.
-    """
-
-    matcher: Optional[str]  # Tool name pattern or None for all
+    matcher: Optional[str]
     hooks: List[HookCallback]
+    timeout: Optional[float] = None
 
 
 class HookRegistry:
-    """
-    Registry for hook callbacks.
+    """Registry for local hook callbacks."""
 
-    Manages hook registration, matching, and invocation.
-    """
-
-    def __init__(self):
-        """Initialize empty registry."""
+    def __init__(self) -> None:
         self._hooks: Dict[HookEvent, List[HookMatcher]] = {
             event: [] for event in HookEvent
         }
 
-    def register(
-        self,
-        event: HookEvent,
-        matcher: HookMatcher,
-    ) -> None:
-        """
-        Register hook callback.
+    def register(self, event: HookEvent, matcher: HookMatcher) -> None:
+        """Register hook callbacks for an event."""
+        self._hooks.setdefault(event, []).append(matcher)
 
-        Args:
-            event: Hook event type
-            matcher: Hook matcher with callbacks
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Hook registration")
-
-    def unregister(
-        self,
-        event: HookEvent,
-        callback: HookCallback,
-    ) -> None:
-        """
-        Unregister hook callback.
-
-        Args:
-            event: Hook event type
-            callback: Callback to remove
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Hook unregistration")
+    def unregister(self, event: HookEvent, callback: HookCallback) -> None:
+        """Unregister a callback from an event."""
+        remaining = []
+        for matcher in self._hooks.get(event, []):
+            hooks = [hook for hook in matcher.hooks if hook is not callback]
+            if hooks:
+                remaining.append(
+                    HookMatcher(
+                        matcher=matcher.matcher,
+                        hooks=hooks,
+                        timeout=matcher.timeout,
+                    )
+                )
+        self._hooks[event] = remaining
 
     async def invoke(
         self,
@@ -182,33 +137,37 @@ class HookRegistry:
         input_data: HookInput,
         context: HookContext,
     ) -> List[HookOutput]:
-        """
-        Invoke all matching hooks for event.
-
-        Args:
-            event: Hook event type
-            input_data: Hook input data
-            context: Hook context
-
-        Returns:
-            List of hook outputs
-
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Hook invocation")
+        """Invoke matching hooks for an event."""
+        outputs: List[HookOutput] = []
+        for matcher in self._hooks.get(event, []):
+            if not _matches(matcher.matcher, input_data.tool_name):
+                continue
+            for callback in matcher.hooks:
+                output = callback(input_data, context)
+                if inspect.isawaitable(output):
+                    output = await output
+                outputs.append(output)
+        return outputs
 
     def get_hooks(self, event: HookEvent) -> List[HookMatcher]:
-        """
-        Get registered hooks for event.
+        """Get registered matchers for an event."""
+        return list(self._hooks.get(event, []))
 
-        Args:
-            event: Hook event type
+    def clear(self, event: Optional[HookEvent] = None) -> None:
+        """Clear one event or all events."""
+        if event is None:
+            self._hooks = {hook_event: [] for hook_event in HookEvent}
+        else:
+            self._hooks[event] = []
 
-        Returns:
-            List of hook matchers
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
-        """
-        raise NotImplementedError("Future: Stage 2+ - Hook retrieval")
+def _matches(matcher: Optional[str], tool_name: Optional[str]) -> bool:
+    if matcher is None:
+        return True
+    if tool_name is None:
+        return False
+    for part in matcher.split("|"):
+        pattern = part.strip()
+        if pattern and (pattern == tool_name or fnmatch.fnmatchcase(tool_name, pattern)):
+            return True
+    return False

@@ -1,8 +1,4 @@
-"""
-Quality gate policy for validation.
-
-Implements quality gates for data, training, and inference stages.
-"""
+"""Quality gate policy for stage validation."""
 
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
@@ -43,10 +39,17 @@ class QualityGate:
         Returns:
             Gate status
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Gate evaluation")
+        comparisons = {
+            ">=": value >= self.threshold,
+            "<=": value <= self.threshold,
+            "==": value == self.threshold,
+            ">": value > self.threshold,
+            "<": value < self.threshold,
+        }
+        if self.comparison not in comparisons:
+            raise ValueError(f"Unsupported comparison: {self.comparison}")
+        return GateStatus.PASS if comparisons[self.comparison] else GateStatus.FAIL
 
 
 class QualityGatePolicy:
@@ -76,10 +79,11 @@ class QualityGatePolicy:
             stage: Stage name (data, training, inference)
             gate: Quality gate definition
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Gate addition")
+        self._validate_stage(stage)
+        if any(existing.name == gate.name for existing in self.gates[stage]):
+            raise ValueError(f"Quality gate already exists for {stage}: {gate.name}")
+        self.gates[stage].append(gate)
 
     def remove_gate(
         self,
@@ -93,10 +97,9 @@ class QualityGatePolicy:
             stage: Stage name
             gate_name: Gate name to remove
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Gate removal")
+        self._validate_stage(stage)
+        self.gates[stage] = [gate for gate in self.gates[stage] if gate.name != gate_name]
 
     def evaluate_gates(
         self,
@@ -113,10 +116,39 @@ class QualityGatePolicy:
         Returns:
             Evaluation results with pass/fail per gate
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Gate evaluation")
+        self._validate_stage(stage)
+        results: List[Dict[str, Any]] = []
+        failed_required = []
+
+        for gate in self.gates[stage]:
+            if gate.metric_name not in metrics:
+                status = GateStatus.FAIL if gate.required else GateStatus.SKIP
+                actual = None
+            else:
+                actual = metrics[gate.metric_name]
+                status = gate.evaluate(actual)
+
+            result = {
+                "name": gate.name,
+                "metric_name": gate.metric_name,
+                "status": status.value,
+                "required": gate.required,
+                "comparison": gate.comparison,
+                "threshold": gate.threshold,
+                "actual": actual,
+            }
+            results.append(result)
+            if gate.required and status == GateStatus.FAIL:
+                failed_required.append(result)
+
+        return {
+            "stage": stage,
+            "status": "pass" if not failed_required else "fail",
+            "passed": not failed_required,
+            "results": results,
+            "failed_required": failed_required,
+        }
 
     def get_gates(self, stage: str) -> List[QualityGate]:
         """
@@ -128,10 +160,13 @@ class QualityGatePolicy:
         Returns:
             List of quality gates
 
-        Raises:
-            NotImplementedError: Future: Stage 2+
         """
-        raise NotImplementedError("Future: Stage 2+ - Gate retrieval")
+        self._validate_stage(stage)
+        return list(self.gates[stage])
+
+    def _validate_stage(self, stage: str) -> None:
+        if stage not in self.gates:
+            raise ValueError(f"Unknown stage: {stage}")
 
 
 class QualityGateFailedError(Exception):

@@ -1,36 +1,15 @@
-"""
-GalateaAgentClient
+"""High-level Galatea agent client."""
 
-Galatea agent 操作的高级客户端。
-
-使用 Galatea 特定功能封装 ClaudeSDKClient：
-- MLflow、Ray、MinIO 工具
-- 训练 agent 定义
-- 平台感知的会话管理
-- 实验状态跟踪
-"""
+from __future__ import annotations
 
 from pathlib import Path
-from typing import AsyncIterator, Optional, Dict, Any
-# from claude_agent_sdk import (
-#     ClaudeSDKClient,
-#     ClaudeAgentOptions,
-#     Message,
-# )
+from typing import Any, AsyncIterator, Dict, Optional
+
+from agent.sdk_core import AgentSDKConfig, GalateaSDKRuntime, SDKRunResult
 
 
 class GalateaAgentClient:
-    """
-    Galatea agent 操作的高级客户端。
-
-    示例：
-        async with GalateaAgentClient(project_root) as client:
-            result = await client.train_model(
-                project_name="cats-and-dogs",
-                config_path=Path("configs/dev.yaml"),
-                experiment_name="cats-vs-dogs-dev",
-            )
-    """
+    """Convenience client for platform-aware agent operations."""
 
     def __init__(
         self,
@@ -38,46 +17,44 @@ class GalateaAgentClient:
         mlflow_tracking_uri: str = "http://127.0.0.1:5000",
         ray_address: Optional[str] = None,
         minio_endpoint: str = "http://127.0.0.1:9000",
-    ):
-        """
-        初始化 Galatea agent 客户端。
-
-        Args:
-            project_root: Galatea 平台的根目录
-            mlflow_tracking_uri: MLflow 跟踪服务器 URI
-            ray_address: Ray 集群地址（None 表示本地）
-            minio_endpoint: MinIO API 端点
-        """
+        model: str = "claude-opus-5",
+        max_budget_usd: float = 0.20,
+    ) -> None:
         self.project_root = project_root
         self.mlflow_uri = mlflow_tracking_uri
         self.ray_address = ray_address
         self.minio_endpoint = minio_endpoint
+        self.model = model
+        self.max_budget_usd = max_budget_usd
+        self._runtime: GalateaSDKRuntime | None = None
 
-        # 待实现：初始化 MCP 服务器、agents、会话存储
-        self._client = None
-
-    async def __aenter__(self):
-        """进入异步上下文管理器。"""
-        # 待实现：连接 Claude SDK 客户端
+    async def __aenter__(self) -> "GalateaAgentClient":
+        self._runtime = GalateaSDKRuntime(
+            AgentSDKConfig(
+                project_root=self.project_root,
+                model=self.model,
+                agent_type="client",
+                allowed_tools=_default_allowed_tools(),
+                max_budget_usd=self.max_budget_usd,
+            )
+        )
+        await self._runtime.__aenter__()
         return self
 
-    async def __aexit__(self, *args):
-        """退出异步上下文管理器。"""
-        # 待实现：断开客户端连接
-        pass
+    async def __aexit__(self, *args: Any) -> None:
+        if self._runtime is not None:
+            await self._runtime.__aexit__(*args)
+            self._runtime = None
 
     async def query(self, prompt: str) -> AsyncIterator[Any]:
-        """
-        执行查询并产出响应消息。
+        """Stream raw SDK messages for a prompt."""
+        runtime = self._require_runtime()
+        async for message in runtime.stream_query(prompt):
+            yield message
 
-        Args:
-            prompt: 查询提示
-
-        Yields:
-            来自 agent 的响应消息
-        """
-        # 待实现
-        raise NotImplementedError
+    async def run(self, prompt: str) -> SDKRunResult:
+        """Run a prompt and return a validated SDK result."""
+        return await self._require_runtime().query(prompt)
 
     async def train_model(
         self,
@@ -86,18 +63,31 @@ class GalateaAgentClient:
         experiment_name: str,
     ) -> Dict[str, Any]:
         """
-        在 agent 协助下执行训练作业。
+        Produce a safe training plan using the current read-only foundation.
 
-        Args:
-            project_name: 训练项目名称（例如 'cats-and-dogs'）
-            config_path: 训练配置的路径
-            experiment_name: MLflow 实验名称
-
-        Returns:
-            训练结果摘要
+        Long training submission is intentionally not performed here; later
+        stage-specific tools can turn this plan into approved Ray jobs.
         """
-        # 待实现
-        raise NotImplementedError
+        prompt = f"""Create a safe Galatea training orchestration plan.
+
+Project: {project_name}
+Config path: {config_path}
+MLflow experiment: {experiment_name}
+Tracking URI: {self.mlflow_uri}
+Ray address: {self.ray_address or 'auto/local'}
+
+Use only read-only Galatea inspection tools. Do not submit training, do not use
+test metrics for search, do not promote models, and do not call Bash."""
+        result = await self.run(prompt)
+        return {
+            "status": "planned",
+            "project_name": project_name,
+            "config_path": str(config_path),
+            "experiment_name": experiment_name,
+            "response": result.text,
+            "tool_calls": [call.name for call in result.tool_calls],
+            "cost_usd": result.total_cost_usd,
+        }
 
     async def optimize_experiment(
         self,
@@ -105,16 +95,40 @@ class GalateaAgentClient:
         objective_metric: str,
         objective_mode: str = "max",
     ) -> Dict[str, Any]:
-        """
-        分析实验并推荐优化方案。
+        """Analyze an MLflow experiment and return safe optimization advice."""
+        if objective_mode not in {"max", "min"}:
+            raise ValueError("objective_mode must be 'max' or 'min'")
+        prompt = f"""Analyze MLflow experiment '{experiment_name}' for optimization.
 
-        Args:
-            experiment_name: MLflow 实验名称
-            objective_metric: 要优化的指标
-            objective_mode: "max" 或 "min"
+Tracking URI: {self.mlflow_uri}
+Objective metric: {objective_metric}
+Objective mode: {objective_mode}
 
-        Returns:
-            优化建议
-        """
-        # 待实现
-        raise NotImplementedError
+Use read-only MLflow/project inspection tools. Compare only compatible runs and
+state when evidence is insufficient. Do not submit jobs or change Registry aliases."""
+        result = await self.run(prompt)
+        return {
+            "status": "success",
+            "experiment_name": experiment_name,
+            "objective_metric": objective_metric,
+            "objective_mode": objective_mode,
+            "response": result.text,
+            "tool_calls": [call.name for call in result.tool_calls],
+            "cost_usd": result.total_cost_usd,
+        }
+
+    def _require_runtime(self) -> GalateaSDKRuntime:
+        if self._runtime is None:
+            raise RuntimeError("GalateaAgentClient is not connected. Use 'async with'.")
+        return self._runtime
+
+
+def _default_allowed_tools() -> list[str]:
+    alias = "galatea-platform"
+    return [
+        f"mcp__{alias}__list_training_projects",
+        f"mcp__{alias}__inspect_project_structure",
+        f"mcp__{alias}__check_service_health",
+        f"mcp__{alias}__inspect_mlflow_experiment",
+        f"mcp__{alias}__inspect_ray_status",
+    ]

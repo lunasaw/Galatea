@@ -1,11 +1,11 @@
 """
-Read-only inspection tools for Galatea platform.
+Galatea 平台的只读检查工具。
 
-These tools provide read-only access to:
-- Platform service health (MLflow, Ray, MinIO)
-- Project structure and configurations
-- MLflow experiments and runs
-- Ray cluster status
+这些工具提供只读访问：
+- 平台服务健康状况（MLflow、Ray、MinIO）
+- 项目结构和配置
+- MLflow 实验和运行
+- Ray 集群状态
 """
 
 import subprocess
@@ -15,14 +15,14 @@ from typing import Dict, Any, List
 
 def inspect_project_structure(project_root: str, project_name: str) -> Dict[str, Any]:
     """
-    Inspect the structure of a training project.
+    检查训练项目的结构。
 
     Args:
-        project_root: Root directory of Galatea platform
-        project_name: Name of the project to inspect (e.g., 'ray-cats-and-dogs')
+        project_root: Galatea 平台的根目录
+        project_name: 要检查的项目名称（例如 'ray-cats-and-dogs'）
 
     Returns:
-        Dictionary with project structure information
+        包含项目结构信息的字典
     """
     root = Path(project_root)
     project_path = root / "train-model" / project_name
@@ -32,22 +32,22 @@ def inspect_project_structure(project_root: str, project_name: str) -> Dict[str,
             "project_name": project_name,
             "project_path": str(project_path),
             "exists": False,
-            "error": f"Project not found at {project_path}"
+            "error": f"在 {project_path} 找不到项目"
         }
 
-    # Find config files
+    # 查找配置文件
     config_dir = project_path / "configs"
     config_files = []
     if config_dir.exists():
         config_files = [f.name for f in config_dir.glob("*.yaml")]
 
-    # Find script files
+    # 查找脚本文件
     script_dir = project_path / "scripts"
     script_files = []
     if script_dir.exists():
         script_files = [f.name for f in script_dir.glob("*.py")]
 
-    # Check for tests
+    # 检查测试目录
     test_dir = project_path / "tests"
     has_tests = test_dir.exists()
 
@@ -65,17 +65,17 @@ def inspect_project_structure(project_root: str, project_name: str) -> Dict[str,
 
 def check_service_health(service_name: str, port: int, endpoint: str = "127.0.0.1") -> Dict[str, Any]:
     """
-    Check if a systemd service is active and responding.
+    检查 systemd 服务是否活动并响应。
 
     Args:
-        service_name: Name of systemd service
-        port: Port the service listens on
-        endpoint: Endpoint to check (default: localhost)
+        service_name: systemd 服务名称
+        port: 服务监听的端口
+        endpoint: 要检查的端点（默认：localhost）
 
     Returns:
-        Dictionary with health status
+        包含健康状态的字典
     """
-    # Check systemd service status
+    # 检查 systemd 服务状态
     try:
         result = subprocess.run(
             ["systemctl", "is-active", f"{service_name}.service"],
@@ -99,31 +99,31 @@ def check_service_health(service_name: str, port: int, endpoint: str = "127.0.0.
 
 def inspect_mlflow_experiment(tracking_uri: str, experiment_name: str) -> Dict[str, Any]:
     """
-    Inspect an MLflow experiment.
+    检查 MLflow 实验。
 
     Args:
-        tracking_uri: MLflow tracking server URI
-        experiment_name: Name of the experiment to inspect
+        tracking_uri: MLflow 跟踪服务器 URI
+        experiment_name: 要检查的实验名称
 
     Returns:
-        Dictionary with experiment information
+        包含实验信息的字典
     """
     try:
         import mlflow
 
         mlflow.set_tracking_uri(tracking_uri)
 
-        # Get experiment by name
+        # 按名称获取实验
         experiment = mlflow.get_experiment_by_name(experiment_name)
 
         if experiment is None:
             return {
                 "experiment_name": experiment_name,
                 "exists": False,
-                "error": f"Experiment '{experiment_name}' not found"
+                "error": f"未找到实验 '{experiment_name}'"
             }
 
-        # Count runs
+        # 统计运行次数
         runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id], max_results=1000)
         run_count = len(runs)
 
@@ -137,17 +137,17 @@ def inspect_mlflow_experiment(tracking_uri: str, experiment_name: str) -> Dict[s
             "exists": True,
         }
     except ImportError:
-        return {"error": "mlflow not available"}
+        return {"error": "mlflow 不可用"}
     except Exception as e:
-        return {"error": f"Failed to inspect experiment: {e}"}
+        return {"error": f"检查实验失败: {e}"}
 
 
 def inspect_ray_status() -> Dict[str, Any]:
     """
-    Check Ray cluster status.
+    检查 Ray 集群状态。
 
     Returns:
-        Dictionary with Ray cluster information
+        包含 Ray 集群信息的字典
     """
     try:
         result = subprocess.run(
@@ -160,36 +160,36 @@ def inspect_ray_status() -> Dict[str, Any]:
         if result.returncode != 0:
             return {
                 "is_available": False,
-                "error": "Ray cluster not running or not accessible"
+                "error": "Ray 集群未运行或不可访问"
             }
 
-        # Parse basic info from ray status output
+        # 从 ray status 输出解析基本信息
         output = result.stdout
 
-        # Simple parsing - in production, use Ray API directly
+        # 简单解析 - 在生产环境中，直接使用 Ray API
         is_available = "ray.init()" in output or "Resources" in output
 
         return {
             "is_available": is_available,
-            "raw_output": output[:500],  # First 500 chars
+            "raw_output": output[:500],  # 前 500 个字符
         }
     except subprocess.TimeoutExpired:
-        return {"is_available": False, "error": "ray status command timed out"}
+        return {"is_available": False, "error": "ray status 命令超时"}
     except FileNotFoundError:
-        return {"is_available": False, "error": "ray CLI not found"}
+        return {"is_available": False, "error": "未找到 ray CLI"}
     except Exception as e:
-        return {"is_available": False, "error": f"Failed to check Ray status: {e}"}
+        return {"is_available": False, "error": f"检查 Ray 状态失败: {e}"}
 
 
 def list_training_projects(project_root: str) -> List[str]:
     """
-    List all training projects in train-model directory.
+    列出 train-model 目录中的所有训练项目。
 
     Args:
-        project_root: Root directory of Galatea platform
+        project_root: Galatea 平台的根目录
 
     Returns:
-        List of project names
+        项目名称列表
     """
     root = Path(project_root)
     train_model_dir = root / "train-model"

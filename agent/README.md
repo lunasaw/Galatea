@@ -202,13 +202,39 @@ agent/
 
 ## Configuration
 
-### Environment Variables
+### Anthropic API Configuration
+
+**Recommended: Use `~/.claude/settings.json`**
+
+The runtime automatically loads API configuration from `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_API_KEY": "your-api-key",
+    "ANTHROPIC_BASE_URL": "https://ai.vdian.net/api/"
+  }
+}
+```
+
+**Alternative: Environment Variables**
 
 ```bash
 # Claude API authentication (required)
 export ANTHROPIC_API_KEY="your-api-key"
 
-# Platform endpoints (optional, defaults shown)
+# Custom API endpoint (optional, for proxies like OpenRouter)
+export ANTHROPIC_BASE_URL="https://your-custom-endpoint.com/api/"
+```
+
+**Priority**: Environment variables > settings.json
+
+See [Configuration Guide](doc/configuration.md) for more details.
+
+### Platform Endpoints
+
+```bash
+# Optional overrides (defaults shown)
 export MLFLOW_TRACKING_URI="http://127.0.0.1:5000"
 export RAY_ADDRESS="auto"  # or "ray://127.0.0.1:10001"
 export MINIO_ENDPOINT="http://127.0.0.1:9000"
@@ -221,6 +247,7 @@ GalateaRuntime(
     project_root=Path("/data/ai/chenzhangyue/code/galatea"),
     mlflow_tracking_uri="http://127.0.0.1:5000",
     model="claude-opus-4-20250514",  # or "claude-sonnet-4-20250514"
+    auto_load_config=True,  # Default: auto-load from settings.json
 )
 ```
 
@@ -243,6 +270,34 @@ python agent/demo_basic.py
 ```
 
 ## Monitoring
+
+### Model Request/Response Logging
+
+**All model requests and responses are automatically logged in single-line JSON format without truncation.**
+
+Enable logging in your code:
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+```
+
+Log format:
+```
+MODEL_REQUEST: {"type":"request","model":"claude-opus-5","timestamp":"2026-08-12T10:00:00","prompt":"...","output_schema":null}
+MODEL_RESPONSE: {"type":"response","timestamp":"2026-08-12T10:00:01","message":{...}}
+```
+
+Features:
+- **Complete serialization**: Full prompts and responses (no truncation)
+- **Single-line format**: Easy to parse with grep/jq
+- **Structured data**: JSON with timestamps, model info, and content
+- **Audit trail**: Track all agent interactions
+
+See [Logging Documentation](doc/logging.md) for details on log format, parsing, and security considerations.
 
 ### Cost Tracking
 

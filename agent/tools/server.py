@@ -1,7 +1,7 @@
 """
-MCP tool server for Galatea agents.
+Galatea agents 的 MCP 工具服务器。
 
-Creates an in-process MCP server with read-only inspection tools.
+创建一个带有只读检查工具的进程内 MCP 服务器。
 """
 
 from typing import Any, Dict
@@ -16,19 +16,19 @@ from .inspection import (
 )
 
 
-# Define MCP tools using SDK decorator
-# Tools must be async and return dict with "content" key
+# 使用 SDK 装饰器定义 MCP 工具
+# 工具必须是异步的，并返回带有 "content" 键的字典
 
 @tool(
     "inspect_project_structure",
-    "Inspect the structure of a training project. Returns project path, config files, script files, and test directories. Read-only operation with no side effects.",
+    "检查训练项目的结构。返回项目路径、配置文件、脚本文件和测试目录。只读操作，无副作用。",
     {
         "project_root": str,
         "project_name": str,
     }
 )
 async def tool_inspect_project_structure(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Inspect project structure."""
+    """检查项目结构。"""
     result = inspect_project_structure(args["project_root"], args["project_name"])
     import json
     return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
@@ -36,14 +36,14 @@ async def tool_inspect_project_structure(args: Dict[str, Any]) -> Dict[str, Any]
 
 @tool(
     "check_service_health",
-    "Check if a platform service is active. Verifies systemd service status. Read-only operation with no side effects.",
+    "检查平台服务是否活动。验证 systemd 服务状态。只读操作，无副作用。",
     {
         "service_name": str,
         "port": int,
     }
 )
 async def tool_check_service_health(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Check service health."""
+    """检查服务健康状况。"""
     result = check_service_health(
         args["service_name"],
         args["port"],
@@ -55,14 +55,14 @@ async def tool_check_service_health(args: Dict[str, Any]) -> Dict[str, Any]:
 
 @tool(
     "inspect_mlflow_experiment",
-    "Inspect an MLflow experiment. Returns experiment metadata, artifact location, and run count. Read-only operation using MLflow Tracking API.",
+    "检查 MLflow 实验。返回实验元数据、artifact 位置和运行计数。使用 MLflow Tracking API 的只读操作。",
     {
         "tracking_uri": str,
         "experiment_name": str,
     }
 )
 async def tool_inspect_mlflow_experiment(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Inspect MLflow experiment."""
+    """检查 MLflow 实验。"""
     result = inspect_mlflow_experiment(args["tracking_uri"], args["experiment_name"])
     import json
     return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
@@ -70,11 +70,11 @@ async def tool_inspect_mlflow_experiment(args: Dict[str, Any]) -> Dict[str, Any]
 
 @tool(
     "inspect_ray_status",
-    "Check Ray cluster status. Returns cluster availability and basic resource information. Read-only operation.",
+    "检查 Ray 集群状态。返回集群可用性和基本资源信息。只读操作。",
     {}
 )
 async def tool_inspect_ray_status(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Check Ray status."""
+    """检查 Ray 状态。"""
     result = inspect_ray_status()
     import json
     return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
@@ -82,13 +82,13 @@ async def tool_inspect_ray_status(args: Dict[str, Any]) -> Dict[str, Any]:
 
 @tool(
     "list_training_projects",
-    "List all training projects in train-model directory. Returns project names. Read-only operation.",
+    "列出 train-model 目录中的所有训练项目。返回项目名称。只读操作。",
     {
         "project_root": str,
     }
 )
 async def tool_list_training_projects(args: Dict[str, Any]) -> Dict[str, Any]:
-    """List training projects."""
+    """列出训练项目。"""
     projects = list_training_projects(args["project_root"])
     result = {"projects": projects, "count": len(projects)}
     import json
@@ -106,10 +106,10 @@ INSPECTION_TOOLS = [
 
 def create_galatea_mcp_server():
     """
-    Create an in-process MCP server with Galatea inspection tools.
+    创建带有 Galatea 检查工具的进程内 MCP 服务器。
 
     Returns:
-        MCP server instance configured with inspection tools
+        配置了检查工具的 MCP 服务器实例
     """
     return create_sdk_mcp_server(
         name="galatea-platform",

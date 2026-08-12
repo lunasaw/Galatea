@@ -1,23 +1,51 @@
 """
-Agent Definitions
+Agent definition and registry framework.
 
-Custom agent definitions for Galatea platform:
-- trainer: Execute training jobs with platform contracts
-- tuner: Orchestrate hyperparameter tuning
-- analyzer: Analyze experiments and recommend optimizations
-- reviewer: Review models for quality and compliance
-- deployer: Manage model deployment and promotion
+Provides agent configuration structure and discovery.
+
+Key components:
+- AgentDefinition: Agent configuration (tools, model, permissions)
+- AgentMetadata: Runtime metadata tracking
+- AgentRegistry: Agent discovery and management
+- Predefined agents: Inspection, data, training, inference agents
+
+Reference: Claude SDK's AgentDefinition and agent patterns.
 """
 
-from pathlib import Path
-from claude_agent_sdk import AgentDefinition
-from typing import Dict
+from agent.agents.definition import (
+    AgentDefinition,
+    AgentMetadata,
+    PermissionMode,
+    MemoryScope,
+    EffortLevel,
+    # Predefined agents
+    INSPECTION_AGENT,
+    DATA_AGENT,
+    TRAINING_AGENT,
+    INFERENCE_AGENT,
+)
+from agent.agents.registry import (
+    AgentRegistry,
+    get_registry,
+    register_agent,
+    get_agent,
+)
 
-
-def load_agent_definitions() -> Dict[str, AgentDefinition]:
-    """Load agent definitions for Galatea platform."""
-    # To be implemented
-    pass
-
-
-__all__ = ["load_agent_definitions"]
+__all__ = [
+    # Definition
+    "AgentDefinition",
+    "AgentMetadata",
+    "PermissionMode",
+    "MemoryScope",
+    "EffortLevel",
+    # Predefined agents
+    "INSPECTION_AGENT",
+    "DATA_AGENT",
+    "TRAINING_AGENT",
+    "INFERENCE_AGENT",
+    # Registry
+    "AgentRegistry",
+    "get_registry",
+    "register_agent",
+    "get_agent",
+]

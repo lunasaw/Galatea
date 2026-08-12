@@ -1,14 +1,16 @@
 """
-Galatea Agent Runtime
+Galatea Agent 运行时
 
-Wraps ClaudeSDKClient with platform-specific configuration:
-- In-process MCP server with Galatea tools
-- Structured output schema validation
-- Session management
-- Permission controls
+封装 ClaudeSDKClient 并提供平台特定配置：
+- 进程内 MCP 服务器与 Galatea 工具集成
+- 结构化输出模式验证
+- 会话管理
+- 权限控制
 """
 
 import os
+import json
+import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, AsyncIterator
 from datetime import datetime
@@ -16,58 +18,101 @@ from datetime import datetime
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, UserMessage
 
 from agent.tools.server import create_galatea_mcp_server
+from agent.config import apply_anthropic_config_to_env
+
+# 配置模型序列化日志记录器
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+
+def _serialize_to_oneline(obj: Any) -> str:
+    """
+    将对象序列化为单行 JSON，不截断。
+
+    Args:
+        obj: 要序列化的对象（字典、列表或任何可 JSON 序列化的对象）
+
+    Returns:
+        单行 JSON 字符串，无长度限制
+    """
+    try:
+        # 处理具有 __dict__ 属性的对象
+        if hasattr(obj, '__dict__'):
+            serializable = {}
+            for key, value in obj.__dict__.items():
+                if not key.startswith('_'):
+                    try:
+                        # 尝试序列化该值
+                        json.dumps(value)
+                        serializable[key] = value
+                    except (TypeError, ValueError):
+                        # 如果不可序列化，转换为字符串
+                        serializable[key] = str(value)
+            obj = serializable
+
+        # 序列化为无缩进、无空格、无长度限制的格式
+        return json.dumps(obj, separators=(',', ':'), ensure_ascii=False, default=str)
+    except Exception as e:
+        # 回退到字符串表示
+        return f"<serialization_error: {str(e)}, repr: {repr(obj)[:1000]}>"
 
 
 class GalateaRuntime:
     """
-    Runtime wrapper for Galatea agent operations.
+    Galatea Agent 操作的运行时包装器。
 
-    Manages Claude SDK client lifecycle, tool registration,
-    and structured output validation.
+    管理 Claude SDK 客户端生命周期、工具注册和结构化输出验证。
     """
 
     def __init__(
         self,
         project_root: Path,
         mlflow_tracking_uri: str = "http://127.0.0.1:5000",
-        model: str = "claude-opus-4-20250514",
+        model: str = "claude-opus-5",
+        auto_load_config: bool = True,
     ):
         """
-        Initialize Galatea runtime.
+        初始化 Galatea 运行时。
 
         Args:
-            project_root: Root directory of Galatea platform
-            mlflow_tracking_uri: MLflow tracking server URI
-            model: Claude model to use
+            project_root: Galatea 平台的根目录
+            mlflow_tracking_uri: MLflow 跟踪服务器 URI
+            model: 要使用的 Claude 模型
+            auto_load_config: 如果为 True，当环境中不存在时，自动从 ~/.claude/settings.json
+                加载 ANTHROPIC_API_KEY 和 ANTHROPIC_BASE_URL
         """
         self.project_root = project_root
         self.mlflow_uri = mlflow_tracking_uri
         self.model = model
 
-        # Create MCP server with inspection tools
+        # 如果需要，从 settings.json 加载 Anthropic 配置
+        if auto_load_config:
+            apply_anthropic_config_to_env()
+
+        # 创建带有检查工具的 MCP 服务器
         self.mcp_server = create_galatea_mcp_server()
 
-        # Claude SDK client (initialized in __aenter__)
+        # Claude SDK 客户端（在 __aenter__ 中初始化）
         self._client: Optional[ClaudeSDKClient] = None
 
     async def __aenter__(self):
-        """Enter async context manager."""
-        # Create Claude SDK options
+        """进入异步上下文管理器。"""
+        # 创建 Claude SDK 选项
         options = ClaudeAgentOptions(
             model=self.model,
             mcp_servers={"galatea-platform": self.mcp_server},
-            permission_mode="dontAsk",  # Stage 1: read-only tools only
+            permission_mode="dontAsk",  # 阶段 1：仅限只读工具
             cwd=self.project_root,
         )
 
-        # Initialize Claude SDK client
+        # 初始化 Claude SDK 客户端
         self._client = ClaudeSDKClient(options)
         await self._client.__aenter__()
 
         return self
 
     async def __aexit__(self, *args):
-        """Exit async context manager."""
+        """退出异步上下文管理器。"""
         if self._client:
             await self._client.__aexit__(*args)
 
@@ -77,55 +122,74 @@ class GalateaRuntime:
         output_schema: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[Any]:
         """
-        Execute a query and stream response messages.
+        执行查询并流式传输响应消息。
 
         Args:
-            prompt: Query prompt
-            output_schema: Optional JSON schema for structured output
+            prompt: 查询提示
+            output_schema: 可选的结构化输出 JSON 模式
 
         Yields:
-            Response messages from agent
+            来自 agent 的响应消息
         """
         if not self._client:
-            raise RuntimeError("Runtime not initialized. Use 'async with' context.")
+            raise RuntimeError("运行时未初始化。请使用 'async with' 上下文。")
 
-        # Add structured output request if schema provided
+        # 如果提供了模式，添加结构化输出请求
+        final_prompt = prompt
         if output_schema:
             schema_instruction = (
-                f"\n\nIMPORTANT: Return your response as structured JSON "
-                f"matching this schema:\n{output_schema}"
+                f"\n\n重要：将您的响应作为结构化 JSON 返回，"
+                f"匹配此模式：\n{output_schema}"
             )
-            prompt = prompt + schema_instruction
+            final_prompt = prompt + schema_instruction
 
-        # Send query
-        await self._client.query(prompt)
+        # 记录请求序列化（压缩，不截断）
+        request_data = {
+            "type": "request",
+            "model": self.model,
+            "timestamp": datetime.utcnow().isoformat(),
+            "prompt": final_prompt,
+            "output_schema": output_schema,
+        }
+        logger.info(f"MODEL_REQUEST: {_serialize_to_oneline(request_data)}")
 
-        # Stream response
+        # 发送查询
+        await self._client.query(final_prompt)
+
+        # 流式传输响应
         async for message in self._client.receive_response():
+            # 记录响应序列化（压缩，不截断）
+            response_data = {
+                "type": "response",
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": message,
+            }
+            logger.info(f"MODEL_RESPONSE: {_serialize_to_oneline(response_data)}")
+
             yield message
 
     async def inspect_platform(self) -> Dict[str, Any]:
         """
-        Inspect Galatea platform status using agent.
+        使用 agent 检查 Galatea 平台状态。
 
         Returns:
-            Platform inspection results
+            平台检查结果
         """
-        prompt = f"""Inspect the Galatea ML training platform at {self.project_root}.
+        prompt = f"""检查位于 {self.project_root} 的 Galatea ML 训练平台。
 
-Please use the available inspection tools to check:
-1. List all training projects in train-model/
-2. Check health of key services: mlflow (port 5000), minio (port 9000)
-3. Check Ray cluster status
-4. For the 'ray-cats-and-dogs' project, inspect its structure
+请使用可用的检查工具来检查：
+1. 列出 train-model/ 中的所有训练项目
+2. 检查关键服务的健康状况：mlflow（端口 5000）、minio（端口 9000）
+3. 检查 Ray 集群状态
+4. 对于 'ray-cats-and-dogs' 项目，检查其结构
 
-Summarize your findings in a clear report."""
+在清晰的报告中总结您的发现。"""
 
         messages = []
         async for message in self.query(prompt):
             messages.append(message)
 
-        # Extract final text response
+        # 提取最终文本响应
         if messages:
             last_message = messages[-1]
             return {
@@ -136,6 +200,6 @@ Summarize your findings in a clear report."""
 
         return {
             "status": "failed",
-            "error": "No response received",
+            "error": "未收到响应",
             "timestamp": datetime.utcnow().isoformat(),
         }

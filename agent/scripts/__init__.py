@@ -1,9 +1,11 @@
 """
-CLI Scripts
+CLI scripts for Galatea agents.
 
-Command-line interfaces for agent operations:
-- train.py: Start training with agent
-- optimize.py: Optimize experiments
-- analyze.py: Analyze results
-- deploy.py: Deploy models
+Entry points for agent operations:
+- inspect_platform.py: Platform health inspection
+- run_data_stage.py: Data preparation stage
+- run_training_stage.py: Training orchestration stage
+- run_inference_stage.py: Inference and evaluation stage
+
+Future: Stage 2+ will implement actual functionality.
 """

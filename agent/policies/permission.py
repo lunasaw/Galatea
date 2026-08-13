@@ -44,6 +44,13 @@ class PermissionRule:
         if self.rule_content is None:
             return True
 
+        if tool_name in {"Bash", "PowerShell"}:
+            command = tool_input.get("command")
+            return isinstance(command, str) and _matches_shell_rule(self.rule_content, command)
+        if tool_name == "Skill":
+            skill_name = tool_input.get("skill")
+            return isinstance(skill_name, str) and _matches_skill_rule(self.rule_content, skill_name)
+
         candidates = _input_match_candidates(tool_input)
         pattern = self.rule_content
         return any(fnmatch.fnmatchcase(candidate, pattern) for candidate in candidates)
@@ -210,9 +217,23 @@ class PermissionPolicy:
             else disallowed_tools
         )
         for tool_name in effective_disallowed_tools:
-            policy.add_rule(PermissionRule(tool_name=tool_name, behavior="deny"))
+            parsed_tool, rule_content = _parse_permission_rule_value(tool_name)
+            policy.add_rule(
+                PermissionRule(
+                    tool_name=parsed_tool,
+                    behavior="deny",
+                    rule_content=rule_content,
+                )
+            )
         for tool_name in allowed_tools or []:
-            policy.add_rule(PermissionRule(tool_name=tool_name, behavior="allow"))
+            parsed_tool, rule_content = _parse_permission_rule_value(tool_name)
+            policy.add_rule(
+                PermissionRule(
+                    tool_name=parsed_tool,
+                    behavior="allow",
+                    rule_content=rule_content,
+                )
+            )
         return policy
 
 
@@ -252,6 +273,117 @@ def _matches_tool_pattern(pattern: str, tool_name: str) -> bool:
     return False
 
 
+def _parse_permission_rule_value(rule_string: str) -> tuple[str, Optional[str]]:
+    """Parse Claude Code permission specs like ``Bash(git push:*)``."""
+    open_index = _find_first_unescaped(rule_string, "(")
+    if open_index == -1:
+        return rule_string, None
+
+    close_index = _find_last_unescaped(rule_string, ")")
+    if close_index == -1 or close_index <= open_index or close_index != len(rule_string) - 1:
+        return rule_string, None
+
+    tool_name = rule_string[:open_index].strip()
+    if not tool_name:
+        return rule_string, None
+
+    raw_content = rule_string[open_index + 1 : close_index]
+    if raw_content in {"", "*"}:
+        return tool_name, None
+    return tool_name, _unescape_rule_content(raw_content)
+
+
+def _find_first_unescaped(value: str, char: str) -> int:
+    for index, current in enumerate(value):
+        if current == char and not _is_escaped(value, index):
+            return index
+    return -1
+
+
+def _find_last_unescaped(value: str, char: str) -> int:
+    for index in range(len(value) - 1, -1, -1):
+        if value[index] == char and not _is_escaped(value, index):
+            return index
+    return -1
+
+
+def _is_escaped(value: str, index: int) -> bool:
+    backslashes = 0
+    cursor = index - 1
+    while cursor >= 0 and value[cursor] == "\\":
+        backslashes += 1
+        cursor -= 1
+    return backslashes % 2 == 1
+
+
+def _unescape_rule_content(value: str) -> str:
+    result: List[str] = []
+    escaping = False
+    for char in value:
+        if escaping:
+            result.append(char)
+            escaping = False
+        elif char == "\\":
+            escaping = True
+        else:
+            result.append(char)
+    if escaping:
+        result.append("\\")
+    return "".join(result)
+
+
+def _matches_shell_rule(rule_content: str, command: str) -> bool:
+    command = command.strip()
+    pattern = rule_content.strip()
+    if not command or not pattern:
+        return False
+
+    prefix = _permission_rule_extract_prefix(pattern)
+    if prefix is not None:
+        return command == prefix or command.startswith(f"{prefix} ")
+
+    if _has_unescaped_wildcards(pattern):
+        return _matches_wildcard_rule(pattern, command)
+
+    return command == pattern
+
+
+def _matches_skill_rule(rule_content: str, skill_name: str) -> bool:
+    skill_name = skill_name.strip().lstrip("/")
+    pattern = rule_content.strip().lstrip("/")
+    if not skill_name or not pattern:
+        return False
+    prefix = _permission_rule_extract_prefix(pattern)
+    if prefix is not None:
+        return skill_name == prefix or skill_name.startswith(prefix)
+    if _has_unescaped_wildcards(pattern):
+        return _matches_wildcard_rule(pattern, skill_name)
+    return skill_name == pattern
+
+
+def _permission_rule_extract_prefix(rule_content: str) -> Optional[str]:
+    if rule_content.endswith(":*") and len(rule_content) > 2:
+        return rule_content[:-2]
+    return None
+
+
+def _has_unescaped_wildcards(pattern: str) -> bool:
+    if pattern.endswith(":*"):
+        return False
+    return any(char == "*" and not _is_escaped(pattern, index) for index, char in enumerate(pattern))
+
+
+def _matches_wildcard_rule(pattern: str, command: str) -> bool:
+    wildcard_count = sum(
+        1
+        for index, char in enumerate(pattern)
+        if char == "*" and not _is_escaped(pattern, index)
+    )
+    if wildcard_count == 1 and pattern.endswith(" *") and command == pattern[:-2]:
+        return True
+    return fnmatch.fnmatchcase(command, _unescape_rule_content(pattern))
+
+
 def _input_match_candidates(tool_input: Dict[str, Any]) -> List[str]:
     """Return stable string candidates for rule_content matching."""
     candidates: List[str] = []
@@ -261,6 +393,7 @@ def _input_match_candidates(tool_input: Dict[str, Any]) -> List[str]:
         "path",
         "notebook_path",
         "project_root",
+        "skill",
         "uri",
         "source_uri",
         "target_uri",
@@ -268,6 +401,8 @@ def _input_match_candidates(tool_input: Dict[str, Any]) -> List[str]:
         value = tool_input.get(key)
         if isinstance(value, str):
             candidates.append(value)
+            if key == "skill" and value.startswith("/"):
+                candidates.append(value[1:])
     try:
         candidates.append(json.dumps(tool_input, sort_keys=True, ensure_ascii=False))
     except TypeError:

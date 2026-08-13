@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Literal, Optional
 
 from agent.core import AgentSDKConfig, GalateaSDKRuntime, SDKRunResult
 
@@ -19,6 +19,7 @@ class GalateaAgentClient:
         minio_endpoint: str = "http://127.0.0.1:9000",
         model: str = "claude-opus-5",
         max_budget_usd: float = 0.20,
+        skills: list[str] | Literal["all"] | None = "all",
     ) -> None:
         self.project_root = project_root
         self.mlflow_uri = mlflow_tracking_uri
@@ -26,6 +27,7 @@ class GalateaAgentClient:
         self.minio_endpoint = minio_endpoint
         self.model = model
         self.max_budget_usd = max_budget_usd
+        self.skills = skills
         self._runtime: GalateaSDKRuntime | None = None
 
     async def __aenter__(self) -> "GalateaAgentClient":
@@ -36,6 +38,7 @@ class GalateaAgentClient:
                 agent_type="client",
                 allowed_tools=_default_allowed_tools(),
                 max_budget_usd=self.max_budget_usd,
+                skills=self.skills,
             )
         )
         await self._runtime.__aenter__()

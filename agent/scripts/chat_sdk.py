@@ -7,7 +7,7 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 if __package__ is None or __package__ == "":
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -31,18 +31,33 @@ from agent.agents import (  # noqa: E402
     PLATFORM_INSPECTOR,
     TRAINING_ORCHESTRATOR,
 )
-from agent.core import AgentSDKConfig, GalateaSDKRuntime, result_to_json  # noqa: E402
+from agent.core import (  # noqa: E402
+    CLAUDE_CODE_TOOLS_PRESET,
+    AgentSDKConfig,
+    GalateaSDKRuntime,
+    result_to_json,
+)
+from agent.skills import SkillRegistry  # noqa: E402
+from agent.runtime import (  # noqa: E402
+    build_git_commit_push_prompt,
+    git_commit_push_allowed_tools,
+    git_commit_push_disallowed_tools,
+    git_commit_push_system_prompt,
+    is_git_commit_push_request,
+)
 
 
 def print_header() -> None:
     print("\n" + "=" * 76)
     print("Galatea Agent - Interactive Chat (Claude SDK Core)")
     print("=" * 76)
-    print("Safe defaults: strict MCP config, dontAsk permissions, mutation tools disabled")
+    print("Tools: controlled git automation + Galatea MCP inspection tools are auto-allowed")
+    print("Skills: repository Skills are enabled through Claude SDK Skill support")
     print()
     print("Commands:")
     print("  /exit, /quit        Exit chat")
     print("  /tools              Show Galatea MCP tools")
+    print("  /skills             Show enabled repository Skills")
     print("  /status             Show MCP server status")
     print("  /context            Show SDK context usage")
     print("  /compact            Show compaction instructions")
@@ -51,7 +66,28 @@ def print_header() -> None:
     print()
 
 
+def parse_skills_option(value: str) -> list[str] | Literal["all"] | None:
+    if value == "none":
+        return None
+    if value == "all":
+        return "all"
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def print_skills(project_root: Path) -> None:
+    print()
+    print("Available Repository Skills:")
+    for skill in SkillRegistry(project_root).discover(include_plugin=False):
+        print(f"  {skill.name} - {skill.description}")
+    print()
+
+
 def print_tools() -> None:
+    print()
+    print("Available Git Automation Tools:")
+    for tool_name in git_commit_push_allowed_tools():
+        if tool_name.startswith("Bash("):
+            print(f"  {tool_name}")
     print()
     print("Available Galatea Tools:")
     print("  mcp__galatea-platform__list_training_projects")
@@ -63,13 +99,6 @@ def print_tools() -> None:
 
 
 def build_runtime(args: argparse.Namespace) -> GalateaSDKRuntime:
-    allowed_tools = [
-        "mcp__galatea-platform__list_training_projects",
-        "mcp__galatea-platform__inspect_project_structure",
-        "mcp__galatea-platform__check_service_health",
-        "mcp__galatea-platform__inspect_mlflow_experiment",
-        "mcp__galatea-platform__inspect_ray_status",
-    ]
     agents = {
         "inspector": PLATFORM_INSPECTOR,
         "data": DATA_PREPARER,
@@ -82,7 +111,12 @@ def build_runtime(args: argparse.Namespace) -> GalateaSDKRuntime:
         project_root=args.cwd,
         model=args.model,
         agent_type="interactive-chat",
-        allowed_tools=allowed_tools,
+        tools=CLAUDE_CODE_TOOLS_PRESET,
+        allowed_tools=git_commit_push_allowed_tools(),
+        disallowed_tools=git_commit_push_disallowed_tools(),
+        permission_mode="dontAsk",
+        system_prompt=git_commit_push_system_prompt(),
+        skills=parse_skills_option(args.skills),
         agents=agents,
         max_turns=args.max_turns,
         max_budget_usd=args.max_budget_usd,
@@ -110,6 +144,9 @@ async def interactive_chat(args: argparse.Namespace) -> None:
                 if command == "/tools" or command == "tools":
                     print_tools()
                     continue
+                if command == "/skills" or command == "skills":
+                    print_skills(args.cwd)
+                    continue
                 if command == "/json":
                     show_json = not show_json
                     print(f"Result JSON summary: {'on' if show_json else 'off'}\n")
@@ -131,8 +168,13 @@ async def interactive_chat(args: argparse.Namespace) -> None:
                 tools_used: list[str] = []
                 hook_events = 0
                 result_message: ResultMessage | None = None
+                prompt = (
+                    build_git_commit_push_prompt(args.cwd, user_input)
+                    if is_git_commit_push_request(user_input)
+                    else user_input
+                )
 
-                async for msg in runtime.stream_query(user_input):
+                async for msg in runtime.stream_query(prompt):
                     if isinstance(msg, SystemMessage) and not isinstance(msg, HookEventMessage):
                         continue
                     if isinstance(msg, HookEventMessage):
@@ -240,9 +282,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cwd", type=Path, default=Path.cwd(), help="Project root for Claude SDK")
     parser.add_argument("--model", default="claude-opus-5", help="Claude model or alias")
-    parser.add_argument("--max-turns", type=int, default=12)
-    parser.add_argument("--max-budget-usd", type=float, default=0.20)
+    parser.add_argument("--max-turns", type=int, default=24)
+    parser.add_argument("--max-budget-usd", type=float, default=1.00)
     parser.add_argument("--task-budget-tokens", type=int, default=None)
+    parser.add_argument(
+        "--skills",
+        default="all",
+        help="Skill allowlist: all, none, or comma-separated Skill names",
+    )
     parser.add_argument("--no-auto-config", action="store_true", help="Do not load ~/.claude/settings.json env")
     return parser.parse_args(argv)
 

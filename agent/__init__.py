@@ -195,6 +195,9 @@ from agent.core import (
     ContextCompressionConfig,
     GalateaSDKRuntime,
     SDKRunResult,
+    SkillRegistry,
+    SkillRuntimeConfig,
+    SkillSpec,
 )
 
 # Schema exports
@@ -259,6 +262,9 @@ __all__ = [
     "ContextCompressionConfig",
     "GalateaSDKRuntime",
     "SDKRunResult",
+    "SkillRegistry",
+    "SkillRuntimeConfig",
+    "SkillSpec",
     # Schemas
     "StageResult",
     "StageStatus",

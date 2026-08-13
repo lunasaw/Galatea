@@ -7,7 +7,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Dict, Iterable, List, Literal, Optional
 
 from claude_agent_sdk import (
     AgentDefinition,
@@ -46,6 +46,7 @@ from agent.hooks import (
 )
 from agent.policies import BudgetPolicy, PermissionPolicy
 from agent.policies.permission import DEFAULT_DISALLOWED_TOOLS
+from agent.skills import SkillRuntimeConfig, resolve_skill_runtime
 from agent.tools.server import create_galatea_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,11 @@ class AgentSDKConfig:
     include_hook_events: bool = True
     strict_mcp_config: bool = True
     setting_sources: Optional[List[str]] = field(default_factory=list)
+    skills: list[str] | Literal["all"] | None = None
+    skill_plugins: List[Dict[str, str]] = field(default_factory=list)
+    include_legacy_codex_skills: bool = True
+    include_skill_plugins: bool = True
+    sync_legacy_codex_skills: bool = False
     session_store: Any = None
     session_store_flush: str = "batched"
     resume: Optional[str] = None
@@ -190,6 +196,7 @@ class GalateaSDKRuntime:
         self.stage_run_id = config.effective_stage_run_id()
         self.mcp_server = config.mcp_server or create_galatea_mcp_server()
         self.mcp_tool_names = mcp_tool_names(self.mcp_server, config.mcp_server_alias)
+        self.skill_runtime = self._resolve_skill_runtime()
         self.permission_policy = permission_policy or PermissionPolicy.for_galatea(
             allowed_tools=self._policy_allowed_tools(),
             disallowed_tools=config.disallowed_tools,
@@ -237,12 +244,22 @@ class GalateaSDKRuntime:
             session_store = InMemorySessionStore()
 
         allowed_tools = list(dict.fromkeys(self.config.allowed_tools))
+        for tool_name in self.skill_runtime.allowed_tools:
+            if tool_name not in allowed_tools:
+                allowed_tools.append(tool_name)
         if self.config.agents and "Task" not in allowed_tools:
             allowed_tools.append("Task")
         disallowed_tools = list(dict.fromkeys(self.config.disallowed_tools))
         base_tools = self.config.tools
         if self.config.agents and isinstance(base_tools, list) and "Task" not in base_tools:
             base_tools = [*base_tools, "Task"]
+        if self._has_enabled_skills() and isinstance(base_tools, list) and "Skill" not in base_tools:
+            base_tools = [*base_tools, "Skill"]
+        setting_sources = self._effective_setting_sources()
+        plugins = [
+            *self.config.skill_plugins,
+            *self.skill_runtime.plugins,
+        ]
 
         return ClaudeAgentOptions(
             model=self.config.model,
@@ -250,13 +267,15 @@ class GalateaSDKRuntime:
             tools=base_tools,
             mcp_servers={self.config.mcp_server_alias: self.mcp_server},
             strict_mcp_config=self.config.strict_mcp_config,
-            setting_sources=self.config.setting_sources,
+            setting_sources=setting_sources,
             permission_mode=self.config.permission_mode,
             allowed_tools=allowed_tools,
             disallowed_tools=disallowed_tools,
             hooks=self.hook_manager.to_sdk_hooks(),
             include_hook_events=self.config.include_hook_events,
             can_use_tool=self.permission_policy.can_use_tool,
+            skills=self.skill_runtime.skills,
+            plugins=plugins,
             max_turns=self.config.max_turns,
             max_budget_usd=self.config.max_budget_usd,
             output_format=output_format,
@@ -414,11 +433,36 @@ class GalateaSDKRuntime:
             dict.fromkeys(
                 [
                     *self.config.allowed_tools,
+                    *self.skill_runtime.allowed_tools,
                     *agent_tools,
                     *unqualified_mcp_tools,
                 ]
             )
         )
+
+    def _resolve_skill_runtime(self) -> SkillRuntimeConfig:
+        if self.config.skills is None:
+            return SkillRuntimeConfig()
+        return resolve_skill_runtime(
+            self.config.project_root,
+            self.config.skills,
+            include_legacy_codex=self.config.include_legacy_codex_skills,
+            include_plugin=self.config.include_skill_plugins,
+            sync_legacy_codex=self.config.sync_legacy_codex_skills,
+        )
+
+    def _effective_setting_sources(self) -> Optional[List[str]]:
+        if self.config.skills is None:
+            return self.config.setting_sources
+        if self.config.setting_sources == []:
+            # Claude SDK only discovers project Skill dirs when project settings
+            # are enabled; keep user/global settings isolated by default.
+            return ["project"]
+        return self.config.setting_sources
+
+    def _has_enabled_skills(self) -> bool:
+        skills = self.skill_runtime.skills
+        return skills == "all" or (isinstance(skills, list) and len(skills) > 0)
 
     def _record_result_usage(self, result: SDKRunResult) -> None:
         try:

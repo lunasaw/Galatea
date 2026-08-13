@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 
 from claude_agent_sdk import ResultMessage
@@ -10,6 +11,7 @@ from claude_agent_sdk import ResultMessage
 from agent.hooks import HookContext, HookEvent, HookInput, HookManager, HookOutput
 from agent.policies import BudgetExceededError, BudgetPolicy, PermissionDeniedError, PermissionPolicy, PermissionRule
 from agent.core import AgentSDKConfig, GalateaSDKRuntime, SDKRunResult
+from agent.skills import SkillRegistry
 from agent.tools.executor import ToolExecutor, ToolRegistry, ToolSpec
 
 
@@ -32,6 +34,24 @@ class TestPermissionPolicy(unittest.TestCase):
         policy.add_rule(PermissionRule("Read", "allow", "*.md"))
         self.assertEqual(policy.check_permission("Read", {"file_path": "README.md"}), "allow")
         self.assertEqual(policy.check_permission("Read", {"file_path": "data.csv"}), "ask")
+
+    def test_scoped_skill_rules_match_exact_and_prefix(self):
+        policy = PermissionPolicy.for_galatea(
+            allowed_tools=[
+                "Skill(ray)",
+                "Skill(mlflow-optimize-models:*)",
+            ],
+            disallowed_tools=[],
+            mode="dontAsk",
+        )
+
+        self.assertEqual(policy.check_permission("Skill", {"skill": "ray"}), "allow")
+        self.assertEqual(policy.check_permission("Skill", {"skill": "/ray"}), "allow")
+        self.assertEqual(
+            policy.check_permission("Skill", {"skill": "mlflow-optimize-models advanced"}),
+            "allow",
+        )
+        self.assertEqual(policy.check_permission("Skill", {"skill": "unknown"}), "deny")
 
 
 class TestBudgetPolicy(unittest.TestCase):
@@ -129,6 +149,106 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         self.assertIn("projects", call_response.root.content[0].text)
 
 
+class TestSkills(unittest.TestCase):
+    def test_skill_registry_discovers_claude_codex_and_plugin_skills(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            project_skill = project_root / ".claude" / "skills" / "reviewer"
+            project_skill.mkdir(parents=True)
+            (project_skill / "SKILL.md").write_text(
+                """---
+name: Review Helper
+description: Review project changes with repository conventions.
+allowed-tools: Read,Grep
+paths: "agent/**, train-model/**"
+---
+
+# Review Helper
+Use this for reviews.
+""",
+                encoding="utf-8",
+            )
+
+            codex_skill = project_root / ".codex" / "skills" / "ray"
+            codex_skill.mkdir(parents=True)
+            (codex_skill / "SKILL.md").write_text(
+                """---
+name: ray
+description: Ray workflow guidance.
+---
+
+# Ray
+Use this for Ray work.
+""",
+                encoding="utf-8",
+            )
+            plugin_manifest = project_root / ".claude-plugin"
+            plugin_manifest.mkdir()
+            (plugin_manifest / "plugin.json").write_text(
+                '{"name": "galatea-skills", "skills": "./.codex/skills"}\n',
+                encoding="utf-8",
+            )
+
+            registry = SkillRegistry(project_root)
+            discovered = {skill.name: skill for skill in registry.discover()}
+
+            self.assertIn("reviewer", discovered)
+            self.assertIn("ray", discovered)
+            self.assertIn("galatea-skills:ray", discovered)
+            self.assertEqual(discovered["reviewer"].description, "Review project changes with repository conventions.")
+            self.assertEqual(discovered["reviewer"].allowed_tools, ("Read", "Grep"))
+            self.assertEqual(discovered["reviewer"].paths, ("agent", "train-model"))
+
+            runtime_config = registry.resolve(["reviewer"], include_plugin=False)
+            self.assertEqual(runtime_config.skills, ["reviewer"])
+            self.assertEqual(runtime_config.allowed_tools, ("Skill(reviewer)",))
+
+    def test_runtime_builds_sdk_native_skill_options_and_policy(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_root = Path(tmp_dir)
+            skill_dir = project_root / ".claude" / "skills" / "reviewer"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: reviewer\ndescription: Review code.\n---\n# Reviewer\n",
+                encoding="utf-8",
+            )
+
+            runtime = GalateaSDKRuntime(
+                AgentSDKConfig(
+                    project_root=project_root,
+                    tools=[],
+                    allowed_tools=[],
+                    disallowed_tools=[],
+                    skills=["reviewer"],
+                    max_budget_usd=1.0,
+                    auto_load_config=False,
+                )
+            )
+
+            options = runtime.build_options()
+            self.assertEqual(options.skills, ["reviewer"])
+            self.assertEqual(options.tools, ["Skill"])
+            self.assertEqual(options.setting_sources, ["project"])
+            self.assertIn("Skill(reviewer)", options.allowed_tools)
+            self.assertEqual(
+                runtime.permission_policy.check_permission("Skill", {"skill": "reviewer"}),
+                "allow",
+            )
+            self.assertEqual(
+                runtime.permission_policy.check_permission("Skill", {"skill": "/reviewer"}),
+                "allow",
+            )
+            self.assertEqual(
+                runtime.permission_policy.check_permission("Skill", {"skill": "unknown"}),
+                "deny",
+            )
+
+    def test_predefined_agents_preload_relevant_skills(self):
+        from agent.agents import DATA_PREPARER, TRAINING_ORCHESTRATOR
+
+        self.assertIn("ray", DATA_PREPARER.skills)
+        self.assertIn("mlflow-optimize-models", TRAINING_ORCHESTRATOR.skills)
+
 
 class TestRuntimeConfig(unittest.TestCase):
     def test_runtime_builds_safe_options_and_validates_result(self):
@@ -190,6 +310,109 @@ class TestRuntimeConfig(unittest.TestCase):
         )
         with self.assertRaises(Exception):
             runtime.validate_result(bad)
+
+    def test_claude_code_runtime_options_allow_base_tools(self):
+        from agent.runtime import (
+            GalateaRuntime,
+            claude_code_allowed_tools,
+            claude_code_tools_preset,
+        )
+
+        runtime = GalateaRuntime(
+            project_root=Path.cwd(),
+            auto_load_config=False,
+            tools=claude_code_tools_preset(),
+            allowed_tools=claude_code_allowed_tools(),
+            disallowed_tools=[],
+            permission_mode="dontAsk",
+        )
+
+        options = runtime.sdk_runtime.build_options()
+        self.assertEqual(options.tools, {"type": "preset", "preset": "claude_code"})
+        self.assertEqual(options.disallowed_tools, [])
+        self.assertIn("Bash", options.allowed_tools)
+        self.assertIn("Write", options.allowed_tools)
+        self.assertIn("mcp__galatea-platform__inspect_ray_status", options.allowed_tools)
+        self.assertEqual(
+            runtime.sdk_runtime.permission_policy.check_permission(
+                "Write",
+                {"file_path": str(Path.cwd() / "agent/test/hello world.json")},
+            ),
+            "allow",
+        )
+
+    def test_permission_policy_parses_scoped_bash_rules(self):
+        policy = PermissionPolicy.for_galatea(
+            allowed_tools=[
+                "Bash(git status:*)",
+                "Bash(git push:*)",
+            ],
+            disallowed_tools=[],
+            mode="dontAsk",
+        )
+
+        self.assertEqual(
+            policy.check_permission("Bash", {"command": "git status --short"}),
+            "allow",
+        )
+        self.assertEqual(
+            policy.check_permission("Bash", {"command": "git push origin feature"}),
+            "allow",
+        )
+        self.assertEqual(
+            policy.check_permission("Bash", {"command": "git reset --hard HEAD"}),
+            "deny",
+        )
+
+    def test_git_commit_push_runtime_uses_narrow_bash_allowlist(self):
+        from agent.runtime import (
+            GalateaRuntime,
+            git_commit_push_allowed_tools,
+            git_commit_push_disallowed_tools,
+            git_commit_push_system_prompt,
+            claude_code_tools_preset,
+        )
+
+        allowed_tools = git_commit_push_allowed_tools()
+        self.assertIn("Bash(git push:*)", allowed_tools)
+        self.assertNotIn("Bash", allowed_tools)
+
+        runtime = GalateaRuntime(
+            project_root=Path.cwd(),
+            auto_load_config=False,
+            tools=claude_code_tools_preset(),
+            allowed_tools=allowed_tools,
+            disallowed_tools=git_commit_push_disallowed_tools(),
+            permission_mode="dontAsk",
+            system_prompt=git_commit_push_system_prompt(),
+        )
+
+        options = runtime.sdk_runtime.build_options()
+        self.assertEqual(options.tools, {"type": "preset", "preset": "claude_code"})
+        self.assertIn("Bash(git push:*)", options.allowed_tools)
+        self.assertNotIn("Bash", options.allowed_tools)
+        self.assertIn("commit and push code", str(options.system_prompt))
+        self.assertEqual(
+            runtime.sdk_runtime.permission_policy.check_permission(
+                "Bash",
+                {"command": "git push --set-upstream origin feature"},
+            ),
+            "allow",
+        )
+        self.assertEqual(
+            runtime.sdk_runtime.permission_policy.check_permission(
+                "Bash",
+                {"command": "git push --force origin main"},
+            ),
+            "deny",
+        )
+        self.assertEqual(
+            runtime.sdk_runtime.permission_policy.check_permission(
+                "Bash",
+                {"command": "python -c 'print(1)'"},
+            ),
+            "deny",
+        )
 
 
 class TestStateAndWorkflow(unittest.IsolatedAsyncioTestCase):

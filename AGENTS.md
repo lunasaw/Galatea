@@ -120,6 +120,24 @@ for the project. The Skill must remain reusable across frameworks and experiment
 - Seed randomized work and document any operation that cannot be made deterministic.
 - Never overwrite a source notebook with executed smoke-test output; write it to a temporary directory.
 
+## Agent SDK and Capability Alignment
+
+- Implement Agent features against source-level SDK abstractions and Claude Code-compatible behavior where
+  available. Do not invent behavior from prompts when the SDK or upstream source already defines a tool,
+  permission, event, hook, or capability model.
+- Support Skill capabilities as first-class runtime capabilities: discover, load, route, and execute Skills
+  through the repository or configured Skill interfaces rather than hard-coding project-specific prompt text.
+- Model allowlists and permission grants through the SDK permission layer. A denied or unknown action should
+  be able to request approval from the console or user-facing permission flow, and users should be able to
+  grant scoped access directly when the runtime supports it.
+- Keep permission requests structured and reusable, including command/tool identity, scope, reason,
+  persistence choice, and denial handling. Avoid one-off natural-language prompts for each new action.
+- Before implementing Agent behavior, inspect the existing SDK and relevant Claude Code source-level patterns,
+  then align naming, state transitions, callbacks, and error handling with those abstractions. If parity is
+  impossible, document the gap and the local compatibility boundary.
+- Treat prompts as policy or presentation, not as the primary implementation mechanism for capabilities,
+  allowlists, or permissions.
+
 ## Coding and Documentation Style
 
 Use four-space indentation for Python, `snake_case` for functions and variables,

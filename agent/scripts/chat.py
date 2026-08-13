@@ -47,6 +47,8 @@ def print_header():
 
 def print_tools():
     """打印可用工具"""
+    from agent.skills import SkillRegistry
+
     print()
     print("Available Tools:")
     print("  📋 list_training_projects      - List all training projects")
@@ -54,17 +56,40 @@ def print_tools():
     print("  ❤️  check_service_health        - Check service status")
     print("  📊 inspect_mlflow_experiment   - Check MLflow experiments")
     print("  🚀 inspect_ray_status          - Check Ray cluster")
+    print("  🧩 Skill                       - Invoke enabled repository Skills")
+    print()
+    print("Available Skills:")
+    for skill in SkillRegistry(Path.cwd()).discover(include_plugin=False):
+        print(f"  🧩 {skill.name} - {skill.description}")
     print()
 
 
 async def interactive_chat():
     """完整的交互式对话"""
     sys.path.insert(0, str(Path.cwd()))
-    from agent.runtime import GalateaRuntime
+    from agent.runtime import (
+        GalateaRuntime,
+        git_commit_push_allowed_tools,
+        git_commit_push_disallowed_tools,
+        git_commit_push_system_prompt,
+        claude_code_tools_preset,
+        build_git_commit_push_prompt,
+        is_git_commit_push_request,
+    )
 
     print_header()
 
-    async with GalateaRuntime(project_root=Path.cwd()) as runtime:
+    async with GalateaRuntime(
+        project_root=Path.cwd(),
+        tools=claude_code_tools_preset(),
+        allowed_tools=git_commit_push_allowed_tools(),
+        disallowed_tools=git_commit_push_disallowed_tools(),
+        permission_mode="dontAsk",
+        system_prompt=git_commit_push_system_prompt(),
+        skills="all",
+        max_turns=24,
+        max_budget_usd=1.00,
+    ) as runtime:
         print("✅ Agent initialized!\n")
 
         turn_number = 0
@@ -96,13 +121,18 @@ async def interactive_chat():
                 # Process query
                 turn_number += 1
                 print()
+                prompt = (
+                    build_git_commit_push_prompt(Path.cwd(), user_input)
+                    if is_git_commit_push_request(user_input)
+                    else user_input
+                )
 
                 # Track response state
                 response_started = False
                 current_text = ""
                 tools_used = []
 
-                async for msg in runtime.query(user_input):
+                async for msg in runtime.query(prompt):
                     # Skip system messages
                     if isinstance(msg, SystemMessage):
                         continue

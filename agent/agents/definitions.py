@@ -57,6 +57,7 @@ Always provide clear, actionable information.""",
     ],
     disallowedTools=DANGEROUS_TOOLS,
     model="sonnet",  # Use faster model for inspection
+    skills=["model-project-structure"],
     permissionMode="dontAsk",
 )
 
@@ -94,6 +95,7 @@ Future tools (Stage 2):
     ],
     disallowedTools=DANGEROUS_TOOLS,
     model="sonnet",
+    skills=["model-project-structure", "ray"],
     permissionMode="dontAsk",
 )
 
@@ -129,6 +131,7 @@ Future tools (Stage 3):
     ],
     disallowedTools=DANGEROUS_TOOLS,
     model="sonnet",
+    skills=["mlflow-optimize-models", "ray"],
     permissionMode="dontAsk",
 )
 
@@ -164,6 +167,7 @@ Future tools (Stage 4):
     ],
     disallowedTools=DANGEROUS_TOOLS,
     model="sonnet",
+    skills=["mlflow-optimize-models"],
     permissionMode="dontAsk",
 )
 
@@ -198,6 +202,7 @@ Tools:
     ],
     disallowedTools=DANGEROUS_TOOLS,
     model="opus",  # Use more powerful model for analysis
+    skills=["mlflow-optimize-models"],
     permissionMode="dontAsk",
 )
 
@@ -228,6 +233,7 @@ Tools:
     ],
     disallowedTools=DANGEROUS_TOOLS,
     model="sonnet",
+    skills=["model-project-structure"],
     permissionMode="dontAsk",
 )
 

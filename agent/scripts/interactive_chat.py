@@ -13,14 +13,15 @@ Usage:
 import asyncio
 import sys
 from pathlib import Path
-from typing import Optional
 
 from claude_agent_sdk import (
     AssistantMessage,
     ResultMessage,
+    SystemMessage,
     TextBlock,
     ToolUseBlock,
     ToolResultBlock,
+    UserMessage,
 )
 
 
@@ -62,15 +63,19 @@ def print_welcome():
     print("  Type your message and press Enter to chat")
     print("  /help    - Show this help")
     print("  /clear   - Clear conversation history")
+    print("  /skills  - Show enabled repository Skills")
     print("  /exit    - Exit the chat")
     print("  /quit    - Exit the chat")
     print()
     print("Available tools:")
+    print("  - Git automation: git status/diff/add/commit/push")
+    print("  - Read-only code tools: Read, Glob, Grep, LS")
     print("  - list_training_projects")
     print("  - inspect_project_structure")
     print("  - check_service_health")
     print("  - inspect_mlflow_experiment")
     print("  - inspect_ray_status")
+    print("  - Skill: invoke repository Skills")
     print()
     print("=" * 70)
     print()
@@ -120,18 +125,37 @@ async def interactive_chat(
     sys.path.insert(0, str(project_root))
 
     # Import after adding to path
-    from agent.runtime import GalateaRuntime
+    from agent.runtime import (
+        GalateaRuntime,
+        git_commit_push_allowed_tools,
+        git_commit_push_disallowed_tools,
+        git_commit_push_system_prompt,
+        claude_code_tools_preset,
+        build_git_commit_push_prompt,
+        is_git_commit_push_request,
+    )
+    from agent.skills import SkillRegistry
 
     print(f"Initializing Galatea Agent...")
     print(f"  Project: {project_root}")
     print(f"  Model: {model}")
     print(f"  MLflow: {mlflow_uri}")
+    print("  Tools: controlled git automation + Galatea MCP inspection tools")
+    print("  Skills: repository Skills enabled through Claude SDK")
     print()
 
     async with GalateaRuntime(
         project_root=project_root,
         model=model,
         mlflow_tracking_uri=mlflow_uri,
+        tools=claude_code_tools_preset(),
+        allowed_tools=git_commit_push_allowed_tools(),
+        disallowed_tools=git_commit_push_disallowed_tools(),
+        permission_mode="dontAsk",
+        system_prompt=git_commit_push_system_prompt(),
+        skills="all",
+        max_turns=24,
+        max_budget_usd=1.00,
     ) as runtime:
         print("✅ Agent initialized successfully!")
         print_welcome()
@@ -146,33 +170,43 @@ async def interactive_chat(
                 if not user_input:
                     continue
 
-                # Handle commands
-                if user_input.startswith('/'):
-                    command = user_input.lower()
-
-                    if command in ['/exit', '/quit']:
-                        print("\n👋 Goodbye!")
-                        break
-                    elif command == '/help':
-                        print_welcome()
-                        continue
-                    elif command == '/clear':
-                        print("\n🗑️  Conversation cleared (note: actual clearing not implemented in Stage 1)")
-                        print("   This would require session management from state/")
-                        print()
-                        continue
-                    else:
-                        print(f"❌ Unknown command: {command}")
-                        print("   Type /help for available commands")
-                        print()
-                        continue
+                # Handle only known slash commands; absolute paths also start with "/".
+                command = user_input.lower()
+                if command in ['/exit', '/quit']:
+                    print("\n👋 Goodbye!")
+                    break
+                elif command == '/help':
+                    print_welcome()
+                    continue
+                elif command == '/clear':
+                    print("\n🗑️  Conversation cleared (note: actual clearing not implemented in Stage 1)")
+                    print("   This would require session management from state/")
+                    print()
+                    continue
+                elif command == '/skills':
+                    print("\nAvailable Skills:")
+                    for skill in SkillRegistry(project_root).discover(include_plugin=False):
+                        print(f"  - {skill.name}: {skill.description}")
+                    print()
+                    continue
 
                 # Send query and receive response
                 turn += 1
                 print()
+                prompt = (
+                    build_git_commit_push_prompt(project_root, user_input)
+                    if is_git_commit_push_request(user_input)
+                    else user_input
+                )
 
-                async for message in runtime.query(user_input):
+                async for message in runtime.query(prompt):
+                    if isinstance(message, SystemMessage):
+                        continue
                     display_message(message, show_tool_calls=True)
+                    if isinstance(message, UserMessage) and isinstance(message.content, list):
+                        for block in message.content:
+                            if isinstance(block, ToolResultBlock):
+                                print("   ✓ tool result received")
 
             except KeyboardInterrupt:
                 print("\n\n👋 Goodbye!")

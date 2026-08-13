@@ -15,6 +15,15 @@ from agent.core.sdk import (
     message_display_parts,
     result_to_json,
 )
+from agent.skills import (
+    SkillRegistry,
+    SkillRuntimeConfig,
+    SkillSpec,
+    ensure_local_skill_plugin,
+    resolve_skill_runtime,
+    skill_permission_rules,
+    sync_codex_skills_to_claude,
+)
 
 __all__ = [
     "AgentSDKConfig",
@@ -26,8 +35,15 @@ __all__ = [
     "GalateaSDKRuntime",
     "SDKRunResult",
     "SDKRunValidationError",
+    "SkillRegistry",
+    "SkillRuntimeConfig",
+    "SkillSpec",
     "ToolCallRecord",
+    "ensure_local_skill_plugin",
     "mcp_tool_names",
     "message_display_parts",
+    "resolve_skill_runtime",
     "result_to_json",
+    "skill_permission_rules",
+    "sync_codex_skills_to_claude",
 ]

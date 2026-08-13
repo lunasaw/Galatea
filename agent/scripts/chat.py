@@ -51,6 +51,7 @@ def print_tools():
 
     print()
     print("Available Tools:")
+    print("  🧭 /commit-push                - Commit relevant changes and push branch")
     print("  📋 list_training_projects      - List all training projects")
     print("  🔍 inspect_project_structure   - Inspect project files")
     print("  ❤️  check_service_health        - Check service status")
@@ -67,28 +68,25 @@ def print_tools():
 async def interactive_chat():
     """完整的交互式对话"""
     sys.path.insert(0, str(Path.cwd()))
+    from agent.commands import claude_code_read_only_allowed_tools, default_command_registry
     from agent.runtime import (
         GalateaRuntime,
-        git_commit_push_allowed_tools,
-        git_commit_push_disallowed_tools,
-        git_commit_push_system_prompt,
         claude_code_tools_preset,
-        build_git_commit_push_prompt,
-        is_git_commit_push_request,
     )
 
     print_header()
+    command_registry = default_command_registry()
 
     async with GalateaRuntime(
         project_root=Path.cwd(),
         tools=claude_code_tools_preset(),
-        allowed_tools=git_commit_push_allowed_tools(),
-        disallowed_tools=git_commit_push_disallowed_tools(),
+        allowed_tools=claude_code_read_only_allowed_tools(),
+        disallowed_tools=command_registry.disallowed_tools(),
         permission_mode="dontAsk",
-        system_prompt=git_commit_push_system_prompt(),
         skills="all",
         max_turns=24,
         max_budget_usd=1.00,
+        command_registry=command_registry,
     ) as runtime:
         print("✅ Agent initialized!\n")
 
@@ -121,18 +119,12 @@ async def interactive_chat():
                 # Process query
                 turn_number += 1
                 print()
-                prompt = (
-                    build_git_commit_push_prompt(Path.cwd(), user_input)
-                    if is_git_commit_push_request(user_input)
-                    else user_input
-                )
-
                 # Track response state
                 response_started = False
                 current_text = ""
                 tools_used = []
 
-                async for msg in runtime.query(prompt):
+                async for msg in runtime.query(user_input):
                     # Skip system messages
                     if isinstance(msg, SystemMessage):
                         continue

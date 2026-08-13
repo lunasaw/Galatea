@@ -64,11 +64,12 @@ def print_welcome():
     print("  /help    - Show this help")
     print("  /clear   - Clear conversation history")
     print("  /skills  - Show enabled repository Skills")
+    print("  /commit-push [notes] - Commit relevant changes and push branch")
     print("  /exit    - Exit the chat")
     print("  /quit    - Exit the chat")
     print()
     print("Available tools:")
-    print("  - Git automation: git status/diff/add/commit/push")
+    print("  - Git automation is command-scoped through /commit-push")
     print("  - Read-only code tools: Read, Glob, Grep, LS")
     print("  - list_training_projects")
     print("  - inspect_project_structure")
@@ -125,14 +126,10 @@ async def interactive_chat(
     sys.path.insert(0, str(project_root))
 
     # Import after adding to path
+    from agent.commands import claude_code_read_only_allowed_tools, default_command_registry
     from agent.runtime import (
         GalateaRuntime,
-        git_commit_push_allowed_tools,
-        git_commit_push_disallowed_tools,
-        git_commit_push_system_prompt,
         claude_code_tools_preset,
-        build_git_commit_push_prompt,
-        is_git_commit_push_request,
     )
     from agent.skills import SkillRegistry
 
@@ -143,19 +140,20 @@ async def interactive_chat(
     print("  Tools: controlled git automation + Galatea MCP inspection tools")
     print("  Skills: repository Skills enabled through Claude SDK")
     print()
+    command_registry = default_command_registry()
 
     async with GalateaRuntime(
         project_root=project_root,
         model=model,
         mlflow_tracking_uri=mlflow_uri,
         tools=claude_code_tools_preset(),
-        allowed_tools=git_commit_push_allowed_tools(),
-        disallowed_tools=git_commit_push_disallowed_tools(),
+        allowed_tools=claude_code_read_only_allowed_tools(),
+        disallowed_tools=command_registry.disallowed_tools(),
         permission_mode="dontAsk",
-        system_prompt=git_commit_push_system_prompt(),
         skills="all",
         max_turns=24,
         max_budget_usd=1.00,
+        command_registry=command_registry,
     ) as runtime:
         print("✅ Agent initialized successfully!")
         print_welcome()
@@ -193,13 +191,8 @@ async def interactive_chat(
                 # Send query and receive response
                 turn += 1
                 print()
-                prompt = (
-                    build_git_commit_push_prompt(project_root, user_input)
-                    if is_git_commit_push_request(user_input)
-                    else user_input
-                )
 
-                async for message in runtime.query(prompt):
+                async for message in runtime.query(user_input):
                     if isinstance(message, SystemMessage):
                         continue
                     display_message(message, show_tool_calls=True)

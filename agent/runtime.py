@@ -4,16 +4,32 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Literal, Optional
 
 from claude_agent_sdk import ClaudeSDKClient
 
+from agent.commands import (
+    CLAUDE_CODE_GIT_COMMIT_PUSH_ALLOWED_TOOLS,
+    CLAUDE_CODE_GIT_COMMIT_PUSH_DISALLOWED_TOOLS,
+    GIT_AUTOMATION_SYSTEM_PROMPT,
+    CommandContext,
+    CommandInvocation,
+    CommandPlan,
+    CommandRegistry,
+    build_git_commit_push_prompt,
+    claude_code_allowed_tools as _claude_code_allowed_tools,
+    default_command_registry,
+    default_platform_allowed_tools,
+    git_commit_push_allowed_tools,
+    git_commit_push_disallowed_tools,
+    git_commit_push_system_prompt,
+    is_git_commit_push_request,
+)
 from agent.core import (
     AgentSDKConfig,
-    CLAUDE_CODE_BASE_ALLOWED_TOOLS,
     CLAUDE_CODE_TOOLS_PRESET,
     GalateaSDKRuntime,
     SDKRunResult,
@@ -23,47 +39,6 @@ from agent.policies.permission import DEFAULT_DISALLOWED_TOOLS
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-CLAUDE_CODE_GIT_COMMIT_PUSH_ALLOWED_TOOLS = [
-    "Bash(git add:*)",
-    "Bash(git branch:*)",
-    "Bash(git checkout --branch:*)",
-    "Bash(git checkout -b:*)",
-    "Bash(git commit:*)",
-    "Bash(git diff:*)",
-    "Bash(git log:*)",
-    "Bash(git push:*)",
-    "Bash(git remote:*)",
-    "Bash(git rev-parse:*)",
-    "Bash(git status:*)",
-    "Bash(git branch --show-current)",
-]
-CLAUDE_CODE_GIT_COMMIT_PUSH_DISALLOWED_TOOLS = [
-    "Bash(git push --force*)",
-    "Bash(git push * --force*)",
-    "Bash(git push -f*)",
-    "Bash(git push * -f*)",
-]
-
-GIT_AUTOMATION_SYSTEM_PROMPT = """You are running inside the Galatea repository.
-
-When the user asks to commit and push code, follow this workflow without stopping
-after inspection commands:
-1. Inspect the current branch, status, and relevant diff.
-2. Stage only relevant source changes and create a normal commit; never amend.
-3. Push the current branch to its configured upstream, or to origin with
-   --set-upstream if no upstream exists.
-
-Git safety rules:
-- Never run destructive git commands such as reset --hard, clean, or force-push
-  unless the user explicitly asks for that exact action.
-- Never skip hooks with --no-verify or similar flags unless explicitly asked.
-- Do not commit secrets, datasets, checkpoints, generated models, runtime DBs,
-  or platform-data artifacts.
-- If authentication or network access blocks push, report the exact command and
-  error instead of retrying indefinitely.
-"""
-GIT_CONTEXT_MAX_CHARS = 20000
 
 
 def _serialize_to_oneline(obj: Any) -> str:
@@ -109,11 +84,17 @@ class GalateaRuntime:
         output_schema: Optional[Dict[str, Any]] = None,
         max_turns: int = 12,
         max_budget_usd: float = 0.20,
+        agents: Optional[Dict[str, Any]] = None,
+        task_budget_tokens: Optional[int] = None,
+        include_hook_events: bool = True,
+        command_registry: CommandRegistry | None = None,
     ) -> None:
         self.project_root = project_root
         self.mlflow_uri = mlflow_tracking_uri
         self.model = model
         self.output_schema = output_schema
+        self.command_registry = command_registry or default_command_registry()
+        self._explicit_disallowed_tools = disallowed_tools is not None
         self.config = AgentSDKConfig(
             project_root=project_root,
             model=model,
@@ -129,8 +110,11 @@ class GalateaRuntime:
             system_prompt=system_prompt,
             skills=skills,
             output_schema=output_schema,
+            agents=agents,
+            include_hook_events=include_hook_events,
             max_turns=max_turns,
             max_budget_usd=max_budget_usd,
+            task_budget_tokens=task_budget_tokens,
             auto_load_config=auto_load_config,
         )
         self.sdk_runtime = GalateaSDKRuntime(self.config)
@@ -159,9 +143,8 @@ class GalateaRuntime:
         instruction for backwards compatibility. For strict SDK schema
         enforcement, construct the runtime with output_schema.
         """
-        final_prompt = prompt
-        if is_git_commit_push_request(prompt):
-            final_prompt = build_git_commit_push_prompt(self.project_root, prompt)
+        plan = self.build_command_plan(prompt)
+        final_prompt = plan.prompt
         if output_schema:
             final_prompt = (
                 f"{final_prompt}\n\nReturn structured JSON matching this schema:\n"
@@ -176,32 +159,88 @@ class GalateaRuntime:
                     "model": self.model,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "prompt": final_prompt,
+                    "command": plan.command_name,
                     "output_schema": output_schema or self.output_schema,
                 }
             ),
         )
 
-        async for message in self.sdk_runtime.stream_query(final_prompt):
-            logger.info(
-                "MODEL_RESPONSE: %s",
-                _serialize_to_oneline(
-                    {
-                        "type": "response",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "message": message_display_parts(message),
-                    }
-                ),
-            )
+        async with self._runtime_for_plan(plan) as runtime:
+            async for message in runtime.stream_query(final_prompt):
+                logger.info(
+                    "MODEL_RESPONSE: %s",
+                    _serialize_to_oneline(
+                        {
+                            "type": "response",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "message": message_display_parts(message),
+                        }
+                    ),
+                )
+                yield message
+
+    async def stream_query(
+        self,
+        prompt: str,
+        output_schema: Optional[Dict[str, Any]] = None,
+    ) -> AsyncIterator[Any]:
+        """Alias for query() to match GalateaSDKRuntime's streaming API."""
+        async for message in self.query(prompt, output_schema=output_schema):
             yield message
 
     async def run(self, prompt: str) -> SDKRunResult:
         """Execute a query and return the collected, validated result."""
-        final_prompt = (
-            build_git_commit_push_prompt(self.project_root, prompt)
-            if is_git_commit_push_request(prompt)
-            else prompt
+        plan = self.build_command_plan(prompt)
+        async with self._runtime_for_plan(plan) as runtime:
+            return await runtime.query(plan.prompt)
+
+    def build_command_plan(self, prompt: str) -> CommandPlan:
+        """Resolve slash/natural-language commands into an SDK query plan."""
+        return self.command_registry.build_plan(prompt, self._command_context())
+
+    def _command_context(self) -> CommandContext:
+        return CommandContext(
+            project_root=self.project_root,
+            mlflow_tracking_uri=self.mlflow_uri,
+            model=self.model,
         )
-        return await self.sdk_runtime.query(final_prompt)
+
+    def _runtime_for_plan(self, plan: CommandPlan) -> "_PlannedRuntime":
+        return _PlannedRuntime(self.sdk_runtime, self._build_runtime_for_plan(plan))
+
+    def _build_runtime_for_plan(self, plan: CommandPlan) -> GalateaSDKRuntime | None:
+        if not plan.is_command or self._base_runtime_covers_plan(plan):
+            return None
+
+        disallowed_tools = list(plan.disallowed_tools) or self.config.disallowed_tools
+        if self._explicit_disallowed_tools and plan.disallowed_tools:
+            disallowed_tools = list(dict.fromkeys([*self.config.disallowed_tools, *plan.disallowed_tools]))
+
+        command_config = replace(
+            self.config,
+            agent_type=f"runtime-command-{plan.command_name}",
+            stage_run_id=f"{self.sdk_runtime.stage_run_id}:{plan.command_name}",
+            model=plan.model or self.config.model,
+            tools=self.config.tools if plan.tools is None else plan.tools,
+            allowed_tools=list(plan.allowed_tools) or self.config.allowed_tools,
+            disallowed_tools=disallowed_tools,
+            system_prompt=_merge_system_prompt(self.config.system_prompt, plan.system_prompt),
+            max_turns=plan.max_turns or self.config.max_turns,
+        )
+        return GalateaSDKRuntime(command_config)
+
+    def _base_runtime_covers_plan(self, plan: CommandPlan) -> bool:
+        if not plan.is_command:
+            return True
+        if plan.tools is not None and plan.tools != self.config.tools:
+            return False
+        if plan.allowed_tools and not set(plan.allowed_tools).issubset(self.config.allowed_tools):
+            return False
+        if plan.disallowed_tools and set(plan.disallowed_tools) != set(self.config.disallowed_tools):
+            return False
+        if not _system_prompt_contains(self.config.system_prompt, plan.system_prompt):
+            return False
+        return True
 
     async def inspect_platform(self) -> Dict[str, Any]:
         """Use the agent to inspect Galatea platform state."""
@@ -234,6 +273,10 @@ class GalateaRuntime:
         """Expose threshold-aware context usage diagnostics."""
         return await self.sdk_runtime.check_context_usage()
 
+    def context_compaction_instructions(self) -> str:
+        """Expose SDK context compaction guidance."""
+        return self.sdk_runtime.context_compaction_instructions()
+
     async def interrupt(self) -> None:
         await self.sdk_runtime.interrupt()
 
@@ -244,27 +287,35 @@ class GalateaRuntime:
         return await self.sdk_runtime.get_mcp_status()
 
 
+class _PlannedRuntime:
+    """Context manager for command-specific SDK runtimes."""
+
+    def __init__(
+        self,
+        base_runtime: GalateaSDKRuntime,
+        command_runtime: GalateaSDKRuntime | None,
+    ) -> None:
+        self.base_runtime = base_runtime
+        self.command_runtime = command_runtime
+
+    async def __aenter__(self) -> GalateaSDKRuntime:
+        if self.command_runtime is None:
+            return self.base_runtime
+        await self.command_runtime.__aenter__()
+        return self.command_runtime
+
+    async def __aexit__(self, *args: Any) -> None:
+        if self.command_runtime is not None:
+            await self.command_runtime.__aexit__(*args)
+
+
 def _default_allowed_tools() -> list[str]:
-    alias = "galatea-platform"
-    return [
-        f"mcp__{alias}__list_training_projects",
-        f"mcp__{alias}__inspect_project_structure",
-        f"mcp__{alias}__check_service_health",
-        f"mcp__{alias}__inspect_mlflow_experiment",
-        f"mcp__{alias}__inspect_ray_status",
-    ]
+    return default_platform_allowed_tools()
 
 
 def claude_code_allowed_tools() -> list[str]:
     """Return all Galatea inspection tools plus base Claude Code tools."""
-    return list(
-        dict.fromkeys(
-            [
-                *_default_allowed_tools(),
-                *CLAUDE_CODE_BASE_ALLOWED_TOOLS,
-            ]
-        )
-    )
+    return _claude_code_allowed_tools()
 
 
 def claude_code_tools_preset() -> dict[str, str]:
@@ -272,131 +323,31 @@ def claude_code_tools_preset() -> dict[str, str]:
     return dict(CLAUDE_CODE_TOOLS_PRESET)
 
 
-def git_commit_push_allowed_tools() -> list[str]:
-    """Return a narrow Claude Code-style allowlist for commit and push tasks."""
-    return list(
-        dict.fromkeys(
-            [
-                *_default_allowed_tools(),
-                "Read",
-                "Glob",
-                "Grep",
-                "LS",
-                *CLAUDE_CODE_GIT_COMMIT_PUSH_ALLOWED_TOOLS,
-            ]
-        )
-    )
+def _merge_system_prompt(
+    base: str | Dict[str, Any] | None,
+    scoped: str | Dict[str, Any] | None,
+) -> str | Dict[str, Any] | None:
+    if base is None:
+        return scoped
+    if scoped is None:
+        return base
+    if isinstance(base, str) and isinstance(scoped, str):
+        if scoped in base:
+            return base
+        return f"{base.rstrip()}\n\n{scoped.lstrip()}"
+    return scoped
 
 
-def git_commit_push_disallowed_tools() -> list[str]:
-    """Return scoped git commands that remain blocked in commit/push automation."""
-    return list(CLAUDE_CODE_GIT_COMMIT_PUSH_DISALLOWED_TOOLS)
-
-
-def git_commit_push_system_prompt() -> str:
-    """Return the system prompt fragment for controlled git commit/push automation."""
-    return GIT_AUTOMATION_SYSTEM_PROMPT
-
-
-def is_git_commit_push_request(text: str) -> bool:
-    """Detect common English and Chinese commit-and-push requests."""
-    normalized = text.strip().lower()
-    if normalized.startswith("## context") and "## task" in normalized:
-        return False
-    if normalized.startswith("/commit-push"):
+def _system_prompt_contains(
+    base: str | Dict[str, Any] | None,
+    scoped: str | Dict[str, Any] | None,
+) -> bool:
+    if scoped is None:
         return True
-    compact = normalized.replace(" ", "")
-    return (
-        ("commit" in normalized and "push" in normalized)
-        or "提交推送" in compact
-        or "提交并推送" in compact
-        or "提交和推送" in compact
-    )
-
-
-def build_git_commit_push_prompt(project_root: Path, user_request: str) -> str:
-    """Build a Claude Code-style prompt for commit and push automation."""
-    context_commands = {
-        "git status --branch --short": _run_git_context_command(
-            project_root,
-            ["git", "status", "--branch", "--short"],
-        ),
-        "git diff HEAD": _run_git_context_command(
-            project_root,
-            ["git", "diff", "HEAD"],
-            max_chars=GIT_CONTEXT_MAX_CHARS,
-        ),
-        "git branch --show-current": _run_git_context_command(
-            project_root,
-            ["git", "branch", "--show-current"],
-        ),
-        "git log --oneline -10": _run_git_context_command(
-            project_root,
-            ["git", "log", "--oneline", "-10"],
-        ),
-        "git remote -v": _run_git_context_command(
-            project_root,
-            ["git", "remote", "-v"],
-        ),
-    }
-    context = "\n".join(
-        f"- `{command}`:\n```text\n{output or '(no output)'}\n```"
-        for command, output in context_commands.items()
-    )
-    extra = user_request.removeprefix("/commit-push").strip()
-    if not extra:
-        extra = user_request
-
-    return f"""## Context
-
-{context}
-
-## Git Safety Protocol
-
-- Never update git config.
-- Never amend commits unless the user explicitly asks for amend.
-- Never skip hooks with --no-verify, --no-gpg-sign, or similar flags unless explicitly requested.
-- Never run destructive commands such as reset --hard, clean, or force-push unless explicitly requested.
-- Do not commit secrets, datasets, checkpoints, generated models, runtime DBs, or platform-data artifacts.
-- If there are no changes to commit, report that and do not create an empty commit.
-
-## Task
-
-The user's request was:
-{extra}
-
-Based on the context above, continue all the way through the workflow:
-1. Stage relevant source changes.
-2. Create one normal commit with a concise imperative message.
-3. Push the current branch. If it has no upstream, push with --set-upstream origin <branch>.
-
-Do not stop after status or diff inspection. You have the capability to call
-multiple tools in one response; use that to stage, commit, and push. Return the
-commit hash and push result when finished."""
-
-
-def _run_git_context_command(
-    project_root: Path,
-    command: list[str],
-    *,
-    max_chars: int = 6000,
-) -> str:
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=project_root,
-            check=False,
-            text=True,
-            capture_output=True,
-            timeout=15,
-        )
-    except Exception as exc:  # noqa: BLE001 - context collection should not block the agent
-        return f"[context command failed: {exc}]"
-
-    output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
-    output = output.strip()
-    if completed.returncode != 0:
-        output = f"[exit {completed.returncode}]\n{output}".strip()
-    if len(output) > max_chars:
-        return output[:max_chars] + "\n...[truncated]..."
-    return output
+    if base is None:
+        return False
+    if base == scoped:
+        return True
+    if isinstance(base, str) and isinstance(scoped, str):
+        return scoped in base
+    return False

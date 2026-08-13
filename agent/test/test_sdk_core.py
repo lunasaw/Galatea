@@ -54,6 +54,85 @@ class TestPermissionPolicy(unittest.TestCase):
         self.assertEqual(policy.check_permission("Skill", {"skill": "unknown"}), "deny")
 
 
+class TestCommandRegistry(unittest.TestCase):
+    def test_commit_push_command_builds_scoped_plan(self):
+        from agent.commands import CommandContext, default_command_registry
+
+        registry = default_command_registry()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            plan = registry.build_plan(
+                "/commit-push include only command abstraction changes",
+                CommandContext(project_root=Path(tmpdir)),
+            )
+
+        self.assertEqual(plan.command_name, "commit-push")
+        self.assertIn("## Git Safety Protocol", plan.prompt)
+        self.assertIn("include only command abstraction changes", plan.prompt)
+        self.assertIn("Bash(git push:*)", plan.allowed_tools)
+        self.assertIn("Bash(git push --force*)", plan.disallowed_tools)
+        self.assertEqual(plan.tools, {"type": "preset", "preset": "claude_code"})
+
+    def test_registry_leaves_unknown_slash_paths_as_plain_prompts(self):
+        from agent.commands import CommandContext, default_command_registry
+
+        registry = default_command_registry()
+        prompt = "/data/ai/chenzhangyue/code/galatea/agent/runtime.py 是否抽象"
+        plan = registry.build_plan(prompt, CommandContext(project_root=Path.cwd()))
+
+        self.assertIsNone(plan.command_name)
+        self.assertEqual(plan.prompt, prompt)
+
+    def test_runtime_exposes_command_plan_without_command_hardcoding(self):
+        from agent.runtime import GalateaRuntime
+
+        runtime = GalateaRuntime(project_root=Path.cwd(), auto_load_config=False)
+        plan = runtime.build_command_plan("commit and push these changes")
+
+        self.assertEqual(plan.command_name, "commit-push")
+        self.assertIn("Return the\ncommit hash", plan.prompt)
+
+    def test_command_runtime_applies_scoped_tools_only_when_command_matches(self):
+        from agent.commands import (
+            CommandContext,
+            claude_code_read_only_allowed_tools,
+            default_command_registry,
+        )
+        from agent.runtime import GalateaRuntime, claude_code_tools_preset
+
+        registry = default_command_registry()
+        runtime = GalateaRuntime(
+            project_root=Path.cwd(),
+            auto_load_config=False,
+            tools=claude_code_tools_preset(),
+            allowed_tools=claude_code_read_only_allowed_tools(),
+            disallowed_tools=registry.disallowed_tools(),
+            command_registry=registry,
+        )
+        base_options = runtime.sdk_runtime.build_options()
+        self.assertNotIn("Bash(git push:*)", base_options.allowed_tools)
+
+        plan = registry.build_plan("/commit-push", CommandContext(project_root=Path.cwd()))
+        command_runtime = runtime._build_runtime_for_plan(plan)
+        self.assertIsNotNone(command_runtime)
+        assert command_runtime is not None
+        command_options = command_runtime.build_options()
+
+        self.assertIn("Bash(git push:*)", command_options.allowed_tools)
+        self.assertIn("Bash(git push --force*)", command_options.disallowed_tools)
+
+    def test_preexpanded_command_prompt_is_not_expanded_twice(self):
+        from agent.commands import CommandContext, default_command_registry
+
+        registry = default_command_registry()
+        context = CommandContext(project_root=Path.cwd())
+        first = registry.build_plan("/commit-push", context)
+        second = registry.build_plan(first.prompt, context)
+
+        self.assertEqual(first.command_name, "commit-push")
+        self.assertIsNone(second.command_name)
+        self.assertEqual(second.prompt, first.prompt)
+
+
 class TestBudgetPolicy(unittest.TestCase):
     def test_budget_records_usage(self):
         policy = BudgetPolicy(max_budget_usd=0.10, max_tokens=100)

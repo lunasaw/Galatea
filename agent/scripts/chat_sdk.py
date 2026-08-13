@@ -31,27 +31,20 @@ from agent.agents import (  # noqa: E402
     PLATFORM_INSPECTOR,
     TRAINING_ORCHESTRATOR,
 )
-from agent.core import (  # noqa: E402
-    CLAUDE_CODE_TOOLS_PRESET,
-    AgentSDKConfig,
-    GalateaSDKRuntime,
-    result_to_json,
-)
+from agent.core import result_to_json  # noqa: E402
 from agent.skills import SkillRegistry  # noqa: E402
-from agent.runtime import (  # noqa: E402
-    build_git_commit_push_prompt,
-    git_commit_push_allowed_tools,
-    git_commit_push_disallowed_tools,
-    git_commit_push_system_prompt,
-    is_git_commit_push_request,
+from agent.commands import (  # noqa: E402
+    claude_code_read_only_allowed_tools,
+    default_command_registry,
 )
+from agent.runtime import GalateaRuntime, claude_code_tools_preset  # noqa: E402
 
 
 def print_header() -> None:
     print("\n" + "=" * 76)
     print("Galatea Agent - Interactive Chat (Claude SDK Core)")
     print("=" * 76)
-    print("Tools: controlled git automation + Galatea MCP inspection tools are auto-allowed")
+    print("Tools: read-only by default; git automation is scoped to /commit-push")
     print("Skills: repository Skills are enabled through Claude SDK Skill support")
     print()
     print("Commands:")
@@ -62,6 +55,7 @@ def print_header() -> None:
     print("  /context            Show SDK context usage")
     print("  /compact            Show compaction instructions")
     print("  /json               Toggle result JSON summary")
+    print("  /commit-push [msg]  Commit relevant changes and push branch")
     print("=" * 76)
     print()
 
@@ -83,9 +77,10 @@ def print_skills(project_root: Path) -> None:
 
 
 def print_tools() -> None:
+    command_registry = default_command_registry()
     print()
-    print("Available Git Automation Tools:")
-    for tool_name in git_commit_push_allowed_tools():
+    print("Available Command Tools:")
+    for tool_name in command_registry.allowed_tools():
         if tool_name.startswith("Bash("):
             print(f"  {tool_name}")
     print()
@@ -98,7 +93,8 @@ def print_tools() -> None:
     print()
 
 
-def build_runtime(args: argparse.Namespace) -> GalateaSDKRuntime:
+def build_runtime(args: argparse.Namespace) -> GalateaRuntime:
+    command_registry = default_command_registry()
     agents = {
         "inspector": PLATFORM_INSPECTOR,
         "data": DATA_PREPARER,
@@ -107,23 +103,21 @@ def build_runtime(args: argparse.Namespace) -> GalateaSDKRuntime:
         "experiment": EXPERIMENT_ANALYZER,
         "docs": DOCUMENTATION_GENERATOR,
     }
-    config = AgentSDKConfig(
+    return GalateaRuntime(
         project_root=args.cwd,
         model=args.model,
-        agent_type="interactive-chat",
-        tools=CLAUDE_CODE_TOOLS_PRESET,
-        allowed_tools=git_commit_push_allowed_tools(),
-        disallowed_tools=git_commit_push_disallowed_tools(),
+        tools=claude_code_tools_preset(),
+        allowed_tools=claude_code_read_only_allowed_tools(),
+        disallowed_tools=command_registry.disallowed_tools(),
         permission_mode="dontAsk",
-        system_prompt=git_commit_push_system_prompt(),
         skills=parse_skills_option(args.skills),
         agents=agents,
         max_turns=args.max_turns,
         max_budget_usd=args.max_budget_usd,
         task_budget_tokens=args.task_budget_tokens,
+        command_registry=command_registry,
         auto_load_config=not args.no_auto_config,
     )
-    return GalateaSDKRuntime(config)
 
 
 async def interactive_chat(args: argparse.Namespace) -> None:
@@ -168,13 +162,8 @@ async def interactive_chat(args: argparse.Namespace) -> None:
                 tools_used: list[str] = []
                 hook_events = 0
                 result_message: ResultMessage | None = None
-                prompt = (
-                    build_git_commit_push_prompt(args.cwd, user_input)
-                    if is_git_commit_push_request(user_input)
-                    else user_input
-                )
 
-                async for msg in runtime.stream_query(prompt):
+                async for msg in runtime.stream_query(user_input):
                     if isinstance(msg, SystemMessage) and not isinstance(msg, HookEventMessage):
                         continue
                     if isinstance(msg, HookEventMessage):
@@ -230,7 +219,7 @@ async def interactive_chat(args: argparse.Namespace) -> None:
     print("Goodbye.\n")
 
 
-async def _print_status(runtime: GalateaSDKRuntime) -> None:
+async def _print_status(runtime: GalateaRuntime) -> None:
     status = await runtime.get_mcp_status()
     print()
     for server in status.get("mcpServers", []):
@@ -240,7 +229,7 @@ async def _print_status(runtime: GalateaSDKRuntime) -> None:
     print()
 
 
-async def _print_context(runtime: GalateaSDKRuntime) -> None:
+async def _print_context(runtime: GalateaRuntime) -> None:
     usage = await runtime.check_context_usage()
     print()
     print(

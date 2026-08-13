@@ -350,3 +350,10 @@ Approval request 是结构化对象：
 - MLflow Registry 写入和 alias 变更。
 - Ray Serve 真实部署或流量切换。
 - 任意需要裸 Bash 的代码维护动作。
+
+## 8. 相关文档
+
+- 总体架构：[`current-agent-architecture.md`](current-agent-architecture.md)。
+- Python 实现蓝图：[`python-agent-architecture.md`](python-agent-architecture.md)。
+- SDK 权限和 hooks 规范：[`claude-sdk-development-guidelines.md`](claude-sdk-development-guidelines.md)。
+- 巡推推荐治理：[`patrol-recommendation-governance.md`](patrol-recommendation-governance.md)。

@@ -80,6 +80,17 @@ https://api.anthropic.com
 }
 ```
 
+
+## 配置边界
+
+API 配置只用于让 Claude Agent SDK runtime 能访问模型服务，不代表授权平台动作。
+
+- `ANTHROPIC_API_KEY` 和 `ANTHROPIC_BASE_URL` 不应写入项目源码、notebook 输出或 Agent transcript。
+- 巡推 Agent 默认只使用 L0/L1 权限；配置 API key 不等于允许 L2 approval request 或 L3 apply。
+- Ray、MLflow、MinIO 的 tracking URI、endpoint 和 credential 应通过明确配置或环境注入，不从模型 prompt 推断。
+- 不要把 MinIO 长期密钥传给 LLM 或写入 Ray runtime_env YAML。
+- 生产和开发建议使用不同 API key、不同 budget 和不同 permission policy。
+
 ## 验证配置
 
 运行配置测试脚本：

@@ -57,7 +57,7 @@ BASE_OPTIONS = ClaudeAgentOptions(
 | --- | --- | --- |
 | 只读仓库分析 | 允许 `Read`, `Grep`, `Glob` | 不允许 `Bash`。 |
 | 代码维护 | 允许 `Read`, `Grep`, `Glob`, `Edit` | 必须启用 file checkpointing，必要时 human approval。 |
-| 数据阶段执行 | 只允许 `mcp__galatea__data_*` 和 `mcp__galatea__ray_job_*` | 不允许直接 Bash 或 MinIO 底层写。 |
+| 数据阶段执行 | 只允许 `mcp__galatea-platform__data_*` 和 `mcp__galatea-platform__ray_job_*` | 不允许直接 Bash 或 MinIO 底层写。 |
 | 训练阶段 smoke | 允许小预算 `submit_ray_training_job` | 长训练需要 approval。 |
 | production promotion | 默认不允许 | 只生成 approval request。 |
 
@@ -69,7 +69,7 @@ Claude SDK README 明确说明：`allowed_tools` 是自动批准列表，不会�
 
 - 永远不要只设置 `allowed_tools` 而不设置 `disallowed_tools`。
 - 数据、训练、推理阶段默认禁止 `Bash`, `Write`, `Edit`, `MultiEdit`。
-- 对 MCP 工具使用精确名称，例如 `mcp__galatea__submit_ray_data_job`，不要用过宽通配。
+- 对 MCP 工具使用精确名称，例如 `mcp__galatea-platform__submit_ray_data_job`，不要用过宽通配。
 - 不使用 `permission_mode="bypassPermissions"` 运行平台任务。
 - 服务端自动化优先 `permission_mode="dontAsk"`，让未预批准动作快速失败。
 
@@ -98,13 +98,13 @@ from claude_agent_sdk import HookMatcher
 HOOKS = {
     "PreToolUse": [
         HookMatcher(matcher="Bash|Write|Edit|MultiEdit", hooks=[deny_builtin_mutation]),
-        HookMatcher(matcher="mcp__galatea__*", hooks=[validate_platform_tool_call]),
+        HookMatcher(matcher="mcp__galatea-platform__*", hooks=[validate_platform_tool_call]),
     ],
     "PostToolUse": [
-        HookMatcher(matcher="mcp__galatea__*", hooks=[summarize_large_tool_output]),
+        HookMatcher(matcher="mcp__galatea-platform__*", hooks=[summarize_large_tool_output]),
     ],
     "PostToolUseFailure": [
-        HookMatcher(matcher="mcp__galatea__*", hooks=[classify_tool_failure]),
+        HookMatcher(matcher="mcp__galatea-platform__*", hooks=[classify_tool_failure]),
     ],
     "Stop": [
         HookMatcher(hooks=[validate_stage_completion]),
@@ -173,7 +173,7 @@ async def submit_ray_data_job(args: SubmitRayDataJobInput):
 from claude_agent_sdk import create_sdk_mcp_server
 
 server = create_sdk_mcp_server(
-    name="galatea",
+    name="galatea-platform",
     version="0.1.0",
     tools=[
         inspect_dataset,
@@ -265,3 +265,10 @@ Runtime 收到 `ResultMessage` 后必须校验：
 - 禁止 Agent 读取 `platform-data/mlflow/mlflow.db`。
 - 禁止在 prompt、工具输出、Artifact 或日志里暴露 MinIO 长期密钥。
 - 禁止未审批修改 MLflow Registry production/champion alias。
+
+## 14. 相关文档
+
+- Python 实现蓝图：[`python-agent-architecture.md`](python-agent-architecture.md)。
+- 阶段契约：[`stage-contracts-and-tools.md`](stage-contracts-and-tools.md)。
+- 巡推记忆和压缩：[`patrol-memory-and-compaction.md`](patrol-memory-and-compaction.md)。
+- 日志边界：[`logging.md`](logging.md)。

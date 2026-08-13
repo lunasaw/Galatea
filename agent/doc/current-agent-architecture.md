@@ -181,40 +181,61 @@ InferenceStageInput
 
 推理阶段默认只生成候选发布计划。任何生产 alias 或服务流量切换必须是独立审批动作。
 
-## 6. 推荐实现布局
+## 6. 当前实现布局和规划补齐
+
+当前实现直接位于 `agent/` 包下，已经有 SDK runtime、hooks、policies、state、tools、
+schemas 和 workflow skeleton。不要再按早期草案创建 `agent/src/galatea_agent/`。
 
 ```text
-agent/src/galatea_agent/
-├── __init__.py
-├── runtime/
-│   ├── client.py                 # ClaudeSDKClient wrapper
-│   ├── messages.py               # message/result collection
-│   └── sessions.py               # session_id/session_store helpers
-├── agents/
-│   ├── coordinator.py
-│   ├── data_agent.py
-│   ├── training_agent.py
-│   └── inference_agent.py
-├── schemas/
-│   ├── common.py                 # StageStatus, ApprovalState, ArtifactRef
-│   ├── data.py                   # DataStageInput/Result
-│   ├── training.py               # TrainingStageInput/Result
-│   └── inference.py              # InferenceStageInput/Result
+agent/
+├── core/sdk.py                  # GalateaSDKRuntime, AgentSDKConfig, result collection
+├── runtime.py                   # high-level runtime facade
+├── client.py                    # platform-aware convenience client
 ├── tools/
-│   ├── server.py                 # create_sdk_mcp_server("galatea", tools=[...])
-│   ├── ray_jobs.py
-│   ├── ray_data.py
-│   ├── mlflow_tracking.py
-│   ├── artifacts.py
-│   ├── registry.py
-│   └── validation.py
+│   ├── server.py                # create_galatea_mcp_server()
+│   ├── inspection.py            # current read-only platform tools
+│   └── executor.py              # deterministic executor for tests
+├── schemas/
+│   ├── common.py                # StageStatus, ArtifactRef, StageEvidence, ApprovalRequest
+│   └── inspection.py            # inspection result schemas
+├── state/
+│   ├── store.py                 # SessionStore, MemorySessionStore, SessionManager
+│   ├── experiment.py            # ExperimentState and persistence manager
+│   └── persistence.py           # JSON save/load helpers
+├── workflows/
+│   ├── state_machine.py         # current linear stage workflow
+│   └── orchestrator.py          # orchestration skeleton
 ├── policies/
-│   ├── permissions.py
-│   ├── budgets.py
-│   ├── approvals.py
-│   └── quality_gates.py
-└── hooks.py
+│   ├── permission.py
+│   ├── budget.py
+│   └── quality.py
+├── hooks/
+│   ├── builtin.py
+│   ├── registry.py
+│   └── types.py
+└── agents/
+    ├── definition.py
+    ├── definitions.py
+    └── registry.py
 ```
+
+规划补齐时优先新增以下文件，而不是迁移现有 runtime：
+
+```text
+agent/
+├── schemas/patrol.py
+├── state/patrol.py
+├── workflows/patrol.py
+├── policies/patrol.py
+├── tools/patrol_output.py
+└── patrol/
+    ├── runner.py
+    ├── compaction.py
+    └── clients.py
+```
+
+Data/Training/Inference 的专用工具和 schema 在实现时再分别新增到 `agent/tools/` 和
+`agent/schemas/`，并保持与 [`stage-contracts-and-tools.md`](stage-contracts-and-tools.md) 对齐。
 
 ## 7. Claude subagents 的使用边界
 
@@ -254,3 +275,10 @@ Agent transcript 可以保存在独立 session store；训练证据仍以 MLflow
 - 直接读写 MLflow SQLite backend store。
 - 把 MinIO 服务端数据目录当客户端 API。
 - 自动大规模调参或长期 GPU 训练。
+
+## 10. 相关文档
+
+- 实现布局和 SDK runtime：[`python-agent-architecture.md`](python-agent-architecture.md)。
+- 阶段输入输出和工具契约：[`stage-contracts-and-tools.md`](stage-contracts-and-tools.md)。
+- 巡推 Agent 契约：[`patrol-push-agent-contract.md`](patrol-push-agent-contract.md)。
+- 落地顺序：[`implementation-roadmap.md`](implementation-roadmap.md)。

@@ -30,7 +30,7 @@ Galatea Python Agent
 | `main.tsx` / REPL loop | Python workflow function | `PlatformCoordinator` 串联 data/training/inference。 |
 | Query engine | `ClaudeSDKClient`, `query()` | `GalateaAgentRuntime`，默认用 `ClaudeSDKClient`。 |
 | Built-in tools | Built-ins + MCP tools | 阶段默认禁用 `Bash/Write/Edit/MultiEdit`，只放精确 MCP 工具。 |
-| Tool classes | `@tool` decorator | `agent/src/galatea_agent/tools/*.py`。 |
+| Tool classes | `@tool` decorator | `agent/tools/*.py`。 |
 | Agent tool/subagent | `AgentDefinition` | 专职 DataAgent/TrainingAgent/InferenceAgent。 |
 | Permission dialog | `permission_mode`, `can_use_tool`, hooks | `dontAsk` + `disallowed_tools` + `PreToolUse`。 |
 | Session files | `SessionStore`, `resume`, `fork_session` | 阶段 transcript、resume、审计关联。 |
@@ -86,9 +86,9 @@ training_agent = AgentDefinition(
     description="Run safe training checks and propose controlled jobs.",
     prompt="Use validation evidence only. Long training requires approval.",
     tools=[
-        "mcp__galatea__validate_training_config",
-        "mcp__galatea__submit_ray_check_config_job",
-        "mcp__galatea__get_ray_job_status",
+        "mcp__galatea-platform__validate_training_config",
+        "mcp__galatea-platform__submit_ray_check_config_job",
+        "mcp__galatea-platform__get_ray_job_status",
     ],
     disallowedTools=["Bash", "Write", "Edit", "MultiEdit"],
     model="sonnet",
@@ -127,9 +127,9 @@ async with ClaudeSDKClient(options=options) as client:
 ClaudeAgentOptions(
     permission_mode="dontAsk",
     allowed_tools=[
-        "mcp__galatea__inspect_dataset_source",
-        "mcp__galatea__submit_ray_data_job",
-        "mcp__galatea__get_ray_job_status",
+        "mcp__galatea-platform__inspect_dataset_source",
+        "mcp__galatea-platform__submit_ray_data_job",
+        "mcp__galatea-platform__get_ray_job_status",
     ],
     disallowed_tools=["Bash", "Write", "Edit", "MultiEdit"],
 )
@@ -182,3 +182,4 @@ Claude Code 和 Python SDK 都能承载多轮修正，但 Galatea 的重试必�
 - [`claude-sdk-development-guidelines.md`](claude-sdk-development-guidelines.md)：SDK 使用规范和安全边界。
 - [`stage-contracts-and-tools.md`](stage-contracts-and-tools.md)：阶段输入输出和工具契约。
 - [`implementation-roadmap.md`](implementation-roadmap.md)：落地路线。
+- [`corecoder-vs-galatea-gap-plan.md`](corecoder-vs-galatea-gap-plan.md)：Patrol/Push Agent 的长状态、证据链和推荐治理设计。

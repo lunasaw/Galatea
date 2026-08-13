@@ -2,15 +2,15 @@
 
 ## Overview
 
-The Galatea agent runtime now includes comprehensive logging for all model requests and responses. All data is serialized to **single-line JSON format without truncation**, enabling complete audit trails and debugging.
+The Galatea agent runtime includes model request/response logging for debugging and audit. Current runtime serialization writes single-line JSON. For Patrol/Push and production workflows, do not treat full prompt/response logging as safe by default; prefer compact summaries, evidence IDs, and raw artifact URIs.
 
 ## Features
 
-- **Complete serialization**: All request prompts and response messages are logged
-- **Single-line format**: Each log entry is compressed to one line (no newlines except escaped `\n`)
-- **No truncation**: Full content is logged regardless of length
-- **Structured format**: JSON serialization with consistent schema
-- **Timestamp tracking**: ISO 8601 timestamps for all requests/responses
+- **Single-line format**: each log entry is compressed to one line where practical
+- **Structured format**: JSON serialization with consistent request/response envelopes
+- **Timestamp tracking**: ISO 8601 timestamps for requests/responses
+- **Audit support**: tool calls, hook events, permission denials, cost and token usage can be correlated
+- **Patrol-safe mode target**: long logs and sensitive values should be represented by evidence IDs and raw_ref URIs, not full text
 
 ## Log Format
 
@@ -21,10 +21,10 @@ MODEL_REQUEST: {"type":"request","model":"claude-opus-5","timestamp":"2026-08-12
 ```
 
 Fields:
-- `type`: Always `"request"`
-- `model`: Model identifier (e.g., `claude-opus-5`)
-- `timestamp`: ISO 8601 UTC timestamp
-- `prompt`: Full prompt text (including schema instructions if structured output requested)
+- `type`: always `"request"`
+- `model`: model identifier, for example `claude-opus-5`
+- `timestamp`: ISO 8601 timestamp
+- `prompt`: prompt text in current implementation; production patrol flows should log compact prompt views only
 - `output_schema`: JSON schema for structured output, or `null`
 
 ### Response Logs
@@ -34,9 +34,9 @@ MODEL_RESPONSE: {"type":"response","timestamp":"2026-08-12T10:00:01.234567","mes
 ```
 
 Fields:
-- `type`: Always `"response"`
-- `timestamp`: ISO 8601 UTC timestamp
-- `message`: Full message object from Claude SDK (includes content, metadata, etc.)
+- `type`: always `"response"`
+- `timestamp`: ISO 8601 timestamp
+- `message`: normalized message object from Claude SDK; production patrol flows should avoid logging sensitive content
 
 ## Configuration
 
@@ -172,13 +172,31 @@ The `_serialize_to_oneline()` function handles:
 
 ### Security Considerations
 
-**⚠️ Warning**: Logs contain full prompt text and responses
+**Warning**: current model logs may contain prompt text and responses.
 
-- May include sensitive data, credentials, or API keys from prompts
-- Store logs securely with appropriate access controls
-- Rotate logs regularly to prevent disk space issues
-- Consider encrypting log files at rest
-- Do not commit logs to version control (already in `.gitignore`)
+- May include sensitive data, credentials, API keys, samples, labels, or long logs from prompts/tools.
+- Store logs securely with appropriate access controls.
+- Rotate logs regularly to prevent disk space issues.
+- Consider encrypting log files at rest.
+- Do not commit logs to version control.
+- For Patrol/Push, log `patrol_run_id`, `finding_id`, `recommendation_id`, `evidence_id`, `raw_ref.uri`, and digest instead of raw sensitive content.
+- Do not log MinIO long-lived credentials, `ANTHROPIC_API_KEY`, sample payloads, or full Ray/MLflow logs.
+
+
+## Patrol/Push Logging Boundary
+
+Patrol/Push Agent should produce auditable but compact events:
+
+- `patrol_run_started` / `patrol_run_completed`
+- `tool_called` / `tool_summarized`
+- `finding_created` / `finding_updated` / `finding_resolved`
+- `recommendation_created` / `recommendation_suppressed` / `recommendation_pushed`
+- `approval_requested`
+- `context_compacted`
+- `budget_exceeded`
+- `policy_blocked`
+
+Each event should include stable IDs and evidence links, not full logs or samples.
 
 ## Testing
 

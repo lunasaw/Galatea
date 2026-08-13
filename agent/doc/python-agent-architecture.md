@@ -29,42 +29,58 @@ ClaudeSDKClient
 | Permission loop | `permission_mode`, `allowed_tools`, `disallowed_tools`, hooks | 默认 deny，精确 allow，hooks 做确定性治理。 |
 | Workflow | Python code + Ray | 由 `PlatformCoordinator` 串联阶段，Ray 负责真实执行。 |
 
-## 3. 推荐目录结构
+## 3. 当前实现布局和新增位置
+
+当前 Python 包直接位于 `agent/`，不是早期草案中的 `agent/src/galatea_agent/`。
+首版应在现有包上小步扩展，不迁移 runtime。
 
 ```text
 agent/
-├── doc/
-└── src/galatea_agent/
-    ├── __init__.py
-    ├── runtime/
-    │   ├── client.py             # ClaudeSDKClient wrapper
-    │   ├── messages.py           # collect ResultMessage / structured_output
-    │   └── sessions.py           # session ids, resume, fork, store wiring
-    ├── agents/
-    │   ├── coordinator.py        # phase orchestration prompts/helpers
-    │   ├── data_agent.py
-    │   ├── training_agent.py
-    │   └── inference_agent.py
-    ├── schemas/
-    │   ├── common.py             # ArtifactRef, StageEvidence, ApprovalRequest
-    │   ├── data.py
-    │   ├── training.py
-    │   └── inference.py
-    ├── tools/
-    │   ├── server.py             # create_sdk_mcp_server("galatea", ...)
-    │   ├── project.py
-    │   ├── ray_jobs.py
-    │   ├── ray_data.py
-    │   ├── mlflow_tracking.py
-    │   ├── artifacts.py
-    │   ├── registry.py
-    │   └── validation.py
-    ├── policies/
-    │   ├── permissions.py
-    │   ├── budgets.py
-    │   ├── approvals.py
-    │   └── quality_gates.py
-    └── hooks.py
+├── core/
+│   └── sdk.py                   # GalateaSDKRuntime, AgentSDKConfig, message/result collection
+├── runtime.py                   # backwards-compatible high-level runtime facade
+├── client.py                    # convenience platform-aware client
+├── tools/
+│   ├── server.py                # create_sdk_mcp_server("galatea-platform", ...)
+│   ├── inspection.py            # current read-only platform/project/Ray/MLflow tools
+│   └── executor.py              # deterministic tool executor for tests and non-LLM flows
+├── schemas/
+│   ├── common.py                # StageStatus, ArtifactRef, StageEvidence, ApprovalRequest
+│   └── inspection.py            # current inspection result schemas
+├── state/
+│   ├── store.py                 # SessionStore, MemorySessionStore, SessionManager
+│   ├── experiment.py            # ExperimentState and file-backed manager
+│   └── persistence.py           # JSON persistence helpers
+├── workflows/
+│   ├── state_machine.py         # current linear workflow state machine
+│   └── orchestrator.py          # workflow orchestration skeleton
+├── policies/
+│   ├── permission.py
+│   ├── budget.py
+│   └── quality.py
+├── hooks/
+│   ├── builtin.py
+│   ├── registry.py
+│   └── types.py
+└── agents/
+    ├── definition.py
+    ├── definitions.py
+    └── registry.py
+```
+
+建议新增 Patrol/Push 能力时使用：
+
+```text
+agent/
+├── schemas/patrol.py            # EvidenceRecord, Finding, Recommendation, PatrolMemory
+├── state/patrol.py              # PatrolSessionStore and file-backed implementation
+├── workflows/patrol.py          # PatrolRunStateMachine
+├── policies/patrol.py           # dedupe, cooldown, escalation, action permission
+├── tools/patrol_output.py       # summary/evidence/raw_ref envelope helpers
+└── patrol/
+    ├── runner.py                # deterministic run_once()
+    ├── compaction.py            # PatrolMemory compaction and fidelity checks
+    └── clients.py               # Ray/MLflow/Artifact protocols and fake clients
 ```
 
 说明：
@@ -72,6 +88,7 @@ agent/
 - `tools/` 可以直接包含 service adapter，首版不必额外拆 `services/`，避免抽象过早。
 - `schemas/` 是 Agent 与平台代码的稳定契约，prompt 不应成为唯一接口。
 - `policies/` 放不可交给 LLM 自由判断的规则，例如预算、promotion 审批和 destructive action 禁令。
+- Patrol/Push 的长期状态应放在 `state/patrol.py` 和 `patrol/` core 中，不要放在 Claude transcript。
 
 ## 4. Runtime 基线
 
@@ -103,7 +120,7 @@ class GalateaAgentRuntime:
         self.config = config
         self.options = ClaudeAgentOptions(
             cwd=str(config.project_root),
-            mcp_servers={"galatea": mcp_server},
+            mcp_servers={"galatea-platform": mcp_server},
             strict_mcp_config=True,
             setting_sources=[],
             permission_mode="dontAsk",
@@ -154,7 +171,7 @@ from .validation import validate_training_config
 
 def create_galatea_mcp_server():
     return create_sdk_mcp_server(
-        name="galatea",
+        name="galatea-platform",
         version="0.1.0",
         tools=[
             inspect_project_structure,
@@ -295,11 +312,11 @@ def create_stage_agents() -> dict[str, AgentDefinition]:
                 "Never silently reshuffle an existing evaluation population."
             ),
             tools=[
-                "mcp__galatea__inspect_dataset_source",
-                "mcp__galatea__compute_source_manifest",
-                "mcp__galatea__submit_ray_data_job",
-                "mcp__galatea__get_ray_job_status",
-                "mcp__galatea__validate_dataset_output",
+                "mcp__galatea-platform__inspect_dataset_source",
+                "mcp__galatea-platform__compute_source_manifest",
+                "mcp__galatea-platform__submit_ray_data_job",
+                "mcp__galatea-platform__get_ray_job_status",
+                "mcp__galatea-platform__validate_dataset_output",
             ],
             disallowedTools=["Bash", "Write", "Edit", "MultiEdit"],
             model="sonnet",
@@ -313,11 +330,11 @@ def create_stage_agents() -> dict[str, AgentDefinition]:
                 "Do not use final test metrics for tuning. Long jobs require approval."
             ),
             tools=[
-                "mcp__galatea__validate_training_config",
-                "mcp__galatea__inspect_compatible_mlflow_runs",
-                "mcp__galatea__submit_ray_check_config_job",
-                "mcp__galatea__submit_ray_training_job",
-                "mcp__galatea__verify_checkpoint_artifact",
+                "mcp__galatea-platform__validate_training_config",
+                "mcp__galatea-platform__inspect_compatible_mlflow_runs",
+                "mcp__galatea-platform__submit_ray_check_config_job",
+                "mcp__galatea-platform__submit_ray_training_job",
+                "mcp__galatea-platform__verify_checkpoint_artifact",
             ],
             disallowedTools=["Bash", "Write", "Edit", "MultiEdit"],
             model="sonnet",
@@ -387,3 +404,10 @@ Claude SDK 的 `SessionStore` 是 transcript mirror/resume 接口。首版可以
 - `auto_register` 或自动 production promotion。
 - 自定义 `SessionStoreInterface`；应使用 SDK 的 `SessionStore` 协议和 conformance harness。
 - 工具返回完整 MLflow dataframe、完整 Ray logs 或大量样本。
+
+## 12. 相关文档
+
+- 总体架构：[`current-agent-architecture.md`](current-agent-architecture.md)。
+- SDK 使用规范：[`claude-sdk-development-guidelines.md`](claude-sdk-development-guidelines.md)。
+- 阶段契约：[`stage-contracts-and-tools.md`](stage-contracts-and-tools.md)。
+- 巡推 P0 实现契约：[`patrol-push-agent-contract.md`](patrol-push-agent-contract.md)。

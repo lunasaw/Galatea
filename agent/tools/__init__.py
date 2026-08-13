@@ -38,6 +38,7 @@ from agent.tools.executor import (
     ToolSpec,
     mcp_content_json,
 )
+from agent.tools.patrol_output import build_tool_envelope, summarize_payload
 
 __all__ = [
     "create_galatea_mcp_server",
@@ -46,4 +47,6 @@ __all__ = [
     "ToolRegistry",
     "ToolSpec",
     "mcp_content_json",
+    "build_tool_envelope",
+    "summarize_payload",
 ]

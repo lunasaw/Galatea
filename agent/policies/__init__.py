@@ -28,6 +28,11 @@ from agent.policies.quality import (
     GateStatus,
     QualityGateFailedError,
 )
+from agent.policies.patrol import (
+    ActionDecision,
+    PatrolActionPolicy,
+    PatrolLifecyclePolicy,
+)
 
 __all__ = [
     # Budget
@@ -44,4 +49,8 @@ __all__ = [
     "QualityGate",
     "GateStatus",
     "QualityGateFailedError",
+    # Patrol
+    "ActionDecision",
+    "PatrolActionPolicy",
+    "PatrolLifecyclePolicy",
 ]

@@ -21,6 +21,11 @@ from agent.state.experiment import (
     ExperimentStage,
     ExperimentStateManager,
 )
+from agent.state.patrol import (
+    FilePatrolSessionStore,
+    PatrolSession,
+    new_patrol_session,
+)
 
 __all__ = [
     "SessionStore",
@@ -29,4 +34,7 @@ __all__ = [
     "ExperimentState",
     "ExperimentStage",
     "ExperimentStateManager",
+    "FilePatrolSessionStore",
+    "PatrolSession",
+    "new_patrol_session",
 ]

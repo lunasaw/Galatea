@@ -1,6 +1,6 @@
 # Galatea Agent System
 
-Python-based agent orchestration for the Galatea ML Training Platform, built on Claude Agent SDK.
+Python-based train-inference integrated agent orchestration for the Galatea ML Training Platform, built on Claude Agent SDK.
 
 ## Architecture Overview
 
@@ -11,7 +11,7 @@ GalateaRuntime (ClaudeSDKClient wrapper)
        ↓
 MCP Server (galatea-platform)
        ↓
-Inspection Tools → Platform Services
+训推一体化 Agent → Inspection / Data / Training / Inference / Docs Tools
        ↓
 Ray / MLflow / MinIO
 ```
@@ -28,12 +28,12 @@ Ray / MLflow / MinIO
 
 - **MCP Server**: In-process SDK MCP server with platform-specific tools
 - **Inspection Tools**: Read-only operations for platform state
-- **Tool Categories**: inspect, validate, submit, status (future stages)
+- **Tool Categories**: inspect, validate, submit, status, documentation update (future stages)
 
 ### Schema Layer
 
 - **Common Types**: `StageResult`, `ArtifactRef`, `StageEvidence`, `ApprovalRequest`
-- **Stage-Specific**: `InspectionResult`, `DataStageResult`, `TrainingStageResult` (future)
+- **Stage-Specific**: `InspectionResult`, `DataStageResult`, `TrainingStageResult`, `InferenceStageResult` (future)
 - **Validation**: Pydantic models with strict typing
 
 ## Implementation Status
@@ -56,9 +56,9 @@ Ray / MLflow / MinIO
 
 **Validation**: ✅ Demo runs successfully, tools functional, permission boundaries enforced
 
-### 🚧 Stage 2: DataAgent with Ray Data POC (Next)
+### 🚧 Stage 2: 训推一体化 Agent P0 + Data Cleaning POC (Next)
 
-**Planned Tools**:
+**Planned data-cleaning tools**:
 - `inspect_dataset_source`
 - `compute_source_manifest`
 - `propose_ray_data_plan`
@@ -66,13 +66,13 @@ Ray / MLflow / MinIO
 - `validate_dataset_output`
 - `log_dataset_manifest`
 
-**Target**: Complete data preparation workflow with structured `DataStageResult`
+**Target**: Extend the current Patrol-named P0 core into data cleaning, model training, inference acceleration, global inspection, and documentation/report updates.
 
 ### 📋 Future Stages
 
-- **Stage 3**: TrainingAgent (check-config/plan/smoke)
-- **Stage 4**: InferenceAgent (smoke inference, serve plans)
-- **Stage 5**: Approval workflow integration
+- **Stage 3**: Model training orchestration (check-config/plan/smoke)
+- **Stage 4**: Inference acceleration (artifact recovery, smoke inference, serve/optimization plans)
+- **Stage 5**: Documentation update and approval workflow integration
 - **Stage 6**: Code maintenance agent
 
 ## Quick Start

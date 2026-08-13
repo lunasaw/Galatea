@@ -1,17 +1,28 @@
-# 巡推 Agent 契约
+# 训推一体化 Agent 契约
 
-> 状态：P0 实施契约。本文定义 Patrol/Push Agent 的职责、输入输出、状态机、
-> 权限边界和首版落地规则。历史推导已归档到 `archive/corecoder-vs-galatea-gap-plan.md`；
-> 当前实现契约以本文和 Patrol 专题文档为准。
+> 状态：P0 实施契约，已对齐当前 `agent/patrol/`、`agent/schemas/patrol.py`、
+> `agent/state/patrol.py`、`agent/workflows/patrol.py` 和 `agent/policies/patrol.py`。
+> 历史推导只保存在 `archive/`，不再作为当前实现契约。
 
 ## 1. 定义
 
-巡推 Agent 是长期运行或按需运行的只读优先 Agent：
+训推一体化 Agent 是面向 Galatea 训练到推理全生命周期的可审计 Agent。
+它不再定义为“巡逻推送 Agent”；`Patrol*` 只是当前底层实现沿用的巡检、证据、
+推荐、session 和审批治理组件命名。
 
-- `巡`：巡检平台服务、训练项目、Ray Job、MLflow Run、Artifacts、数据/模型质量、资源和治理状态。
-- `推`：推送 finding、recommendation、approval request、下一轮计划和可审计报告。
+核心职责：
 
-它不是 CodeMaintenanceAgent，也不是 AutoML 执行器。默认不修改源码、不启动长训练、不改 Registry alias、不删除或覆盖数据。
+- 数据清洗：检查数据源、manifest、split、preprocessing、schema/quality 风险，并生成可恢复的数据处理计划。
+- 模型训练：校验训练配置，执行或申请执行 check-config、plan、smoke、正式训练和调参，并记录 MLflow/Ray 证据。
+- 推理加速：验证模型 artifact 回读，执行 smoke/batch inference，生成推理优化、Ray Serve、promotion 和 rollback 计划。
+- 全局检查：巡检平台服务、训练项目、Ray Job、MLflow Run、Artifacts、资源和治理状态。
+- 文档更新：生成审计报告、运行记录和文档更新建议；修改源码文档必须经过明确的文档更新动作或人工授权。
+
+当前 P0 已实现的是训推一体化 Agent 的全局检查和推荐治理底座：只读优先、可离线运行、
+可追溯 evidence，并通过 `PatrolRunner`、`PatrolMemory` 和 `PatrolRunResult` 承载。
+
+它不是 CodeMaintenanceAgent，也不是无人值守 AutoML 执行器。默认不修改源码、不启动长训练、
+不改 Registry alias、不删除或覆盖数据。
 
 ## 2. 非目标
 
@@ -26,6 +37,10 @@
 - 将大日志、样本、密钥、敏感标签写入 prompt、transcript、summary 或 report。
 
 ## 3. 默认输入
+
+当前 `PatrolRunner` 构造参数覆盖 P0 必需输入：`project_root`、`state_dir`、
+`session_id`、`project_scope`、`service_checks`、`mlflow_experiments`、`tool_overrides`、
+`lifecycle_policy` 和 `next_check_delay_seconds`。下方 JSON 是面向后续 CLI/API 的配置形态。
 
 ```json
 {
@@ -58,6 +73,8 @@
 
 ## 4. 默认输出
 
+当前权威输出对象是 `agent.schemas.patrol.PatrolRunResult`。
+
 ```json
 {
   "patrol_run_id": "ptr_...",
@@ -83,17 +100,17 @@
 - 缺证据时不能生成高置信或高风险 recommendation。
 - `status=needs_approval` 表示需要人工授权，不表示失败。
 
-## 5. 巡检对象
+## 5. 工作对象
 
-| 对象 | 例子 | 首版工具形态 |
+| 对象 | 例子 | 当前/后续工具形态 |
 | --- | --- | --- |
-| 平台服务 | JupyterLab、Ray、MLflow、MinIO、systemd、ports、health endpoints | `check_service_health`、`inspect_ray_status` |
-| 项目结构 | `train-model/<project>` contract | `inspect_project_structure` |
-| 数据状态 | manifest、split、preprocessing version、schema drift | 后续 data tools / fake client |
-| 训练状态 | Ray job、MLflow runs、failed runs、checkpoint artifacts | `inspect_mlflow_experiment`、后续 run summary tool |
-| 推理状态 | model artifact、smoke inference、serve plan、quality gates | 后续 artifact/inference tools |
-| 治理状态 | approval request、registry candidate/champion/production alias | 后续 approval/registry tools |
-| 资源状态 | GPU/CPU/memory、Ray cluster capacity、pending jobs | Ray status / resource tools |
+| 数据清洗 | source manifest、split、preprocessing version、schema drift、坏样本/空值/重复样本 | 当前只做结构巡检；后续 data tools / Ray Data job |
+| 模型训练 | training config、Ray job、MLflow runs、failed runs、checkpoint artifacts、objective metric | `inspect_mlflow_experiment`；后续 training/run summary tool |
+| 推理加速 | model artifact、artifact recovery、smoke/batch inference、serve/optimization plan、quality gates | 后续 artifact/inference acceleration tools |
+| 全局检查 | JupyterLab、Ray、MLflow、MinIO、systemd、ports、health endpoints、资源容量 | `check_service_health`、`inspect_ray_status` |
+| 项目结构 | `train-model/<project>` contract、README、configs、scripts、tests | `inspect_project_structure` |
+| 文档更新 | run report、README/guide 更新建议、契约变更记录 | 当前 Markdown report；后续 doc update approval/apply flow |
+| 治理状态 | approval request、registry candidate/champion/production alias、policy block | 后续 approval/registry tools |
 
 ## 6. 状态机
 
@@ -132,16 +149,16 @@ inspect_failed
 
 | 等级 | 名称 | 默认 | 允许动作 |
 | --- | --- | --- | --- |
-| L0 | inspect | 开启 | 只读巡检、读取状态摘要、生成 evidence。 |
-| L1 | recommend | 开启 | 生成 finding、recommendation、Markdown/CLI summary。 |
-| L2 | request_approval | 关闭 | 创建 approval request，不执行高风险动作。 |
-| L3 | apply | 关闭 | 审批后执行训练、promotion、alias 或其他变更。 |
+| L0 | inspect | 开启 | 只读全局检查、读取状态摘要、生成 evidence。 |
+| L1 | recommend | 开启 | 生成 finding、recommendation、数据清洗/训练/推理加速计划、Markdown/CLI summary。 |
+| L2 | request_approval | 关闭 | 创建训练、推理、promotion 或文档更新 approval request，不执行高风险动作。 |
+| L3 | apply | 关闭 | 审批后执行受控训练、推理加速、promotion、alias、文档 patch 或其他变更。 |
 
-默认 patrol runtime 只拿 L0 + L1。L3 工具不应在常态 `allowed_tools` 中。
+默认训推一体化 runtime 的当前 P0 只拿 L0 + L1。L3 工具不应在常态 `allowed_tools` 中。
 
 ## 8. Action policy
 
-`PermissionPolicy` 继续管 tool-level allow/deny；巡推 Agent 还需要 `PatrolActionPolicy` 管 action-level：
+`PermissionPolicy` 继续管 tool-level allow/deny；训推一体化 Agent 还需要 `PatrolActionPolicy` 管 action-level：
 
 - `tool_name` 是否允许。
 - `project_scope` 是否匹配。
@@ -152,10 +169,10 @@ inspect_failed
 
 默认策略：
 
-- 健康报告、finding、recommendation 允许。
+- 健康报告、finding、recommendation、运行报告和文档更新建议允许。
 - approval request 需要 L2。
-- smoke 可由策略允许或要求用户明确授权。
-- 长训练、GPU trial、Registry write、alias change、Serve deploy、删除/覆盖全部需要审批。
+- 数据清洗 dry-run、check-config、plan 和小预算 smoke 可由策略允许或要求用户明确授权。
+- 长训练、GPU trial、Ray Tune/search、Registry write、alias change、Serve deploy、源码文档 patch、删除/覆盖全部需要审批。
 - 删除数据和覆盖 artifact 默认禁止，即使 L3 也应单独显式确认。
 
 ## 9. Session 边界
@@ -165,7 +182,7 @@ Patrol session 不是 Claude session：
 | 类型 | 保存内容 | 权威性 |
 | --- | --- | --- |
 | Claude session | 对话 transcript、最近模型上下文 | 解释性、辅助恢复 |
-| Patrol session | open findings、recommendations、approvals、evidence index、memory、budget、next check | 巡检状态权威 |
+| Patrol session | open findings、recommendations、approvals、evidence index、memory、budget、next check | 训推状态权威 |
 
 Resume 必须刷新动态状态，不能直接复用旧自然语言摘要。
 
@@ -173,19 +190,27 @@ Fork 可用于比较推荐策略、objective metric 或诊断路径，但不得�
 
 ## 10. 首版 runner
 
-建议先实现 deterministic `PatrolRunner.run_once()`，再接 LLM：
+当前已实现 deterministic `PatrolRunner.run_once()`，LLM 只作为后续候选推荐/摘要层：
 
 ```text
 load session
   -> build inspection plan
-  -> call read-only tools/fake clients
+  -> call read-only tools or tool_overrides
   -> wrap evidence
   -> classify findings
   -> dedupe/cooldown recommendations
-  -> compact memory
   -> persist session
   -> return PatrolRunResult
 ```
+
+当前实现说明：
+
+- `tool_overrides` 是离线测试和回放接口；仓库里没有正式的 Ray/MLflow/Artifact fake client
+  类族，只有 `agent/patrol/clients.py` 的轻量 fake tool collection 草案。
+- 原始 tool payload 写入 configured `state_dir` 下的 `raw/<session>/<run>/`，模型上下文只拿
+  `summary_for_model`、`evidence` 和 `raw_ref`。
+- session 权威状态写 `FilePatrolSessionStore`。
+- `agent/patrol/channels.py` 负责 CLI/Markdown report 脱敏输出。
 
 LLM 集成只在 deterministic runner 跑通后添加：
 
@@ -197,7 +222,7 @@ LLM 集成只在 deterministic runner 跑通后添加：
 
 进入真实 SDK/LLM 集成前必须满足：
 
-- fake clients 下完整 `run_once()` 可离线运行。
+- `tool_overrides` 下完整 `run_once()` 可离线运行。
 - Ray 不可用只生成 warning finding，不提交训练。
 - 每条 recommendation 可追溯到 evidence。
 - 缺 evidence 不产生高置信 recommendation。

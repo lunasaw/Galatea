@@ -206,11 +206,12 @@ The `agent/` directory contains a Python-based agent orchestration system built 
 
 ### Purpose
 
-Automate ML platform operations through structured, auditable agent workflows:
-- Platform inspection (service health, project structure, experiment analysis)
-- Data preparation with Ray Data (future)
-- Training job orchestration (future)
-- Model evaluation and promotion (future)
+Automate ML platform operations through structured, auditable train-inference integrated workflows:
+- Data cleaning and dataset manifest/split validation
+- Model training planning, smoke checks, and Ray job orchestration
+- Inference acceleration, artifact recovery, and serving/promotion planning
+- Global inspection of service health, project structure, MLflow/Ray state, artifacts, resources, and governance
+- Documentation/report updates for auditable training-to-inference operations
 
 ### Directory Structure
 
@@ -308,7 +309,7 @@ The agent system follows platform contracts:
 - ✅ Configuration auto-loading from `~/.claude/settings.json`
 - ✅ Structured schemas with Pydantic validation
 
-**Future Stages**: DataAgent (Ray Data workflows), TrainingAgent (job orchestration), InferenceAgent (serving), approval workflows, code maintenance.
+**Future Stages**: data cleaning tools, model training orchestration, inference acceleration/serving plans, documentation update flow, approval workflows, code maintenance.
 
 See `agent/README.md` for complete documentation, architecture details, and usage examples.
 

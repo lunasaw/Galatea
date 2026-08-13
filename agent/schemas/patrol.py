@@ -1,4 +1,4 @@
-"""Structured patrol-push agent schemas.
+"""Structured schemas for the train-inference integrated patrol core.
 
 The patrol session is the source of truth for long-lived findings, evidence,
 and recommendations. LLM context should receive compacted views of these
@@ -342,7 +342,7 @@ class AuditEvent(BaseModel):
     patrol_run_id: Optional[str] = None
     session_id: Optional[str] = None
     agent_id: Optional[str] = None
-    agent_type: Optional[str] = "patrol-push"
+    agent_type: Optional[str] = "train-inference-integrated"
     created_at: str = Field(default_factory=current_timestamp)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

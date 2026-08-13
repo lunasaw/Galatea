@@ -7,4 +7,4 @@
 | --- | --- |
 | `claude-code-architecture.md` | Claude Code v2.1.88 背景材料，不描述当前 Galatea 代码。 |
 | `sdk-architecture-comparison.md` | Claude Code / Claude SDK 概念对照，已被 active SDK 和实现文档吸收。 |
-| `corecoder-vs-galatea-gap-plan.md` | CoreCoder 对照下的长篇巡推差距分析，已拆分为 Patrol 专题契约。 |
+| `corecoder-vs-galatea-gap-plan.md` | CoreCoder 对照下的长篇旧“巡推”差距分析；当前定义已由训推一体化 Agent 契约吸收。 |

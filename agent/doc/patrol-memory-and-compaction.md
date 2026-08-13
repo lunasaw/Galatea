@@ -1,11 +1,12 @@
-# 巡推记忆与上下文压缩契约
+# 训推一体化记忆与上下文压缩契约
 
-> 状态：P0 实施契约。本文定义 PatrolMemory、EvidenceIndex、工具输出外置、
-> 压缩策略和保真校验。巡推职责边界见 [`patrol-push-agent-contract.md`](patrol-push-agent-contract.md)。
+> 状态：P0 实施契约，已对齐当前 `agent/schemas/patrol.py`、`agent/patrol/compaction.py`、
+> `agent/tools/patrol_output.py` 和 `agent/state/patrol.py`。训推职责边界见
+> [`patrol-push-agent-contract.md`](patrol-push-agent-contract.md)。
 
 ## 1. 目标
 
-巡推 Agent 需要长期运行，不能依赖自然语言 transcript 保存关键状态。压缩目标是：
+训推一体化 Agent 需要长期运行，不能依赖自然语言 transcript 保存关键状态。压缩目标是：
 
 - 长日志、run table、样本不进入模型上下文。
 - open finding、approval、unresolved error、evidence URI/digest 不丢。
@@ -18,12 +19,15 @@
 | 层 | 内容 | 保存位置 | 进入模型上下文方式 |
 | --- | --- | --- | --- |
 | 工作上下文 | 当前目标、最近工具观察、未解决 finding | Claude session / runtime memory | 原文或短摘要 |
-| 巡检摘要 | 项目状态、历史 finding、最近推荐、未完成审批 | Patrol session store | `PatrolMemory.summary` |
+| 训推摘要 | 数据清洗、训练、推理加速、全局检查状态、历史 finding、最近推荐、未完成审批 | Patrol session store | `PatrolMemory.summary` |
 | 证据索引 | Ray job id、MLflow run id、artifact URI、digest、日志 URI | EvidenceIndex + Artifact/session state | ID/URI/摘要 |
 
 权威顺序：Evidence/raw artifact > Patrol session > compacted memory > Claude transcript。
 
 ## 3. PatrolMemory
+
+当前 Pydantic 对象是 `agent.schemas.patrol.PatrolMemory`；`summary_version` 在代码中是
+`SummaryVersion` 对象，不是裸整数。
 
 ```json
 {
@@ -33,9 +37,11 @@
     "started_at": "...",
     "ended_at": "..."
   },
-  "summary_version": 1,
+  "summary_version": {
+    "version": 1,
+    "source_patrol_run_ids": []
+  },
   "summary": "...",
-  "source_patrol_run_ids": [],
   "open_findings": [],
   "closed_findings": [],
   "recommendations": [],
@@ -49,7 +55,7 @@
 规则：
 
 - `summary` 只能是安全摘要，不存长日志或敏感样本。
-- `source_patrol_run_ids` 记录 summary 覆盖了哪些轮次。
+- `summary_version.source_patrol_run_ids` 记录 summary 覆盖了哪些轮次。
 - `open_findings`、`approval_requests` 只可压缩文本，不可丢 `id`、`status`、`evidence_ids`。
 - `evidence_index` 中只保留轻量索引和 raw_ref，不保存完整原始内容。
 - `unresolved_errors` 必须保留到 resolved 或 dismissed。
@@ -84,7 +90,8 @@
 
 ## 5. 工具输出 envelope
 
-所有巡检工具应返回：
+当前 Patrol runner 使用 `agent.tools.patrol_output.build_tool_envelope()` 把只读巡检 payload
+包装为：
 
 ```json
 {
@@ -177,6 +184,12 @@
 | 原始证据 | `state://patrol/...` 或 MLflow artifact | MLflow 故障时用 local state |
 | Markdown report | MLflow artifact 或配置路径 | 不含敏感原文 |
 | Claude transcript | SDK session store 或 transcript mirror | 非权威，需 retention |
+
+当前 file-backed P0 的实际路径由 `PatrolRunner(state_dir=...)` 决定：
+
+- session JSON：`<state_dir>/patrol-sessions/<session_id>.json`。
+- raw payload：`<state_dir>/raw/<session_id>/<patrol_run_id>/*.json`。
+- audit JSONL：`<state_dir>/patrol-audit/<session_id>.jsonl`，由 `FileAuditEventWriter` 使用。
 
 ## 10. 与 hooks 的关系
 

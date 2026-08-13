@@ -86,17 +86,18 @@ https://api.anthropic.com
 API 配置只用于让 Claude Agent SDK runtime 能访问模型服务，不代表授权平台动作。
 
 - `ANTHROPIC_API_KEY` 和 `ANTHROPIC_BASE_URL` 不应写入项目源码、notebook 输出或 Agent transcript。
-- 巡推 Agent 默认只使用 L0/L1 权限；配置 API key 不等于允许 L2 approval request 或 L3 apply。
+- 训推一体化 Agent 当前 P0 默认只使用 L0/L1 权限；配置 API key 不等于允许 L2 approval request 或 L3 apply。
 - Ray、MLflow、MinIO 的 tracking URI、endpoint 和 credential 应通过明确配置或环境注入，不从模型 prompt 推断。
 - 不要把 MinIO 长期密钥传给 LLM 或写入 Ray runtime_env YAML。
 - 生产和开发建议使用不同 API key、不同 budget 和不同 permission policy。
 
 ## 验证配置
 
-运行配置测试脚本：
+当前配置检查脚本位于 `agent/test/test_config.py`。它是直接脚本，不是 unittest discovery
+用例：
 
 ```bash
-python agent/test/test_config.py
+/data/conda/envs/attend-ray-py312/bin/python agent/test/test_config.py
 ```
 
 **预期输出**:
@@ -175,14 +176,13 @@ asyncio.run(main())
 
 ## 安全注意事项
 
-⚠️ **不要提交 settings.json 到 git**
+⚠️ **不要提交 settings.json 或任何密钥到 git**
 
 ```bash
 # 检查是否已忽略
-cat .gitignore | grep ".claude"
+grep ".claude" .gitignore
 
-# 如果没有，添加：
-echo "**/.claude/settings.json" >> .gitignore
+# 如果没有，手动把 **/.claude/settings.json 加入 .gitignore
 ```
 
 ⚠️ **API Key 权限**

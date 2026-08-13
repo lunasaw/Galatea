@@ -141,7 +141,7 @@ class TestPatrolChannelsAndSdk(unittest.TestCase):
         config = make_patrol_sdk_config(project_root=Path.cwd(), project_scope=["cats-and-dogs"])
         schema = patrol_run_result_json_schema()
 
-        self.assertEqual(config.agent_type, "patrol-push")
+        self.assertEqual(config.agent_type, "train-inference-integrated")
         self.assertIn("patrol_run_id", schema["properties"])
         self.assertNotIn("Bash", config.allowed_tools)
         self.assertIn("Bash", config.disallowed_tools)

@@ -1,11 +1,12 @@
-# 巡推推荐与治理契约
+# 训推一体化推荐与治理契约
 
-> 状态：P0 实施契约。本文定义 Finding、Recommendation、ApprovalRequest、去重、
-> 冷却、升级和回滚计划。巡推职责边界见 [`patrol-push-agent-contract.md`](patrol-push-agent-contract.md)。
+> 状态：P0 实施契约，已对齐当前 `agent/schemas/patrol.py` 和
+> `agent/policies/patrol.py`。Approval store 和真实 apply 工具尚未实现；训推职责边界见
+> [`patrol-push-agent-contract.md`](patrol-push-agent-contract.md)。
 
 ## 1. 目标
 
-巡推 Agent 的“推”不是一句自然语言建议，而是可治理对象：
+训推一体化 Agent 的“推荐/推进”不是一句自然语言建议，而是可治理对象：
 
 - 每个 finding 可追溯到 evidence。
 - 每个 recommendation 可追溯到 finding/evidence。
@@ -74,12 +75,14 @@
 - `confidence` 是证据充分性和策略确定性的表达，不是模型自信文本。
 - `requires_approval=true` 时必须有 approval plan 或明确 `approval_request_id`。
 - `risk=high` 必须提供 rollback plan 或说明为什么只请求人工复核。
-- `status=applied` 只能由显式 apply 流程设置，巡推常态不能设置。
+- `status=applied` 只能由显式 apply 流程设置，训推常态不能设置。
 - 同一 recommendation fingerprint 在 cooldown 内不得重复推送。
 
 ## 4. ApprovalRequest
 
-可复用 `agent/schemas/common.py` 中的 `ApprovalRequest`，巡推层需要补充关联字段：
+当前训推 P0 / Patrol core 在 `PatrolRunResult.approval_requests` 和 `PatrolMemory.approval_requests`
+中使用字典保存 approval request。`agent/schemas/common.py` 中的 `ApprovalRequest` 仍可作为
+阶段通用对象，但尚未扩展为训推专用 Pydantic 模型。后续统一时需要补充关联字段：
 
 ```json
 {
@@ -105,6 +108,9 @@
 - production alias / traffic 切换必须单独 approval，不能和训练 approval 合并。
 
 ## 5. 去重和冷却
+
+当前去重和冷却由 `PatrolLifecyclePolicy` 实现，使用 `Finding.fingerprint` 和
+`Recommendation.fingerprint` 做 upsert。
 
 ### 5.1 Finding fingerprint
 
@@ -136,7 +142,8 @@ recommendation.type + target project/run/artifact + risk + primary finding finge
 
 ### 5.3 Cooldown
 
-默认建议：
+当前 `PatrolLifecyclePolicy(default_cooldown_seconds=3600)` 默认统一 1h cooldown。下表是后续
+按 severity 细分的建议：
 
 | Severity | 默认 cooldown | 说明 |
 | --- | --- | --- |
@@ -153,7 +160,8 @@ cooldown 可被以下情况打破：
 
 ## 6. Severity 升级
 
-建议规则：
+当前已实现规则：同一 finding 连续出现达到 `escalate_after=3` 时升级为 `critical`。
+下表是后续可扩展规则：
 
 | 条件 | 升级 |
 | --- | --- |
@@ -205,9 +213,9 @@ severity 降级：
 首版通道：
 
 - CLI summary。
-- Notebook display。
 - Markdown report artifact。
-- MLflow tag/comment/artifact。
+- Notebook display，可复用 CLI/Markdown 渲染结果。
+- MLflow tag/comment/artifact，planned，当前未接入写操作。
 
 未来通道：
 
@@ -242,7 +250,9 @@ rollback plan 至少包含：
 
 ## 11. 审计事件
 
-推荐记录：
+当前 `PatrolRunner` 已产生 `patrol_run_started`、`tool_called`、`tool_summarized`、
+`finding_updated`、`recommendation_created`、`patrol_run_completed` 等事件；
+`FileAuditEventWriter` 提供 JSONL 持久化能力。后续推荐补齐：
 
 - `finding_created`
 - `finding_updated`

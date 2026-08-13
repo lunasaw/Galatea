@@ -1,4 +1,4 @@
-"""Patrol-push deterministic runtime components.
+"""Train-inference integrated patrol runtime components.
 
 Exports are resolved lazily to avoid import cycles with tool modules.
 """

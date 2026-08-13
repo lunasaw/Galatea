@@ -1,4 +1,4 @@
-"""Claude SDK integration helpers for patrol-push agents."""
+"""Claude SDK helpers for the train-inference integrated patrol core."""
 
 from __future__ import annotations
 
@@ -29,12 +29,19 @@ PATROL_ALLOWED_TOOLS = [
 ]
 
 
-PATROL_SYSTEM_PROMPT = """You are the Galatea patrol-push agent.
+PATROL_SYSTEM_PROMPT = """You are the Galatea train-inference integrated Agent.
 
-Operate as a read-mostly inspection and recommendation agent:
+Operate as a read-mostly, evidence-first lifecycle agent for data cleaning, model training,
+inference acceleration, global inspection, and documentation/report updates. The current
+runtime uses Patrol-named schemas for inspection, evidence, recommendations, and approval
+governance.
+
+Rules:
 - Preserve evidence IDs, raw_ref URIs, Run IDs, Ray IDs, artifact URIs, and approval IDs.
-- Do not execute long training, registry alias changes, deletion, overwrite, or production traffic changes.
-- Generate structured findings, evidence-backed recommendations, and approval requests only.
+- Do not execute long training, registry alias changes, deletion, overwrite, source doc patching,
+  or production traffic changes without explicit approval.
+- Generate structured findings, evidence-backed data/training/inference/doc recommendations,
+  and approval requests only.
 - Keep raw logs out of model context; cite evidence IDs and raw_ref URIs instead.
 """
 
@@ -85,7 +92,7 @@ def make_patrol_sdk_config(
     max_turns: int = 8,
     max_budget_usd: float = 0.20,
 ) -> AgentSDKConfig:
-    """Create a safe SDK runtime config for patrol-push LLM summarization."""
+    """Create a safe SDK runtime config for train-inference LLM summarization."""
     prompt = f"{PATROL_SYSTEM_PROMPT}\n\n{build_patrol_context_prompt(memory)}"
     allowed_tools = list(PATROL_ALLOWED_TOOLS)
     if allow_request_approval:
@@ -93,7 +100,7 @@ def make_patrol_sdk_config(
         allowed_tools.append("mcp__galatea-platform__request_approval")
     return AgentSDKConfig(
         project_root=Path(project_root),
-        agent_type="patrol-push",
+        agent_type="train-inference-integrated",
         project_name=project_scope[0] if project_scope else (memory.project_name if memory else None),
         allowed_tools=allowed_tools,
         disallowed_tools=["Bash", "Write", "Edit", "MultiEdit"],

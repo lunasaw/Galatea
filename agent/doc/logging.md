@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Galatea agent runtime includes model request/response logging for debugging and audit. Current runtime serialization writes single-line JSON. For Patrol/Push and production workflows, do not treat full prompt/response logging as safe by default; prefer compact summaries, evidence IDs, and raw artifact URIs.
+The Galatea agent runtime includes model request/response logging for debugging and audit. Current runtime serialization writes single-line JSON. For train-inference integrated and production workflows, do not treat full prompt/response logging as safe by default; prefer compact summaries, evidence IDs, and raw artifact URIs.
 
 ## Features
 
@@ -10,7 +10,7 @@ The Galatea agent runtime includes model request/response logging for debugging 
 - **Structured format**: JSON serialization with consistent request/response envelopes
 - **Timestamp tracking**: ISO 8601 timestamps for requests/responses
 - **Audit support**: tool calls, hook events, permission denials, cost and token usage can be correlated
-- **Patrol-safe mode target**: long logs and sensitive values should be represented by evidence IDs and raw_ref URIs, not full text
+- **Train-inference-safe mode target**: long logs and sensitive values should be represented by evidence IDs and raw_ref URIs, not full text
 
 ## Log Format
 
@@ -24,7 +24,7 @@ Fields:
 - `type`: always `"request"`
 - `model`: model identifier, for example `claude-opus-5`
 - `timestamp`: ISO 8601 timestamp
-- `prompt`: prompt text in current implementation; production patrol flows should log compact prompt views only
+- `prompt`: prompt text in current implementation; production train-inference flows should log compact prompt views only
 - `output_schema`: JSON schema for structured output, or `null`
 
 ### Response Logs
@@ -36,7 +36,7 @@ MODEL_RESPONSE: {"type":"response","timestamp":"2026-08-12T10:00:01.234567","mes
 Fields:
 - `type`: always `"response"`
 - `timestamp`: ISO 8601 timestamp
-- `message`: normalized message object from Claude SDK; production patrol flows should avoid logging sensitive content
+- `message`: normalized message object from Claude SDK; production train-inference flows should avoid logging sensitive content
 
 ## Configuration
 
@@ -179,13 +179,13 @@ The `_serialize_to_oneline()` function handles:
 - Rotate logs regularly to prevent disk space issues.
 - Consider encrypting log files at rest.
 - Do not commit logs to version control.
-- For Patrol/Push, log `patrol_run_id`, `finding_id`, `recommendation_id`, `evidence_id`, `raw_ref.uri`, and digest instead of raw sensitive content.
+- For train-inference integrated workflows, log `patrol_run_id`, `finding_id`, `recommendation_id`, `evidence_id`, `raw_ref.uri`, and digest instead of raw sensitive content.
 - Do not log MinIO long-lived credentials, `ANTHROPIC_API_KEY`, sample payloads, or full Ray/MLflow logs.
 
 
-## Patrol/Push Logging Boundary
+## Train-Inference Logging Boundary
 
-Patrol/Push Agent should produce auditable but compact events:
+The train-inference integrated Agent should produce auditable but compact events:
 
 - `patrol_run_started` / `patrol_run_completed`
 - `tool_called` / `tool_summarized`

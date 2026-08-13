@@ -23,10 +23,10 @@ _SAFE_SESSION_ID = re.compile(r"^[A-Za-z0-9_.:-]+$")
 
 
 class PatrolSession(BaseModel):
-    """Durable patrol-push session state."""
+    """Durable train-inference patrol session state."""
 
     session_id: str
-    agent_type: str = "patrol-push"
+    agent_type: str = "train-inference-integrated"
     project_scope: List[str] = Field(default_factory=list)
     created_at: str = Field(default_factory=current_timestamp)
     updated_at: str = Field(default_factory=current_timestamp)

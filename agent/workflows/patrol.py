@@ -1,4 +1,4 @@
-"""Loop-shaped state machine for patrol-push agent rounds."""
+"""Loop-shaped state machine for train-inference patrol rounds."""
 
 from __future__ import annotations
 

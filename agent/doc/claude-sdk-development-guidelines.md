@@ -1,6 +1,8 @@
 # Claude Agent SDK 开发规范
 
-> 状态：设计规范；依据：`/data/ai/chenzhangyue/code/claude-agent-sdk-python` 本地 README 和源码。
+> 状态：当前实现规范 + 后续阶段约束。当前代码以 `agent/core/sdk.py`、
+> `agent/tools/server.py`、`agent/hooks/`、`agent/policies/` 为准；训推一体化
+> 数据清洗、模型训练、推理加速和文档更新专用工具示例均为 planned。
 
 ## 1. SDK 能力映射
 
@@ -9,7 +11,7 @@
 | `ClaudeSDKClient` | `src/claude_agent_sdk/client.py` | 长阶段、可交互、可中断、可检查 MCP 状态的默认 runtime。 |
 | `query()` | `src/claude_agent_sdk/query.py` | 只用于一次性只读分析、CI 小任务或批处理提示。 |
 | in-process SDK MCP server | `README.md`, `src/claude_agent_sdk/__init__.py` | 把 Ray/MLflow/MinIO 平台函数暴露给 Agent。 |
-| `AgentDefinition` | `src/claude_agent_sdk/types.py` | 定义 Data/Training/Inference 专职 subagent。 |
+| `AgentDefinition` | `src/claude_agent_sdk/types.py` | 定义训推一体化内部专职 subagent，例如数据清洗、模型训练、推理加速和文档更新。 |
 | hooks | `src/claude_agent_sdk/types.py`, `README.md` | 确定性权限、日志裁剪、质量门禁和审计。 |
 | `output_format` | `src/claude_agent_sdk/types.py` | 强制阶段输出 JSON schema。 |
 | `session_store` / resume / fork | `src/claude_agent_sdk/types.py`, `examples/session_stores/` | 长任务恢复、审计和分支探索。 |
@@ -57,8 +59,9 @@ BASE_OPTIONS = ClaudeAgentOptions(
 | --- | --- | --- |
 | 只读仓库分析 | 允许 `Read`, `Grep`, `Glob` | 不允许 `Bash`。 |
 | 代码维护 | 允许 `Read`, `Grep`, `Glob`, `Edit` | 必须启用 file checkpointing，必要时 human approval。 |
-| 数据阶段执行 | 只允许 `mcp__galatea-platform__data_*` 和 `mcp__galatea-platform__ray_job_*` | 不允许直接 Bash 或 MinIO 底层写。 |
-| 训练阶段 smoke | 允许小预算 `submit_ray_training_job` | 长训练需要 approval。 |
+| 当前 Patrol/inspection | 只允许 `mcp__galatea-platform__list_training_projects` 等 5 个只读工具 | 不允许提交 Ray Job。 |
+| 数据阶段执行 | planned：只允许 data/Ray Job 专用 MCP 工具 | 不允许直接 Bash 或 MinIO 底层写。 |
+| 训练阶段 smoke | planned：允许小预算 `submit_ray_training_job` | 长训练需要 approval。 |
 | production promotion | 默认不允许 | 只生成 approval request。 |
 
 ## 4. allowed_tools 不是安全边界
@@ -69,7 +72,8 @@ Claude SDK README 明确说明：`allowed_tools` 是自动批准列表，不会�
 
 - 永远不要只设置 `allowed_tools` 而不设置 `disallowed_tools`。
 - 数据、训练、推理阶段默认禁止 `Bash`, `Write`, `Edit`, `MultiEdit`。
-- 对 MCP 工具使用精确名称，例如 `mcp__galatea-platform__submit_ray_data_job`，不要用过宽通配。
+- 对 planned MCP 工具使用精确名称，例如后续的 `mcp__galatea-platform__submit_ray_data_job`，
+  不要用过宽通配。
 - 不使用 `permission_mode="bypassPermissions"` 运行平台任务。
 - 服务端自动化优先 `permission_mode="dontAsk"`，让未预批准动作快速失败。
 
@@ -138,7 +142,10 @@ Claude SDK 的 `@tool` 要求 handler 是 async，并返回 MCP content 结构�
 - 不在工具里吞掉异常；将错误分类后返回给 Agent。
 - 工具必须幂等；重复调用不能覆盖已有成功结果。
 
-示例：
+当前工具实现位于 `agent/tools/server.py`：SDK wrapper 调用 `agent/tools/inspection.py` 中的
+同步只读函数，并返回 MCP `content`。
+
+planned submit tool 示例：
 
 ```python
 import json
@@ -167,24 +174,32 @@ async def submit_ray_data_job(args: SubmitRayDataJobInput):
 
 ## 8. in-process MCP server 规范
 
-首版优先使用 `create_sdk_mcp_server`：
+当前使用 `create_sdk_mcp_server` 注册 `galatea-platform`：
 
 ```python
 from claude_agent_sdk import create_sdk_mcp_server
 
 server = create_sdk_mcp_server(
     name="galatea-platform",
-    version="0.1.0",
     tools=[
-        inspect_dataset,
-        submit_ray_data_job,
-        get_ray_job_status,
-        validate_dataset_output,
+        tool_list_training_projects,
+        tool_inspect_project_structure,
+        tool_check_service_health,
+        tool_inspect_mlflow_experiment,
+        tool_inspect_ray_status,
     ],
 )
 ```
 
-适合 in-process 的工具：
+当前完整工具名：
+
+- `mcp__galatea-platform__list_training_projects`
+- `mcp__galatea-platform__inspect_project_structure`
+- `mcp__galatea-platform__check_service_health`
+- `mcp__galatea-platform__inspect_mlflow_experiment`
+- `mcp__galatea-platform__inspect_ray_status`
+
+适合后续继续放在 in-process 的工具：
 
 - MLflow Tracking API 只读查询。
 - Ray Jobs API 提交/查询。
@@ -242,7 +257,7 @@ Runtime 收到 `ResultMessage` 后必须校验：
 
 普通数据/训练/推理阶段不应该改源码。如果需要代码维护型 Agent：
 
-- 单独使用 `CodeMaintenanceAgent`，不要复用 `DataAgent` 权限。
+- 单独使用 `CodeMaintenanceAgent`，不要复用训推一体化 Agent 的数据清洗、训练或推理权限。
 - 开启 `enable_file_checkpointing=True`。
 - 设置 `extra_args={"replay-user-messages": None}` 以便必要时 rewind。
 - 只允许在 workspace 内修改。
@@ -270,5 +285,5 @@ Runtime 收到 `ResultMessage` 后必须校验：
 
 - Python 实现蓝图：[`python-agent-architecture.md`](python-agent-architecture.md)。
 - 阶段契约：[`stage-contracts-and-tools.md`](stage-contracts-and-tools.md)。
-- 巡推记忆和压缩：[`patrol-memory-and-compaction.md`](patrol-memory-and-compaction.md)。
+- 训推一体化记忆和压缩：[`patrol-memory-and-compaction.md`](patrol-memory-and-compaction.md)。
 - 日志边界：[`logging.md`](logging.md)。

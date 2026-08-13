@@ -1,6 +1,19 @@
 # 阶段契约与工具设计
 
-> 状态：设计草案；目标：为 DataAgent、TrainingAgent、InferenceAgent 定义稳定输入输出、工具清单和治理规则。
+> 状态：设计草案 + 当前边界说明。本文为训推一体化 Agent 的数据清洗、模型训练、
+> 推理加速和文档更新阶段定义稳定输入输出、工具清单和治理规则。当前代码只有通用
+> `StageResult` / `ArtifactRef` / `StageEvidence` / `ApprovalRequest` 公共对象，以及
+> Patrol 命名的训推 P0 巡检治理实现；专用执行工具和专用 schema 仍是 planned。
+
+## 0. 当前/规划边界
+
+| 范围 | 当前状态 | 代码/文档位置 |
+| --- | --- | --- |
+| 公共阶段对象 | 已实现 | `agent/schemas/common.py` |
+| 训推 P0 巡检治理对象 | 已实现 | `agent/schemas/patrol.py`, `agent/patrol/`, `agent/state/patrol.py` |
+| 数据清洗/模型训练/推理加速/文档更新专用 schema | 未实现 | 本文第 2/3/4/5 节为规划契约 |
+| 数据清洗/模型训练/推理加速/文档更新专用工具 | 未实现 | 由后续 `agent/tools/*.py` 和 stage handlers 承载 |
+| Approval/apply 流程 | 未实现 | 本文第 8 节为规划契约 |
 
 ## 1. 公共对象
 
@@ -55,7 +68,7 @@
 }
 ```
 
-## 2. DataAgent 契约
+## 2. 数据清洗阶段契约
 
 ### 2.1 DataStageInput
 
@@ -128,7 +141,7 @@
 | `validate_dataset_output` | 无或写报告 | 校验 split 稳定性、schema、数量、空值/坏样本。 |
 | `log_dataset_manifest` | 写 MLflow Artifact | 记录 manifest/report 到 MLflow。 |
 
-### 2.4 DataAgent 决策规则
+### 2.4 数据清洗阶段决策规则
 
 - 源数据没有 immutable identity 时，不进入训练。
 - 评估 population 已存在时，不允许静默 reshuffle。
@@ -136,7 +149,7 @@
 - 数据质量失败时可以提出修复 plan，但不能删除原始数据。
 - Ray Data job 必须受 `resource_budget` 限制。
 
-## 3. TrainingAgent 契约
+## 3. 模型训练阶段契约
 
 ### 3.1 TrainingStageInput
 
@@ -205,7 +218,7 @@
 | `verify_checkpoint_artifact` | 无 | 通过 MLflow Artifact API 回读 checkpoint。 |
 | `summarize_training_result` | 写报告 | 生成训练报告和下一步建议。 |
 
-### 3.4 TrainingAgent 决策规则
+### 3.4 模型训练阶段决策规则
 
 - `execution_mode=check-config` 和 `plan` 可自动运行。
 - `execution_mode=smoke` 可在小预算内自动运行。
@@ -215,7 +228,7 @@
 - 分布式训练只允许权威 worker/driver 创建和最终化 parent MLflow Run，除非项目文档明确 nested Run 设计。
 - Artifact 回读失败时，停止后续训练和 promotion。
 
-## 4. InferenceAgent 契约
+## 4. 推理加速阶段契约
 
 ### 4.1 InferenceStageInput
 
@@ -279,7 +292,7 @@
 | `request_model_promotion_approval` | 写 approval request | 不修改 alias。 |
 | `apply_model_promotion` | Registry 写 | 默认禁用；仅审批后显式调用。 |
 
-### 4.4 InferenceAgent 决策规则
+### 4.4 推理加速阶段决策规则
 
 - Artifact 无法回读或加载时禁止 promotion。
 - `allow_alias_change=false` 时只能生成 promotion plan。
@@ -287,11 +300,65 @@
 - 推理输出、预测样本、错误样本不能泄露敏感训练内容。
 - Ray Serve 部署计划必须包含资源、replica、健康检查、rollback 和安全暴露方式。
 
-## 5. Ray 工具实现约定
+## 5. 文档更新阶段契约
+
+### 5.1 DocumentationStageInput
+
+```json
+{
+  "project_name": "ray-cats-and-dogs",
+  "source_stage_run_ids": ["..."],
+  "report_artifact_uri": "mlflow-artifacts:/.../train_inference_report.md",
+  "target_docs": ["README.md", "doc/runbook.md"],
+  "write_mode": "proposal|apply",
+  "allow_source_doc_patch": false
+}
+```
+
+### 5.2 DocumentationStageResult
+
+```json
+{
+  "stage": "documentation",
+  "status": "success|needs_approval|skipped",
+  "stage_run_id": "ray-cats-and-dogs-docs-...",
+  "project_name": "ray-cats-and-dogs",
+  "report_artifact": {
+    "uri": "mlflow-artifacts:/.../train_inference_report.md",
+    "digest": "sha256:..."
+  },
+  "doc_update_plan": [],
+  "patched_files": [],
+  "evidence": [],
+  "warnings": [],
+  "errors": [],
+  "requires_approval": true,
+  "next_action": "await_approval|none"
+}
+```
+
+### 5.3 Documentation tools
+
+| Tool | 副作用 | 说明 |
+| --- | --- | --- |
+| `generate_stage_report` | 写报告 artifact | 汇总数据清洗、训练、推理加速和全局检查证据。 |
+| `propose_doc_update` | 无 | 生成 README/runbook/contract 更新计划和 diff 摘要。 |
+| `validate_doc_update` | 无 | 检查路径、敏感信息、链接和证据引用。 |
+| `request_doc_update_approval` | 写 approval request | 源码文档 patch 前请求人工确认。 |
+| `apply_doc_update` | 修改源码文档 | 默认禁用；仅审批后显式调用。 |
+
+### 5.4 文档更新阶段决策规则
+
+- 运行报告和 Markdown artifact 可自动生成，但不能包含密钥、样本、长日志或敏感标签。
+- 源码文档 patch 必须限定在任务相关路径，并保留 evidence/run/artifact 引用。
+- 文档更新不能掩盖失败、删除审计证据或把 planned 能力写成 current。
+- 与代码行为不一致时，优先更新文档为真实状态；需要代码修改时转交 CodeMaintenanceAgent 或显式任务。
+
+## 6. Ray 工具实现约定
 
 Ray 是执行层，Agent 不直接计算大数据。
 
-### 5.1 Ray Job handle
+### 6.1 Ray Job handle
 
 ```json
 {
@@ -306,7 +373,7 @@ Ray 是执行层，Agent 不直接计算大数据。
 }
 ```
 
-### 5.2 Ray submission rules
+### 6.2 Ray submission rules
 
 - 使用 `JobSubmissionClient` 或项目现有 `job/cd.py` 逻辑。
 - `submission_id` 必须唯一或明确幂等。
@@ -315,7 +382,7 @@ Ray 是执行层，Agent 不直接计算大数据。
 - Ray Head/Worker 获取 S3 只读凭据必须在 `ray start` 前完成。
 - 失败重试使用新的 attempt id，不覆盖已有失败证据。
 
-## 6. MLflow 工具实现约定
+## 7. MLflow 工具实现约定
 
 - 只通过 Tracking、Artifact、Model Registry API。
 - 不打开、不复制、不查询 `platform-data/mlflow/mlflow.db`。
@@ -324,14 +391,14 @@ Ray 是执行层，Agent 不直接计算大数据。
 - 训练和 validation evidence 用于搜索；test evidence 只用于最终评测。
 - Artifact 验证使用 MLflow Artifact API，不依赖服务端 MinIO 文件路径。
 
-## 7. Approval 契约
+## 8. Approval 契约
 
 Approval request 是结构化对象：
 
 ```json
 {
   "approval_id": "...",
-  "type": "long_training|force_attempt|model_promotion|destructive_data_action",
+  "type": "long_training|force_attempt|model_promotion|doc_update|destructive_data_action",
   "requested_by_stage_run_id": "...",
   "risk": "low|medium|high",
   "summary": "...",
@@ -349,11 +416,12 @@ Approval request 是结构化对象：
 - 删除、覆盖或重写数据/Artifact。
 - MLflow Registry 写入和 alias 变更。
 - Ray Serve 真实部署或流量切换。
+- 源码文档 patch、覆盖历史报告或移除审计证据。
 - 任意需要裸 Bash 的代码维护动作。
 
-## 8. 相关文档
+## 9. 相关文档
 
 - 总体架构：[`current-agent-architecture.md`](current-agent-architecture.md)。
 - Python 实现蓝图：[`python-agent-architecture.md`](python-agent-architecture.md)。
 - SDK 权限和 hooks 规范：[`claude-sdk-development-guidelines.md`](claude-sdk-development-guidelines.md)。
-- 巡推推荐治理：[`patrol-recommendation-governance.md`](patrol-recommendation-governance.md)。
+- 训推推荐治理：[`patrol-recommendation-governance.md`](patrol-recommendation-governance.md)。

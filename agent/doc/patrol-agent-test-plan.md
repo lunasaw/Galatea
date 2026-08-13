@@ -1,7 +1,7 @@
-# 巡推 Agent 测试计划
+# 训推一体化 Agent 测试计划
 
-> 状态：P0 测试契约。本文定义 Patrol/Push Agent 的离线回放、fake clients、关键测试场景
-> 和 Go/No-Go 条件。相关契约见 [`patrol-push-agent-contract.md`](patrol-push-agent-contract.md)、
+> 状态：P0 测试契约，已对齐当前 `agent/test/test_patrol_*.py`。本文定义训推一体化 Agent（当前 Patrol core）的离线回放、关键测试场景和 Go/No-Go 条件。相关契约见
+> [`patrol-push-agent-contract.md`](patrol-push-agent-contract.md)、
 > [`patrol-memory-and-compaction.md`](patrol-memory-and-compaction.md)、
 > [`patrol-recommendation-governance.md`](patrol-recommendation-governance.md)。
 
@@ -15,23 +15,36 @@
 
 ## 2. 推荐测试位置
 
+当前已存在：
+
 ```text
 agent/test/
 ├── test_patrol_schemas.py
 ├── test_patrol_memory.py
 ├── test_patrol_state_machine.py
 ├── test_patrol_recommendations.py
+└── test_patrol_runner.py
+```
+
+后续可按需拆分：
+
+```text
+agent/test/
 ├── test_patrol_policy.py
-├── test_patrol_runner.py
 ├── test_patrol_resume.py
 └── test_patrol_tool_output.py
 ```
 
 测试中 runtime state 写 `/tmp`，例如 `/tmp/galatea-agent-state-test`。
 
-## 3. Fake clients
+## 3. Offline tool overrides
 
-首版 fake clients：
+当前 `PatrolRunner` 使用 `tool_overrides` 做离线回放，例如在测试中覆盖
+`check_service_health` 和 `inspect_ray_status`。仓库没有正式的
+`FakeServiceHealthClient/FakeRayClient/FakeMLflowClient/FakeArtifactClient/FakeApprovalStore`
+类族；`agent/patrol/clients.py` 只有轻量 `FakePatrolTools` 草案。
+
+后续如要扩展成 fake clients，建议覆盖：
 
 | Client | 用途 |
 | --- | --- |
@@ -42,7 +55,7 @@ agent/test/
 | `FakeApprovalStore` | 保存 approval request 和 decision |
 | `FakeClock` | 控制 cooldown、retry_after、next_check_at |
 
-fake client 必须能配置：
+离线 override/fake 必须能配置：
 
 - transient failure。
 - permission denied。
@@ -117,7 +130,8 @@ fake client 必须能配置：
 
 ## 9. Tool envelope 测试
 
-覆盖现有只读工具包装：
+当前已在 `test_patrol_runner.py` 覆盖 `build_tool_envelope()` 的摘要、脱敏、digest 和
+legacy payload。后续可继续覆盖现有只读工具包装：
 
 - `inspect_project_structure` 输出 `summary_for_model/evidence/raw_ref/legacy_payload`。
 - `check_service_health` inactive -> evidence kind `service_health`。
@@ -131,7 +145,7 @@ fake client 必须能配置：
 
 | 场景 | 预期 |
 | --- | --- |
-| Ray 不可用 | warning finding；recommend wait/inspect；不提交训练 |
+| Ray 不可用 | warning finding；recommend wait；不提交训练 |
 | MLflow 不可用 | service finding；raw_ref 使用 local state |
 | MLflow run 缺 dataset digest | `evidence_missing` finding；不给 best-run 结论 |
 | Artifact 回读失败 | `artifact_risk` finding；阻断 promotion |
@@ -166,7 +180,7 @@ fake client 必须能配置：
 
 ## 13. 推荐验证命令
 
-仓库当前测试位于 `agent/test/`。巡推 P0 可先运行：
+仓库当前测试位于 `agent/test/`。训推一体化 P0 / Patrol core 可先运行：
 
 ```bash
 /data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
@@ -184,9 +198,9 @@ fake client 必须能配置：
 
 ## 14. Go / No-Go 条件
 
-进入真实服务或真实 LLM 集成前，必须满足：
+进入真实服务、真实 LLM 集成或 production push 前，必须满足：
 
-- fake clients 下完整 `run_once()` 通过。
+- `tool_overrides` 离线完整 `run_once()` 通过。
 - 每条 recommendation 都能追溯 evidence。
 - 缺 evidence 时不能产生高置信 recommendation。
 - promotion、alias、删除、覆盖、长训练无 approval 时不能 apply。

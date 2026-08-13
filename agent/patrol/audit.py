@@ -1,4 +1,4 @@
-"""Audit event persistence for patrol-push runs."""
+"""Audit event persistence for train-inference patrol runs."""
 
 from __future__ import annotations
 

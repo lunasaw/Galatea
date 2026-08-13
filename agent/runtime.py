@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator, Dict, Optional
 
 from claude_agent_sdk import ClaudeSDKClient
 
-from agent.sdk_core import (
+from agent.core import (
     AgentSDKConfig,
     GalateaSDKRuntime,
     SDKRunResult,

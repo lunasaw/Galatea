@@ -52,6 +52,30 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MCP_SERVER_ALIAS = "galatea-platform"
 DEFAULT_MODEL = "claude-opus-5"
+CLAUDE_CODE_TOOLS_PRESET = {"type": "preset", "preset": "claude_code"}
+CLAUDE_CODE_BASE_ALLOWED_TOOLS = [
+    "Task",
+    "Agent",
+    "Bash",
+    "BashOutput",
+    "KillBash",
+    "Read",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "Glob",
+    "Grep",
+    "LS",
+    "TodoWrite",
+    "NotebookRead",
+    "NotebookEdit",
+    "WebFetch",
+    "WebSearch",
+    "ListMcpResources",
+    "ReadMcpResource",
+    "ReadMcpResourceDir",
+    "RefreshMcpTools",
+]
 
 
 @dataclass
@@ -366,11 +390,12 @@ class GalateaSDKRuntime:
         manager.add_hook(HookEvent.PRE_TOOL_USE, validation_hook)
         manager.add_hook(HookEvent.PRE_TOOL_USE, audit_hook)
         manager.add_hook(HookEvent.PRE_TOOL_USE, make_permission_hook(self.permission_policy))
-        manager.add_hook(
-            HookEvent.PRE_TOOL_USE,
-            deny_builtin_mutation_hook,
-            matcher="|".join(self.config.disallowed_tools),
-        )
+        if self.config.disallowed_tools:
+            manager.add_hook(
+                HookEvent.PRE_TOOL_USE,
+                deny_builtin_mutation_hook,
+                matcher="|".join(self.config.disallowed_tools),
+            )
         manager.add_hook(HookEvent.POST_TOOL_USE, logging_hook)
         manager.add_hook(HookEvent.POST_TOOL_USE, audit_hook)
         manager.add_hook(HookEvent.POST_TOOL_USE, summarize_large_tool_output_hook)

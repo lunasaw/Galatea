@@ -134,6 +134,9 @@ agent/
 ├── README.md                    # This file
 ├── STAGE1_COMPLETE.md           # Stage 1 completion report
 ├── __init__.py                  # Package exports
+├── core/                        # SDK runtime primitives
+│   ├── __init__.py              # Core exports
+│   └── sdk.py                   # GalateaSDKRuntime implementation
 ├── runtime.py                   # GalateaRuntime implementation
 ├── client.py                    # High-level client (future)
 ├── demo_basic.py                # Stage 1 demo script

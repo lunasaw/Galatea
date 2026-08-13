@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Optional
 
-from agent.sdk_core import AgentSDKConfig, GalateaSDKRuntime, SDKRunResult
+from agent.core import AgentSDKConfig, GalateaSDKRuntime, SDKRunResult
 
 
 class GalateaAgentClient:

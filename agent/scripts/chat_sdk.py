@@ -31,7 +31,7 @@ from agent.agents import (  # noqa: E402
     PLATFORM_INSPECTOR,
     TRAINING_ORCHESTRATOR,
 )
-from agent.sdk_core import AgentSDKConfig, GalateaSDKRuntime, result_to_json  # noqa: E402
+from agent.core import AgentSDKConfig, GalateaSDKRuntime, result_to_json  # noqa: E402
 
 
 def print_header() -> None:
@@ -166,7 +166,7 @@ async def interactive_chat(args: argparse.Namespace) -> None:
                 if result_message:
                     _print_result_summary(result_message, tools_used, hook_events)
                     if show_json:
-                        from agent.sdk_core import SDKRunResult
+                        from agent.core import SDKRunResult
 
                         print(
                             result_to_json(

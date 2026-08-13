@@ -21,6 +21,7 @@ Ray / MLflow / MinIO
 ## Key Components
 
 ### Runtime Layer
+- `agent.core`: SDK runtime primitives, configuration, and result models
 - `GalateaRuntime`: Async context manager wrapping ClaudeSDKClient
 - `GalateaAgentClient`: High-level client for common operations
 
@@ -130,6 +131,9 @@ Set up API configuration in `~/.claude/settings.json`:
 
 ```
 agent/
+├── core/                   # SDK runtime primitives
+│   ├── __init__.py         # Core exports
+│   └── sdk.py              # GalateaSDKRuntime implementation
 ├── runtime.py              # GalateaRuntime - Claude SDK wrapper
 ├── client.py               # High-level client (skeleton)
 ├── tools/                  # MCP tool implementations
@@ -186,7 +190,7 @@ agent/
 
 from agent.runtime import GalateaRuntime
 from agent.client import GalateaAgentClient
-from agent.sdk_core import (
+from agent.core import (
     AgentSDKConfig,
     ContextCompressionConfig,
     GalateaSDKRuntime,

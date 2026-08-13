@@ -9,7 +9,7 @@ from claude_agent_sdk import ResultMessage
 
 from agent.hooks import HookContext, HookEvent, HookInput, HookManager, HookOutput
 from agent.policies import BudgetExceededError, BudgetPolicy, PermissionDeniedError, PermissionPolicy, PermissionRule
-from agent.sdk_core import AgentSDKConfig, GalateaSDKRuntime, SDKRunResult
+from agent.core import AgentSDKConfig, GalateaSDKRuntime, SDKRunResult
 from agent.tools.executor import ToolExecutor, ToolRegistry, ToolSpec
 
 

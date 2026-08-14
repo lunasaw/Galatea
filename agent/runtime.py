@@ -242,17 +242,9 @@ class GalateaRuntime:
             return False
         return True
 
-    async def inspect_platform(self) -> Dict[str, Any]:
+    async def inspect_platform(self, detailed: bool = False) -> Dict[str, Any]:
         """Use the agent to inspect Galatea platform state."""
-        prompt = f"""检查位于 {self.project_root} 的 Galatea ML 训练平台。
-
-请使用可用的只读检查工具来检查：
-1. 列出 train-model/ 中的所有训练项目
-2. 检查关键服务的健康状况：mlflow（端口 5000）、minio（端口 9000）
-3. 检查 Ray 集群状态
-4. 对于 'ray-cats-and-dogs' 项目，检查其结构
-
-在清晰的报告中总结发现，不要执行 Bash、写文件或修改任何平台状态。"""
+        prompt = self._build_platform_inspection_prompt(detailed=detailed)
 
         result = await self.run(prompt)
         return {
@@ -264,6 +256,30 @@ class GalateaRuntime:
             "tokens": result.total_tokens,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+    def _build_platform_inspection_prompt(self, detailed: bool = False) -> str:
+        """Build the stable platform inspection prompt used by the CLI and API."""
+        if detailed:
+            return f"""检查位于 {self.project_root} 的 Galatea ML 训练平台，并输出详细审计报告。
+
+请使用可用的只读检查工具来检查：
+1. 列出 train-model/ 中的所有训练项目
+2. 检查关键服务的健康状况：mlflow（端口 5000）、minio（端口 9000）
+3. 检查 Ray 集群状态
+4. 对于每个训练项目，检查目录结构、配置文件和测试覆盖
+5. 标记任何与 SDK/Claude 基座、权限边界、依赖声明或旧入口有关的风险
+
+报告必须明确区分事实、风险和建议，不要执行 Bash、写文件或修改任何平台状态。"""
+
+        return f"""检查位于 {self.project_root} 的 Galatea ML 训练平台。
+
+请使用可用的只读检查工具来检查：
+1. 列出 train-model/ 中的所有训练项目
+2. 检查关键服务的健康状况：mlflow（端口 5000）、minio（端口 9000）
+3. 检查 Ray 集群状态
+4. 对于 'ray-cats-and-dogs' 项目，检查其结构
+
+在清晰的报告中总结发现，不要执行 Bash、写文件或修改任何平台状态。"""
 
     async def get_context_usage(self) -> Dict[str, Any]:
         """Expose SDK context usage."""

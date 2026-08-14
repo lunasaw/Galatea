@@ -69,8 +69,6 @@ class HookManager:
         """Convert local hooks to Claude SDK hook matchers."""
         sdk_hooks: Dict[str, List[SDKHookMatcher]] = {}
         for event in HookEvent:
-            if event == HookEvent.RESULT_COMPLETE:
-                continue
             matchers = self.registry.get_hooks(event)
             if not matchers:
                 continue

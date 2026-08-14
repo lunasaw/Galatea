@@ -34,7 +34,7 @@ Ray / MLflow / MinIO
 - Stage-specific: InspectionResult, DataStageResult (future), etc.
 
 ### State Management
-- `SessionStore`: Abstract interface for session storage
+- `AgentStateStore`: Galatea application state storage
 - `ExperimentState`: Experiment workflow state tracking
 
 ### Hooks System
@@ -80,7 +80,7 @@ asyncio.run(main())
 python agent/scripts/inspect_platform.py
 
 # Direct tool testing (no API calls)
-python agent/test/test_tools_direct.py
+python -m unittest agent.test.test_tools_direct
 
 # Full agent demo
 python agent/demo/demo_basic.py
@@ -110,14 +110,13 @@ Set up API configuration in `~/.claude/settings.json`:
 - Config loading from ~/.claude/settings.json
 - Demo and test structure
 
-**Skeleton structures** (interfaces and types defined, implementations future):
-- State management (SessionStore, ExperimentState)
-- Hooks system (HookRegistry, built-in hooks)
-- Policies (Budget, Permission, Quality gates)
-- Workflows (StateMachine, Orchestrator)
-- Agent definitions (AgentDefinition, Registry)
-- Utils (Errors, Logging, Validation)
-- CLI scripts
+**Current reusable components**:
+- Galatea application state (`AgentStateStore`, `ExperimentState`)
+- SDK hook manager and built-in safety hooks
+- Budget, permission, and quality policies
+- Workflow state machines and orchestration helpers
+- SDK `AgentDefinition` presets and registry
+- Utility modules and CLI entry points
 
 ### 🚧 Future Stages
 
@@ -135,7 +134,7 @@ agent/
 │   ├── __init__.py         # Core exports
 │   └── sdk.py              # GalateaSDKRuntime implementation
 ├── runtime.py              # GalateaRuntime - Claude SDK wrapper
-├── client.py               # High-level client (skeleton)
+├── client.py               # High-level SDK client
 ├── tools/                  # MCP tool implementations
 │   ├── server.py           # MCP server factory
 │   └── inspection.py       # Read-only tools (✅ implemented)
@@ -143,32 +142,32 @@ agent/
 │   ├── common.py           # Shared types (✅)
 │   └── inspection.py       # Inspection results (✅)
 ├── state/                  # State management
-│   ├── store.py            # SessionStore interface (skeleton)
-│   ├── experiment.py       # ExperimentState (skeleton)
-│   └── persistence.py      # Persistence helpers (skeleton)
+│   ├── store.py            # AgentStateStore interface
+│   ├── experiment.py       # ExperimentState manager
+│   └── persistence.py      # Persistence helpers
 ├── hooks/                  # Hook system
-│   ├── types.py            # Hook types (skeleton)
-│   ├── registry.py         # Hook registry (skeleton)
-│   └── builtin.py          # Built-in hooks (skeleton)
+│   ├── types.py            # Hook types
+│   ├── registry.py         # SDK hook adapter
+│   └── builtin.py          # Built-in safety hooks
 ├── policies/               # Policy framework
-│   ├── budget.py           # Budget policy (skeleton)
-│   ├── permission.py       # Permission policy (skeleton)
-│   └── quality.py          # Quality gates (skeleton)
+│   ├── budget.py           # Budget policy
+│   ├── permission.py       # Permission policy
+│   └── quality.py          # Quality gates
 ├── workflows/              # Workflow orchestration
-│   ├── state_machine.py    # State machine (skeleton)
-│   └── orchestrator.py     # Orchestrator (skeleton)
+│   ├── state_machine.py    # State machine
+│   └── orchestrator.py     # Orchestrator
 ├── agents/                 # Agent definitions
-│   ├── definition.py       # AgentDefinition (skeleton)
-│   └── registry.py         # Agent registry (skeleton)
+│   ├── definitions.py      # SDK AgentDefinition presets
+│   └── registry.py         # SDK-native Agent registry
 ├── utils/                  # Utilities
-│   ├── errors.py           # Custom exceptions (skeleton)
-│   ├── logging.py          # Structured logging (skeleton)
-│   └── validation.py       # Input validation (skeleton)
+│   ├── errors.py           # Custom exceptions
+│   ├── logging.py          # Structured logging
+│   └── validation.py       # Input validation
 ├── config/                 # Configuration
 │   └── loader.py           # Config loading (✅)
 ├── demo/                   # Demo scripts
 ├── test/                   # Test scripts
-├── scripts/                # CLI entry points (skeleton)
+├── scripts/                # CLI entry points; planned stages return unsupported status
 └── doc/                    # Documentation
 ```
 
@@ -220,6 +219,8 @@ from agent.schemas.inspection import InspectionResult
 
 # State management (interfaces)
 from agent.state import (
+    AgentStateStore,
+    InMemoryAgentStateStore,
     SessionStore,
     MemorySessionStore,
     SessionManager,
@@ -287,6 +288,8 @@ __all__ = [
     "ApprovalRequest",
     "InspectionResult",
     # State
+    "AgentStateStore",
+    "InMemoryAgentStateStore",
     "SessionStore",
     "MemorySessionStore",
     "SessionManager",

@@ -22,7 +22,7 @@ Ray / MLflow / MinIO
 
 - **`GalateaRuntime`**: Async context manager wrapping ClaudeSDKClient
 - **Configuration**: Model selection, MCP server registration, permission mode
-- **Session Management**: Query execution and response streaming
+- **Session Management**: SDK transcript resume/fork through Claude SDK `SessionStore`; Galatea application state remains under `agent.state`
 
 ### Tool Layer
 
@@ -56,7 +56,7 @@ Ray / MLflow / MinIO
 
 **Validation**: ✅ Demo runs successfully, tools functional, permission boundaries enforced
 
-### 🚧 Stage 2: 训推一体化 Agent P0 + Data Cleaning POC (Next)
+### 🚧 Stage 2: Business Agent Integration (Next)
 
 **Planned data-cleaning tools**:
 - `inspect_dataset_source`
@@ -66,7 +66,7 @@ Ray / MLflow / MinIO
 - `validate_dataset_output`
 - `log_dataset_manifest`
 
-**Target**: Extend the current Patrol-named P0 core into data cleaning, model training, inference acceleration, global inspection, and documentation/report updates.
+**Target**: Add business agents on top of the SDK foundation through registered MCP tools, explicit schemas, and approval-aware policies.
 
 ### 📋 Future Stages
 
@@ -85,6 +85,7 @@ source /data/conda/etc/profile.d/conda.sh
 conda activate attend-ray-py312
 
 # Verify Claude SDK
+python -m pip install -r agent/requirements.txt
 python -c "import claude_agent_sdk; print(claude_agent_sdk.__version__)"
 ```
 
@@ -121,10 +122,10 @@ asyncio.run(main())
 
 ```bash
 # Full agent demo with Claude API
-python agent/demo_basic.py
+python agent/demo/demo_basic.py
 
 # Direct tool test (no API calls)
-python agent/test_tools_direct.py
+python -m unittest agent.test.test_tools_direct
 ```
 
 ## Project Structure
@@ -132,7 +133,6 @@ python agent/test_tools_direct.py
 ```
 agent/
 ├── README.md                    # This file
-├── STAGE1_COMPLETE.md           # Stage 1 completion report
 ├── __init__.py                  # Package exports
 ├── core/                        # SDK runtime primitives
 │   ├── __init__.py              # Core exports
@@ -142,9 +142,9 @@ agent/
 │   ├── registry.py              # Slash parsing, lookup, command-scoped plans
 │   └── git_commit_push.py       # /commit-push built-in command
 ├── runtime.py                   # GalateaRuntime implementation
-├── client.py                    # High-level client (future)
-├── demo_basic.py                # Stage 1 demo script
-├── test_tools_direct.py         # Direct tool testing
+├── client.py                    # High-level SDK client
+├── demo/                        # SDK demo scripts
+├── test/                        # Unit and integration tests
 ├── doc/                         # Architecture documentation
 │   ├── current-agent-architecture.md
 │   ├── implementation-roadmap.md
@@ -162,7 +162,7 @@ agent/
 │   └── __init__.py
 ├── config/                      # Configuration (future)
 │   └── __init__.py
-├── state/                       # Session management (future)
+├── state/                       # Galatea application state, not SDK transcript store
 │   └── __init__.py
 ├── workflows/                   # Multi-stage workflows (future)
 │   └── __init__.py
@@ -260,20 +260,20 @@ GalateaRuntime(
 
 ## Testing
 
-### Unit Tests (Future)
+### Unit Tests
 
 ```bash
-python -m unittest discover -s agent/tests
+python -m unittest discover -s agent/test -p 'test_*.py'
 ```
 
 ### Integration Tests
 
 ```bash
 # Test tools directly
-python agent/test_tools_direct.py
+python -m unittest agent.test.test_tools_direct
 
 # Test with live Claude API (costs $)
-python agent/demo_basic.py
+python agent/demo/demo_basic.py
 ```
 
 ## Monitoring
@@ -339,7 +339,7 @@ async with GalateaRuntime(...) as runtime:
 
 **Symptom**: All tool calls blocked in `dontAsk` mode
 
-**Fix**: This is expected in Stage 1. Future stages will use `acceptEdits` or custom `can_use_tool` hooks.
+**Fix**: Check `allowed_tools` and the `PreToolUse` permission hook. Stage-specific tools must be registered as SDK MCP tools before they can be allowlisted.
 
 ### Import Errors
 

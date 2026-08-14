@@ -1,34 +1,42 @@
 #!/usr/bin/env python3
-"""
-Inference stage CLI.
+"""Inference stage CLI placeholder with explicit unsupported status."""
 
-Runs InferenceAgent to evaluate model.
-"""
+from __future__ import annotations
 
 import sys
-import asyncio
 from pathlib import Path
 
+try:
+    from agent.scripts.stage_status import print_stage_result, unsupported_stage_result
+except ModuleNotFoundError:  # pragma: no cover - supports direct script execution
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from agent.scripts.stage_status import print_stage_result, unsupported_stage_result
 
-def main():
-    """
-    Run inference stage.
 
-    Usage:
-        python agent/scripts/run_inference_stage.py --model MODEL_URI --test-data TEST_URI
-    """
-    print("Inference Stage CLI")
-    print("=" * 50)
-    print()
-    print("Future: Stage 4 - InferenceAgent implementation")
-    print()
-    print("This will:")
-    print("  1. Load model artifact")
-    print("  2. Run smoke inference")
-    print("  3. Evaluate quality gates")
-    print("  4. Generate promotion plan")
-    print()
-    return 0
+PLANNED_TOOLS = [
+    "mcp__galatea-platform__load_model_artifact_metadata",
+    "mcp__galatea-platform__verify_artifact_recovery",
+    "mcp__galatea-platform__run_smoke_inference",
+    "mcp__galatea-platform__evaluate_quality_gates",
+    "mcp__galatea-platform__request_promotion_approval",
+]
+
+
+def parse_args():
+    """Parse command line arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Galatea inference stage status")
+    parser.add_argument("--json", action="store_true", help="Print structured JSON")
+    return parser.parse_args()
+
+
+def main() -> int:
+    """Report that inference-stage execution is not implemented yet."""
+    args = parse_args()
+    result = unsupported_stage_result("inference", planned_tools=PLANNED_TOOLS)
+    print_stage_result(result, as_json=args.json)
+    return 2
 
 
 if __name__ == "__main__":

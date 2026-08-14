@@ -17,7 +17,6 @@ class HookEvent(str, Enum):
     PRE_TOOL_USE = "PreToolUse"
     POST_TOOL_USE = "PostToolUse"
     POST_TOOL_USE_FAILURE = "PostToolUseFailure"
-    RESULT_COMPLETE = "ResultComplete"
     STOP = "Stop"
     PRE_COMPACT = "PreCompact"
     SUBAGENT_START = "SubagentStart"

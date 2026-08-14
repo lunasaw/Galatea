@@ -1,17 +1,25 @@
-"""Session state management for Galatea agents."""
+"""Application state management for Galatea agents.
+
+This module stores Galatea workflow/session metadata. It is intentionally
+separate from the Claude SDK ``SessionStore`` transcript mirror protocol,
+which requires ``append`` and ``load`` methods and is passed directly to
+``ClaudeAgentOptions.session_store``.
+"""
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, List
 from datetime import datetime, timezone
 import copy
+from typing import Any, Dict, List, Optional
 
 
-class SessionStore(ABC):
+class AgentStateStore(ABC):
     """
-    Abstract interface for agent session storage.
+    Abstract interface for Galatea application session state.
 
-    Implementations can use memory, filesystem, Redis, S3, Postgres, etc.
-    Reference: Claude SDK's SessionStore protocol.
+    Implementations can use memory, filesystem, Redis, S3, Postgres, etc. This
+    is not Claude SDK's SessionStore transcript protocol.
     """
 
     @abstractmethod
@@ -92,9 +100,9 @@ class SessionStore(ABC):
         raise NotImplementedError("Future: Stage 2+ - Session listing")
 
 
-class MemorySessionStore(SessionStore):
+class InMemoryAgentStateStore(AgentStateStore):
     """
-    In-memory session store for development and testing.
+    In-memory Galatea application state store for development and testing.
 
     Sessions are lost when process exits.
     """
@@ -112,8 +120,8 @@ class MemorySessionStore(SessionStore):
         """Save session to memory."""
         self._sessions[session_id] = {
             "session_id": session_id,
-            "transcript": transcript,
-            "metadata": metadata,
+            "transcript": copy.deepcopy(transcript),
+            "metadata": copy.deepcopy(metadata),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -122,7 +130,10 @@ class MemorySessionStore(SessionStore):
         session_id: str,
     ) -> Optional[Dict[str, Any]]:
         """Load session from memory."""
-        return self._sessions.get(session_id)
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        return copy.deepcopy(session)
 
     async def delete_session(
         self,
@@ -155,15 +166,16 @@ class SessionManager:
     """
     High-level session management with resume/fork support.
 
-    Reference: Claude SDK's session management patterns.
+    This manages Galatea application state only. Use a Claude SDK SessionStore
+    implementation for transcript resume/fork.
     """
 
-    def __init__(self, store: SessionStore):
+    def __init__(self, store: AgentStateStore):
         """
         Initialize session manager.
 
         Args:
-            store: SessionStore implementation
+            store: AgentStateStore implementation
         """
         self.store = store
 
@@ -247,3 +259,9 @@ class SessionManager:
         transcript = copy.deepcopy(source.get("transcript", []))
         await self.store.save_session(new_session_id, transcript=transcript, metadata=metadata)
         return new_session_id
+
+
+# Backward-compatible aliases for older imports. Prefer the AgentStateStore
+# names in new code to avoid confusion with claude_agent_sdk.SessionStore.
+SessionStore = AgentStateStore
+MemorySessionStore = InMemoryAgentStateStore

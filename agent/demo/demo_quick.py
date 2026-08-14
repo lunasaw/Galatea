@@ -98,8 +98,8 @@ def main():
     print("=" * 70)
     print("✅ Quick demo complete!")
     print()
-    print("For full demo: python agent/demo_basic.py")
-    print("For tool tests: python agent/test_tools_direct.py")
+    print("For full demo: python agent/demo/demo_basic.py")
+    print("For tool tests: python -m unittest agent.test.test_tools_direct")
     print("=" * 70)
 
 

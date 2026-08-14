@@ -7,7 +7,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Iterable, List, Literal, Optional
+from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 
 from claude_agent_sdk import (
     AgentDefinition,
@@ -18,6 +18,7 @@ from claude_agent_sdk import (
     InMemorySessionStore,
     McpSdkServerConfig,
     ResultMessage,
+    SessionStore as SDKSessionStore,
     SystemMessage,
     TaskNotificationMessage,
     TaskProgressMessage,
@@ -133,7 +134,7 @@ class AgentSDKConfig:
     include_legacy_codex_skills: bool = True
     include_skill_plugins: bool = True
     sync_legacy_codex_skills: bool = False
-    session_store: Any = None
+    session_store: SDKSessionStore | None = None
     session_store_flush: str = "batched"
     resume: Optional[str] = None
     fork_session: bool = False
@@ -183,6 +184,20 @@ class SDKRunValidationError(RuntimeError):
     """Raised when an SDK run violates Galatea runtime invariants."""
 
 
+def _validate_session_store(session_store: SDKSessionStore | None) -> None:
+    """Reject application state stores that do not implement the SDK protocol."""
+    if session_store is None:
+        return
+    append = getattr(session_store, "append", None)
+    load = getattr(session_store, "load", None)
+    if callable(append) and callable(load):
+        return
+    raise TypeError(
+        "GalateaSDKRuntime.session_store must implement the Claude SDK SessionStore "
+        "protocol with callable append/load methods."
+    )
+
+
 class GalateaSDKRuntime:
     """Reusable wrapper around ClaudeSDKClient with Galatea safety defaults."""
 
@@ -195,7 +210,7 @@ class GalateaSDKRuntime:
         self.config = config
         self.stage_run_id = config.effective_stage_run_id()
         self.mcp_server = config.mcp_server or create_galatea_mcp_server()
-        self.mcp_tool_names = mcp_tool_names(self.mcp_server, config.mcp_server_alias)
+        _validate_session_store(config.session_store)
         self.skill_runtime = self._resolve_skill_runtime()
         self.permission_policy = permission_policy or PermissionPolicy.for_galatea(
             allowed_tools=self._policy_allowed_tools(),
@@ -261,6 +276,8 @@ class GalateaSDKRuntime:
             *self.skill_runtime.plugins,
         ]
 
+        can_use_tool = None if self.config.permission_mode == "dontAsk" else self.permission_policy.can_use_tool
+
         return ClaudeAgentOptions(
             model=self.config.model,
             cwd=self.config.project_root,
@@ -273,7 +290,7 @@ class GalateaSDKRuntime:
             disallowed_tools=disallowed_tools,
             hooks=self.hook_manager.to_sdk_hooks(),
             include_hook_events=self.config.include_hook_events,
-            can_use_tool=self.permission_policy.can_use_tool,
+            can_use_tool=can_use_tool,
             skills=self.skill_runtime.skills,
             plugins=plugins,
             max_turns=self.config.max_turns,
@@ -502,46 +519,6 @@ class GalateaSDKRuntime:
         if self._client is None:
             raise RuntimeError("GalateaSDKRuntime is not connected. Use 'async with'.")
         return self._client
-
-
-def mcp_tool_names(server: McpSdkServerConfig, alias: str) -> List[str]:
-    """Return fully-qualified SDK MCP tool names for a server config."""
-    instance = server.get("instance") if isinstance(server, dict) else None
-    configured_tool_names = server.get("tool_names") if isinstance(server, dict) else None
-    if configured_tool_names:
-        return [f"mcp__{alias}__{name}" for name in configured_tool_names]
-
-    tools = getattr(getattr(instance, "request_handlers", None), "tools", None)
-    # The public MCP Server object intentionally hides internals; use SDK status
-    # at runtime for exact discovery. For local policy we can inspect the known
-    # SdkMcpTool list stored on FastMCP handlers when present, else return [].
-    if not tools:
-        raw_tools = getattr(instance, "_tools", None) or getattr(instance, "tools", None)
-    else:
-        raw_tools = tools
-
-    names: List[str] = []
-    if isinstance(raw_tools, dict):
-        names = [str(name) for name in raw_tools.keys()]
-    elif isinstance(raw_tools, Iterable):
-        for tool in raw_tools:
-            name = getattr(tool, "name", None)
-            if name:
-                names.append(str(name))
-
-    # Fallback for the built-in Galatea server where SDK internals do not expose
-    # tool objects after server construction.
-    if not names and server.get("name") == "galatea-platform":
-        names = list(server.get("tool_names") or [])
-    if not names and server.get("name") == "galatea-platform":
-        names = [
-            "inspect_project_structure",
-            "check_service_health",
-            "inspect_mlflow_experiment",
-            "inspect_ray_status",
-            "list_training_projects",
-        ]
-    return [f"mcp__{alias}__{name}" for name in names]
 
 
 def result_to_json(result: SDKRunResult) -> str:

@@ -84,7 +84,6 @@ class SkillRuntimeConfig:
 
     skills: SkillsOption = None
     plugins: tuple[dict[str, str], ...] = ()
-    add_dirs: tuple[Path, ...] = ()
     allowed_tools: tuple[str, ...] = ()
     discovered: tuple[SkillSpec, ...] = ()
 

@@ -11,7 +11,6 @@ from agent.core.sdk import (
     SDKRunResult,
     SDKRunValidationError,
     ToolCallRecord,
-    mcp_tool_names,
     message_display_parts,
     result_to_json,
 )
@@ -40,7 +39,6 @@ __all__ = [
     "SkillSpec",
     "ToolCallRecord",
     "ensure_local_skill_plugin",
-    "mcp_tool_names",
     "message_display_parts",
     "resolve_skill_runtime",
     "result_to_json",

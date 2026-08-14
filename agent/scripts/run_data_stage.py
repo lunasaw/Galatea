@@ -1,34 +1,42 @@
 #!/usr/bin/env python3
-"""
-Data stage CLI.
+"""Data stage CLI placeholder with explicit unsupported status."""
 
-Runs DataAgent to prepare dataset.
-"""
+from __future__ import annotations
 
 import sys
-import asyncio
 from pathlib import Path
 
+try:
+    from agent.scripts.stage_status import print_stage_result, unsupported_stage_result
+except ModuleNotFoundError:  # pragma: no cover - supports direct script execution
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from agent.scripts.stage_status import print_stage_result, unsupported_stage_result
 
-def main():
-    """
-    Run data preparation stage.
 
-    Usage:
-        python agent/scripts/run_data_stage.py --source SOURCE_URI --project PROJECT_NAME
-    """
-    print("Data Stage CLI")
-    print("=" * 50)
-    print()
-    print("Future: Stage 2+ - DataAgent implementation")
-    print()
-    print("This will:")
-    print("  1. Inspect data source")
-    print("  2. Compute manifest")
-    print("  3. Submit Ray Data job")
-    print("  4. Validate output")
-    print()
-    return 0
+PLANNED_TOOLS = [
+    "mcp__galatea-platform__inspect_dataset_source",
+    "mcp__galatea-platform__compute_source_manifest",
+    "mcp__galatea-platform__submit_ray_data_job",
+    "mcp__galatea-platform__validate_dataset_output",
+    "mcp__galatea-platform__log_dataset_manifest",
+]
+
+
+def parse_args():
+    """Parse command line arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Galatea data stage status")
+    parser.add_argument("--json", action="store_true", help="Print structured JSON")
+    return parser.parse_args()
+
+
+def main() -> int:
+    """Report that data-stage execution is not implemented yet."""
+    args = parse_args()
+    result = unsupported_stage_result("data", planned_tools=PLANNED_TOOLS)
+    print_stage_result(result, as_json=args.json)
+    return 2
 
 
 if __name__ == "__main__":

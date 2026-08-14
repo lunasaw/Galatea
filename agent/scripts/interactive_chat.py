@@ -11,6 +11,7 @@ Usage:
 """
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -23,6 +24,13 @@ from claude_agent_sdk import (
     ToolResultBlock,
     UserMessage,
 )
+
+
+def _configure_stdio_encoding() -> None:
+    """Prefer UTF-8 for terminal output when Python is launched in a legacy locale."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
 
 
 def parse_args():
@@ -95,8 +103,7 @@ def display_message(msg, show_tool_calls: bool = True):
             elif isinstance(block, ToolUseBlock) and show_tool_calls:
                 print(f"🔧 [Tool: {block.name}]")
                 if block.input:
-                    import json
-                    print(f"   Input: {json.dumps(block.input, indent=2)}")
+                    print(f"   Input: {json.dumps(block.input, ensure_ascii=False, indent=2)}")
     elif isinstance(msg, ResultMessage):
         # Show cost and usage
         if msg.total_cost_usd:
@@ -205,6 +212,7 @@ async def interactive_chat(
 
 def main():
     """主入口"""
+    _configure_stdio_encoding()
     args = parse_args()
 
     try:

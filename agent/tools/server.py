@@ -5,6 +5,8 @@ Galatea agents 的 MCP 工具服务器。
 """
 
 from typing import Any, Dict
+import json
+
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from .inspection import (
@@ -14,6 +16,11 @@ from .inspection import (
     inspect_ray_status,
     list_training_projects,
 )
+
+
+def _mcp_json_content(data: Any) -> Dict[str, Any]:
+    """Return MCP text content while preserving readable non-ASCII text."""
+    return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False, indent=2)}]}
 
 
 # 使用 SDK 装饰器定义 MCP 工具
@@ -30,8 +37,7 @@ from .inspection import (
 async def tool_inspect_project_structure(args: Dict[str, Any]) -> Dict[str, Any]:
     """检查项目结构。"""
     result = inspect_project_structure(args["project_root"], args["project_name"])
-    import json
-    return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
+    return _mcp_json_content(result)
 
 
 @tool(
@@ -49,8 +55,7 @@ async def tool_check_service_health(args: Dict[str, Any]) -> Dict[str, Any]:
         args["port"],
         args.get("endpoint", "127.0.0.1")
     )
-    import json
-    return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
+    return _mcp_json_content(result)
 
 
 @tool(
@@ -64,8 +69,7 @@ async def tool_check_service_health(args: Dict[str, Any]) -> Dict[str, Any]:
 async def tool_inspect_mlflow_experiment(args: Dict[str, Any]) -> Dict[str, Any]:
     """检查 MLflow 实验。"""
     result = inspect_mlflow_experiment(args["tracking_uri"], args["experiment_name"])
-    import json
-    return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
+    return _mcp_json_content(result)
 
 
 @tool(
@@ -76,8 +80,7 @@ async def tool_inspect_mlflow_experiment(args: Dict[str, Any]) -> Dict[str, Any]
 async def tool_inspect_ray_status(args: Dict[str, Any]) -> Dict[str, Any]:
     """检查 Ray 状态。"""
     result = inspect_ray_status()
-    import json
-    return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
+    return _mcp_json_content(result)
 
 
 @tool(
@@ -91,8 +94,7 @@ async def tool_list_training_projects(args: Dict[str, Any]) -> Dict[str, Any]:
     """列出训练项目。"""
     projects = list_training_projects(args["project_root"])
     result = {"projects": projects, "count": len(projects)}
-    import json
-    return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
+    return _mcp_json_content(result)
 
 
 INSPECTION_TOOLS = [

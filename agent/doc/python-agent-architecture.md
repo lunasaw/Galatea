@@ -24,7 +24,6 @@ agent/
 ├── core/                 # SDK runtime and result collection
 ├── runtime.py            # high-level runtime facade
 ├── client.py             # high-level SDK client
-├── commands/             # slash/natural command planning
 ├── tools/                # in-process SDK MCP tools and deterministic executor
 ├── schemas/              # shared and inspection schemas
 ├── state/                # application state helpers, not SDK transcript storage
@@ -39,8 +38,9 @@ agent/
 ## Current Capabilities
 
 Current runtime capabilities are limited to SDK session orchestration, read-only platform
-inspection tools, hooks, permission policy, structured output validation, command planning,
-and generic state/workflow helpers. Stage-specific business execution is not implemented.
+inspection tools, hooks, permission policy, structured output validation, and generic
+state/workflow helpers. Prompt commands and stage-specific business execution are not
+implemented in the foundation layer.
 
 ## Planned Business Integration
 

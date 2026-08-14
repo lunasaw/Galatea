@@ -4,32 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Literal, Optional
 
 from claude_agent_sdk import ClaudeSDKClient
 
-from agent.commands import (
-    CLAUDE_CODE_GIT_COMMIT_PUSH_ALLOWED_TOOLS,
-    CLAUDE_CODE_GIT_COMMIT_PUSH_DISALLOWED_TOOLS,
-    GIT_AUTOMATION_SYSTEM_PROMPT,
-    CommandContext,
-    CommandInvocation,
-    CommandPlan,
-    CommandRegistry,
-    build_git_commit_push_prompt,
-    claude_code_allowed_tools as _claude_code_allowed_tools,
-    default_command_registry,
-    default_platform_allowed_tools,
-    git_commit_push_allowed_tools,
-    git_commit_push_disallowed_tools,
-    git_commit_push_system_prompt,
-    is_git_commit_push_request,
-)
 from agent.core import (
     AgentSDKConfig,
+    CLAUDE_CODE_BASE_ALLOWED_TOOLS,
     CLAUDE_CODE_TOOLS_PRESET,
     GalateaSDKRuntime,
     SDKRunResult,
@@ -39,6 +22,13 @@ from agent.policies.permission import DEFAULT_DISALLOWED_TOOLS
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+CLAUDE_CODE_READ_ONLY_TOOLS = [
+    "Read",
+    "Glob",
+    "Grep",
+    "LS",
+]
 
 
 def _serialize_to_oneline(obj: Any) -> str:
@@ -87,14 +77,11 @@ class GalateaRuntime:
         agents: Optional[Dict[str, Any]] = None,
         task_budget_tokens: Optional[int] = None,
         include_hook_events: bool = True,
-        command_registry: CommandRegistry | None = None,
     ) -> None:
         self.project_root = project_root
         self.mlflow_uri = mlflow_tracking_uri
         self.model = model
         self.output_schema = output_schema
-        self.command_registry = command_registry or default_command_registry()
-        self._explicit_disallowed_tools = disallowed_tools is not None
         self.config = AgentSDKConfig(
             project_root=project_root,
             model=model,
@@ -143,8 +130,7 @@ class GalateaRuntime:
         instruction for backwards compatibility. For strict SDK schema
         enforcement, construct the runtime with output_schema.
         """
-        plan = self.build_command_plan(prompt)
-        final_prompt = plan.prompt
+        final_prompt = prompt
         if output_schema:
             final_prompt = (
                 f"{final_prompt}\n\nReturn structured JSON matching this schema:\n"
@@ -159,25 +145,23 @@ class GalateaRuntime:
                     "model": self.model,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "prompt": final_prompt,
-                    "command": plan.command_name,
                     "output_schema": output_schema or self.output_schema,
                 }
             ),
         )
 
-        async with self._runtime_for_plan(plan) as runtime:
-            async for message in runtime.stream_query(final_prompt):
-                logger.info(
-                    "MODEL_RESPONSE: %s",
-                    _serialize_to_oneline(
-                        {
-                            "type": "response",
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "message": message_display_parts(message),
-                        }
-                    ),
-                )
-                yield message
+        async for message in self.sdk_runtime.stream_query(final_prompt):
+            logger.info(
+                "MODEL_RESPONSE: %s",
+                _serialize_to_oneline(
+                    {
+                        "type": "response",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "message": message_display_parts(message),
+                    }
+                ),
+            )
+            yield message
 
     async def stream_query(
         self,
@@ -190,57 +174,7 @@ class GalateaRuntime:
 
     async def run(self, prompt: str) -> SDKRunResult:
         """Execute a query and return the collected, validated result."""
-        plan = self.build_command_plan(prompt)
-        async with self._runtime_for_plan(plan) as runtime:
-            return await runtime.query(plan.prompt)
-
-    def build_command_plan(self, prompt: str) -> CommandPlan:
-        """Resolve slash/natural-language commands into an SDK query plan."""
-        return self.command_registry.build_plan(prompt, self._command_context())
-
-    def _command_context(self) -> CommandContext:
-        return CommandContext(
-            project_root=self.project_root,
-            mlflow_tracking_uri=self.mlflow_uri,
-            model=self.model,
-        )
-
-    def _runtime_for_plan(self, plan: CommandPlan) -> "_PlannedRuntime":
-        return _PlannedRuntime(self.sdk_runtime, self._build_runtime_for_plan(plan))
-
-    def _build_runtime_for_plan(self, plan: CommandPlan) -> GalateaSDKRuntime | None:
-        if not plan.is_command or self._base_runtime_covers_plan(plan):
-            return None
-
-        disallowed_tools = list(plan.disallowed_tools) or self.config.disallowed_tools
-        if self._explicit_disallowed_tools and plan.disallowed_tools:
-            disallowed_tools = list(dict.fromkeys([*self.config.disallowed_tools, *plan.disallowed_tools]))
-
-        command_config = replace(
-            self.config,
-            agent_type=f"runtime-command-{plan.command_name}",
-            stage_run_id=f"{self.sdk_runtime.stage_run_id}:{plan.command_name}",
-            model=plan.model or self.config.model,
-            tools=self.config.tools if plan.tools is None else plan.tools,
-            allowed_tools=list(plan.allowed_tools) or self.config.allowed_tools,
-            disallowed_tools=disallowed_tools,
-            system_prompt=_merge_system_prompt(self.config.system_prompt, plan.system_prompt),
-            max_turns=plan.max_turns or self.config.max_turns,
-        )
-        return GalateaSDKRuntime(command_config)
-
-    def _base_runtime_covers_plan(self, plan: CommandPlan) -> bool:
-        if not plan.is_command:
-            return True
-        if plan.tools is not None and plan.tools != self.config.tools:
-            return False
-        if plan.allowed_tools and not set(plan.allowed_tools).issubset(self.config.allowed_tools):
-            return False
-        if plan.disallowed_tools and set(plan.disallowed_tools) != set(self.config.disallowed_tools):
-            return False
-        if not _system_prompt_contains(self.config.system_prompt, plan.system_prompt):
-            return False
-        return True
+        return await self.sdk_runtime.query(prompt)
 
     async def inspect_platform(self, detailed: bool = False) -> Dict[str, Any]:
         """Use the agent to inspect Galatea platform state."""
@@ -303,67 +237,45 @@ class GalateaRuntime:
         return await self.sdk_runtime.get_mcp_status()
 
 
-class _PlannedRuntime:
-    """Context manager for command-specific SDK runtimes."""
-
-    def __init__(
-        self,
-        base_runtime: GalateaSDKRuntime,
-        command_runtime: GalateaSDKRuntime | None,
-    ) -> None:
-        self.base_runtime = base_runtime
-        self.command_runtime = command_runtime
-
-    async def __aenter__(self) -> GalateaSDKRuntime:
-        if self.command_runtime is None:
-            return self.base_runtime
-        await self.command_runtime.__aenter__()
-        return self.command_runtime
-
-    async def __aexit__(self, *args: Any) -> None:
-        if self.command_runtime is not None:
-            await self.command_runtime.__aexit__(*args)
-
-
 def _default_allowed_tools() -> list[str]:
     return default_platform_allowed_tools()
 
 
-def claude_code_allowed_tools() -> list[str]:
+def default_platform_allowed_tools(alias: str = "galatea-platform") -> list[str]:
+    """Return Galatea SDK foundation MCP inspection tools."""
+    return [
+        f"mcp__{alias}__list_training_projects",
+        f"mcp__{alias}__inspect_project_structure",
+        f"mcp__{alias}__check_service_health",
+        f"mcp__{alias}__inspect_mlflow_experiment",
+        f"mcp__{alias}__inspect_ray_status",
+    ]
+
+
+def claude_code_allowed_tools(alias: str = "galatea-platform") -> list[str]:
     """Return all Galatea inspection tools plus base Claude Code tools."""
-    return _claude_code_allowed_tools()
+    return list(
+        dict.fromkeys(
+            [
+                *default_platform_allowed_tools(alias),
+                *CLAUDE_CODE_BASE_ALLOWED_TOOLS,
+            ]
+        )
+    )
+
+
+def claude_code_read_only_allowed_tools(alias: str = "galatea-platform") -> list[str]:
+    """Return Galatea inspection tools plus safe read-only Claude Code tools."""
+    return list(
+        dict.fromkeys(
+            [
+                *default_platform_allowed_tools(alias),
+                *CLAUDE_CODE_READ_ONLY_TOOLS,
+            ]
+        )
+    )
 
 
 def claude_code_tools_preset() -> dict[str, str]:
     """Return the Claude SDK preset that enables default Claude Code tools."""
     return dict(CLAUDE_CODE_TOOLS_PRESET)
-
-
-def _merge_system_prompt(
-    base: str | Dict[str, Any] | None,
-    scoped: str | Dict[str, Any] | None,
-) -> str | Dict[str, Any] | None:
-    if base is None:
-        return scoped
-    if scoped is None:
-        return base
-    if isinstance(base, str) and isinstance(scoped, str):
-        if scoped in base:
-            return base
-        return f"{base.rstrip()}\n\n{scoped.lstrip()}"
-    return scoped
-
-
-def _system_prompt_contains(
-    base: str | Dict[str, Any] | None,
-    scoped: str | Dict[str, Any] | None,
-) -> bool:
-    if scoped is None:
-        return True
-    if base is None:
-        return False
-    if base == scoped:
-        return True
-    if isinstance(base, str) and isinstance(scoped, str):
-        return scoped in base
-    return False

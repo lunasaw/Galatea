@@ -189,14 +189,6 @@ agent/
 
 from agent.runtime import GalateaRuntime
 from agent.client import GalateaAgentClient
-from agent.commands import (
-    CommandContext,
-    CommandInvocation,
-    CommandPlan,
-    CommandRegistry,
-    GitCommitPushCommand,
-    default_command_registry,
-)
 from agent.core import (
     AgentSDKConfig,
     ContextCompressionConfig,
@@ -267,12 +259,6 @@ __all__ = [
     # Runtime
     "GalateaRuntime",
     "GalateaAgentClient",
-    "CommandContext",
-    "CommandInvocation",
-    "CommandPlan",
-    "CommandRegistry",
-    "GitCommitPushCommand",
-    "default_command_registry",
     "AgentSDKConfig",
     "ContextCompressionConfig",
     "GalateaSDKRuntime",

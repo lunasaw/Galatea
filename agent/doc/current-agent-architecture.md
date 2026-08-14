@@ -1,8 +1,8 @@
 # Galatea Agent Current Architecture
 
 > Status: SDK foundation only. This phase keeps Claude Agent SDK runtime,
-> in-process MCP tools, hooks, permissions, schemas, state helpers, commands,
-> and CLI entry points. Business agents and stage execution tools are planned
+> in-process MCP tools, hooks, permissions, schemas, state helpers, and CLI
+> entry points. Business agents, prompt commands, and stage execution tools are planned
 > for the next phase and must be added explicitly through SDK MCP tools.
 
 ## Runtime Boundary
@@ -30,7 +30,6 @@ The runtime must stay SDK-native:
 | --- | --- | --- |
 | SDK runtime | `agent/core/sdk.py`, `agent/runtime.py` | Build SDK options, collect messages, validate structured output, budgets, hooks, MCP and sessions. |
 | MCP tools | `agent/tools/server.py`, `agent/tools/inspection.py` | Five read-only inspection tools for projects, services, MLflow experiment metadata, and Ray status. |
-| Commands | `agent/commands/` | Claude Code-style prompt command planning with scoped tools. |
 | Agents | `agent/agents/definitions.py`, `agent/agents/registry.py` | SDK `AgentDefinition` presets and SDK-native registry. |
 | Hooks | `agent/hooks/` | SDK-supported hook events and adapters to SDK `HookMatcher`. |
 | Policies | `agent/policies/` | Budget, permission, and quality gate helpers. |
@@ -52,6 +51,10 @@ Only these platform MCP tools are currently implemented and registered:
 Any data, training, inference, promotion, documentation update, or write action is planned only.
 The corresponding CLI entry points return structured `unsupported` results until registered SDK
 MCP tools and approval policy are implemented.
+
+Prompt commands such as commit-and-push automation are also out of scope for the foundation
+phase. They should return in a later feature layer only if they map cleanly to SDK permissions,
+hooks, and explicit user approval.
 
 ## Session Boundary
 

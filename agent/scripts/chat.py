@@ -51,7 +51,6 @@ def print_tools():
 
     print()
     print("Available Tools:")
-    print("  🧭 /commit-push                - Commit relevant changes and push branch")
     print("  📋 list_training_projects      - List all training projects")
     print("  🔍 inspect_project_structure   - Inspect project files")
     print("  ❤️  check_service_health        - Check service status")
@@ -68,25 +67,22 @@ def print_tools():
 async def interactive_chat():
     """完整的交互式对话"""
     sys.path.insert(0, str(Path.cwd()))
-    from agent.commands import claude_code_read_only_allowed_tools, default_command_registry
     from agent.runtime import (
         GalateaRuntime,
+        claude_code_read_only_allowed_tools,
         claude_code_tools_preset,
     )
 
     print_header()
-    command_registry = default_command_registry()
 
     async with GalateaRuntime(
         project_root=Path.cwd(),
         tools=claude_code_tools_preset(),
         allowed_tools=claude_code_read_only_allowed_tools(),
-        disallowed_tools=command_registry.disallowed_tools(),
         permission_mode="dontAsk",
         skills="all",
         max_turns=24,
         max_budget_usd=1.00,
-        command_registry=command_registry,
     ) as runtime:
         print("✅ Agent initialized!\n")
 

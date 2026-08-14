@@ -64,13 +64,11 @@ def print_welcome():
     print("  /help    - Show this help")
     print("  /clear   - Clear conversation history")
     print("  /skills  - Show enabled repository Skills")
-    print("  /commit-push [notes] - Commit relevant changes and push branch")
     print("  /exit    - Exit the chat")
     print("  /quit    - Exit the chat")
     print()
     print("Available tools:")
-    print("  - Git automation is command-scoped through /commit-push")
-    print("  - Read-only code tools: Read, Glob, Grep, LS")
+    print("  - Read-only Claude Code tools: Read, Glob, Grep, LS")
     print("  - list_training_projects")
     print("  - inspect_project_structure")
     print("  - check_service_health")
@@ -126,9 +124,9 @@ async def interactive_chat(
     sys.path.insert(0, str(project_root))
 
     # Import after adding to path
-    from agent.commands import claude_code_read_only_allowed_tools, default_command_registry
     from agent.runtime import (
         GalateaRuntime,
+        claude_code_read_only_allowed_tools,
         claude_code_tools_preset,
     )
     from agent.skills import SkillRegistry
@@ -137,23 +135,19 @@ async def interactive_chat(
     print(f"  Project: {project_root}")
     print(f"  Model: {model}")
     print(f"  MLflow: {mlflow_uri}")
-    print("  Tools: controlled git automation + Galatea MCP inspection tools")
+    print("  Tools: read-only Claude Code tools + Galatea MCP inspection tools")
     print("  Skills: repository Skills enabled through Claude SDK")
     print()
-    command_registry = default_command_registry()
-
     async with GalateaRuntime(
         project_root=project_root,
         model=model,
         mlflow_tracking_uri=mlflow_uri,
         tools=claude_code_tools_preset(),
         allowed_tools=claude_code_read_only_allowed_tools(),
-        disallowed_tools=command_registry.disallowed_tools(),
         permission_mode="dontAsk",
         skills="all",
         max_turns=24,
         max_budget_usd=1.00,
-        command_registry=command_registry,
     ) as runtime:
         print("✅ Agent initialized successfully!")
         print_welcome()

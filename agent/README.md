@@ -137,10 +137,6 @@ agent/
 ├── core/                        # SDK runtime primitives
 │   ├── __init__.py              # Core exports
 │   └── sdk.py                   # GalateaSDKRuntime implementation
-├── commands/                    # Claude Code-style prompt command registry
-│   ├── base.py                  # CommandContext, CommandInvocation, CommandPlan
-│   ├── registry.py              # Slash parsing, lookup, command-scoped plans
-│   └── git_commit_push.py       # /commit-push built-in command
 ├── runtime.py                   # GalateaRuntime implementation
 ├── client.py                    # High-level SDK client
 ├── demo/                        # SDK demo scripts
@@ -366,19 +362,11 @@ sys.path.insert(0, "/data/ai/chenzhangyue/code/galatea")
 3. Add to MCP server in `tools/server.py`
 4. Test directly before adding to agent
 
-### Adding New Prompt Commands
+### Adding Prompt Commands
 
-Prompt commands follow the Claude Code pattern: each command owns its metadata,
-prompt expansion, and command-scoped tool policy; runtime only resolves a
-`CommandPlan`.
-
-1. Add `agent/commands/<name>.py` with a prompt command implementing
-   `matches_natural_language()` and `build_plan()`.
-2. Return a `CommandPlan` with the expanded prompt plus any scoped
-   `allowed_tools`, `disallowed_tools`, `tools`, or model overrides.
-3. Register it in `default_command_registry()` in `agent/commands/__init__.py`.
-4. Add focused tests in `agent/test/test_sdk_core.py` for slash parsing,
-   natural-language fallback, and permission scope.
+Prompt commands and repository automation are out of scope for the SDK foundation
+phase. Add them in a feature layer only after their actions map to SDK permissions,
+hooks, and explicit approval flows.
 
 ### Adding New Schemas
 

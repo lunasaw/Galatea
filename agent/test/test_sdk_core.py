@@ -54,83 +54,36 @@ class TestPermissionPolicy(unittest.TestCase):
         self.assertEqual(policy.check_permission("Skill", {"skill": "unknown"}), "deny")
 
 
-class TestCommandRegistry(unittest.TestCase):
-    def test_commit_push_command_builds_scoped_plan(self):
-        from agent.commands import CommandContext, default_command_registry
-
-        registry = default_command_registry()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            plan = registry.build_plan(
-                "/commit-push include only command abstraction changes",
-                CommandContext(project_root=Path(tmpdir)),
-            )
-
-        self.assertEqual(plan.command_name, "commit-push")
-        self.assertIn("## Git Safety Protocol", plan.prompt)
-        self.assertIn("include only command abstraction changes", plan.prompt)
-        self.assertIn("Bash(git push:*)", plan.allowed_tools)
-        self.assertIn("Bash(git push --force*)", plan.disallowed_tools)
-        self.assertEqual(plan.tools, {"type": "preset", "preset": "claude_code"})
-
-    def test_registry_leaves_unknown_slash_paths_as_plain_prompts(self):
-        from agent.commands import CommandContext, default_command_registry
-
-        registry = default_command_registry()
-        prompt = "/data/ai/chenzhangyue/code/galatea/agent/runtime.py 是否抽象"
-        plan = registry.build_plan(prompt, CommandContext(project_root=Path.cwd()))
-
-        self.assertIsNone(plan.command_name)
-        self.assertEqual(plan.prompt, prompt)
-
-    def test_runtime_exposes_command_plan_without_command_hardcoding(self):
+class TestRuntimeFoundationBoundary(unittest.TestCase):
+    def test_runtime_does_not_expose_prompt_command_layer(self):
         from agent.runtime import GalateaRuntime
 
         runtime = GalateaRuntime(project_root=Path.cwd(), auto_load_config=False)
-        plan = runtime.build_command_plan("commit and push these changes")
 
-        self.assertEqual(plan.command_name, "commit-push")
-        self.assertIn("Return the\ncommit hash", plan.prompt)
+        self.assertFalse(hasattr(runtime, "command_registry"))
+        self.assertFalse(hasattr(runtime, "build_command_plan"))
 
-    def test_command_runtime_applies_scoped_tools_only_when_command_matches(self):
-        from agent.commands import (
-            CommandContext,
-            claude_code_read_only_allowed_tools,
-            default_command_registry,
-        )
-        from agent.runtime import GalateaRuntime, claude_code_tools_preset
+    def test_runtime_defaults_to_platform_inspection_tools_only(self):
+        from agent.runtime import GalateaRuntime
 
-        registry = default_command_registry()
-        runtime = GalateaRuntime(
-            project_root=Path.cwd(),
-            auto_load_config=False,
-            tools=claude_code_tools_preset(),
-            allowed_tools=claude_code_read_only_allowed_tools(),
-            disallowed_tools=registry.disallowed_tools(),
-            command_registry=registry,
-        )
-        base_options = runtime.sdk_runtime.build_options()
-        self.assertNotIn("Bash(git push:*)", base_options.allowed_tools)
+        runtime = GalateaRuntime(project_root=Path.cwd(), auto_load_config=False)
+        options = runtime.sdk_runtime.build_options()
 
-        plan = registry.build_plan("/commit-push", CommandContext(project_root=Path.cwd()))
-        command_runtime = runtime._build_runtime_for_plan(plan)
-        self.assertIsNotNone(command_runtime)
-        assert command_runtime is not None
-        command_options = command_runtime.build_options()
+        self.assertIn("mcp__galatea-platform__inspect_ray_status", options.allowed_tools)
+        self.assertNotIn("Bash(git push:*)", options.allowed_tools)
+        self.assertNotIn("Bash", options.allowed_tools)
 
-        self.assertIn("Bash(git push:*)", command_options.allowed_tools)
-        self.assertIn("Bash(git push --force*)", command_options.disallowed_tools)
+    def test_read_only_claude_code_tools_exclude_mutation_and_git_automation(self):
+        from agent.runtime import claude_code_read_only_allowed_tools
 
-    def test_preexpanded_command_prompt_is_not_expanded_twice(self):
-        from agent.commands import CommandContext, default_command_registry
+        tools = claude_code_read_only_allowed_tools()
 
-        registry = default_command_registry()
-        context = CommandContext(project_root=Path.cwd())
-        first = registry.build_plan("/commit-push", context)
-        second = registry.build_plan(first.prompt, context)
-
-        self.assertEqual(first.command_name, "commit-push")
-        self.assertIsNone(second.command_name)
-        self.assertEqual(second.prompt, first.prompt)
+        self.assertIn("Read", tools)
+        self.assertIn("Glob", tools)
+        self.assertIn("mcp__galatea-platform__list_training_projects", tools)
+        self.assertNotIn("Bash", tools)
+        self.assertNotIn("Write", tools)
+        self.assertNotIn("Bash(git push:*)", tools)
 
 
 class TestBudgetPolicy(unittest.TestCase):
@@ -442,57 +395,6 @@ class TestRuntimeConfig(unittest.TestCase):
             policy.check_permission("Bash", {"command": "git reset --hard HEAD"}),
             "deny",
         )
-
-    def test_git_commit_push_runtime_uses_narrow_bash_allowlist(self):
-        from agent.runtime import (
-            GalateaRuntime,
-            git_commit_push_allowed_tools,
-            git_commit_push_disallowed_tools,
-            git_commit_push_system_prompt,
-            claude_code_tools_preset,
-        )
-
-        allowed_tools = git_commit_push_allowed_tools()
-        self.assertIn("Bash(git push:*)", allowed_tools)
-        self.assertNotIn("Bash", allowed_tools)
-
-        runtime = GalateaRuntime(
-            project_root=Path.cwd(),
-            auto_load_config=False,
-            tools=claude_code_tools_preset(),
-            allowed_tools=allowed_tools,
-            disallowed_tools=git_commit_push_disallowed_tools(),
-            permission_mode="dontAsk",
-            system_prompt=git_commit_push_system_prompt(),
-        )
-
-        options = runtime.sdk_runtime.build_options()
-        self.assertEqual(options.tools, {"type": "preset", "preset": "claude_code"})
-        self.assertIn("Bash(git push:*)", options.allowed_tools)
-        self.assertNotIn("Bash", options.allowed_tools)
-        self.assertIn("commit and push code", str(options.system_prompt))
-        self.assertEqual(
-            runtime.sdk_runtime.permission_policy.check_permission(
-                "Bash",
-                {"command": "git push --set-upstream origin feature"},
-            ),
-            "allow",
-        )
-        self.assertEqual(
-            runtime.sdk_runtime.permission_policy.check_permission(
-                "Bash",
-                {"command": "git push --force origin main"},
-            ),
-            "deny",
-        )
-        self.assertEqual(
-            runtime.sdk_runtime.permission_policy.check_permission(
-                "Bash",
-                {"command": "python -c 'print(1)'"},
-            ),
-            "deny",
-        )
-
 
 class TestStateAndWorkflow(unittest.IsolatedAsyncioTestCase):
     async def test_session_manager_create_resume_fork(self):

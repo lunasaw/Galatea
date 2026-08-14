@@ -33,18 +33,19 @@ from agent.agents import (  # noqa: E402
 )
 from agent.core import result_to_json  # noqa: E402
 from agent.skills import SkillRegistry  # noqa: E402
-from agent.commands import (  # noqa: E402
+from agent.runtime import (  # noqa: E402
+    GalateaRuntime,
     claude_code_read_only_allowed_tools,
-    default_command_registry,
+    claude_code_tools_preset,
+    default_platform_allowed_tools,
 )
-from agent.runtime import GalateaRuntime, claude_code_tools_preset  # noqa: E402
 
 
 def print_header() -> None:
     print("\n" + "=" * 76)
     print("Galatea Agent - Interactive Chat (Claude SDK Core)")
     print("=" * 76)
-    print("Tools: read-only by default; git automation is scoped to /commit-push")
+    print("Tools: read-only Claude Code tools plus Galatea MCP inspection tools")
     print("Skills: repository Skills are enabled through Claude SDK Skill support")
     print()
     print("Commands:")
@@ -55,7 +56,6 @@ def print_header() -> None:
     print("  /context            Show SDK context usage")
     print("  /compact            Show compaction instructions")
     print("  /json               Toggle result JSON summary")
-    print("  /commit-push [msg]  Commit relevant changes and push branch")
     print("=" * 76)
     print()
 
@@ -77,24 +77,14 @@ def print_skills(project_root: Path) -> None:
 
 
 def print_tools() -> None:
-    command_registry = default_command_registry()
-    print()
-    print("Available Command Tools:")
-    for tool_name in command_registry.allowed_tools():
-        if tool_name.startswith("Bash("):
-            print(f"  {tool_name}")
     print()
     print("Available Galatea Tools:")
-    print("  mcp__galatea-platform__list_training_projects")
-    print("  mcp__galatea-platform__inspect_project_structure")
-    print("  mcp__galatea-platform__check_service_health")
-    print("  mcp__galatea-platform__inspect_mlflow_experiment")
-    print("  mcp__galatea-platform__inspect_ray_status")
+    for tool_name in default_platform_allowed_tools():
+        print(f"  {tool_name}")
     print()
 
 
 def build_runtime(args: argparse.Namespace) -> GalateaRuntime:
-    command_registry = default_command_registry()
     agents = {
         "inspector": PLATFORM_INSPECTOR,
         "data": DATA_PREPARER,
@@ -108,14 +98,12 @@ def build_runtime(args: argparse.Namespace) -> GalateaRuntime:
         model=args.model,
         tools=claude_code_tools_preset(),
         allowed_tools=claude_code_read_only_allowed_tools(),
-        disallowed_tools=command_registry.disallowed_tools(),
         permission_mode="dontAsk",
         skills=parse_skills_option(args.skills),
         agents=agents,
         max_turns=args.max_turns,
         max_budget_usd=args.max_budget_usd,
         task_budget_tokens=args.task_budget_tokens,
-        command_registry=command_registry,
         auto_load_config=not args.no_auto_config,
     )
 

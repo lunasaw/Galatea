@@ -1,0 +1,6 @@
+# Agent runtime dependencies. Shared platform-service dependencies remain in
+# the repository root requirements.txt file.
+claude-agent-sdk==0.2.136
+mcp==1.26.0
+pydantic==2.12.3
+PyYAML==6.0.3

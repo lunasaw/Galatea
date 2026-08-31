@@ -74,6 +74,19 @@ python .codex/skills/mlflow-optimize-models/scripts/analyze_experiment.py \
   --repo-root "$PWD"
 ```
 
+**Agent system commands**:
+```bash
+# Test agent tools directly (no API calls)
+python agent/test/test_tools_direct.py
+
+# Run agent demos (requires ANTHROPIC_API_KEY)
+python agent/demo/demo_basic.py
+python agent/demo/demo_quick.py
+
+# Test configuration loading
+python agent/test/test_config.py
+```
+
 ## Platform Contracts
 
 Every training project must satisfy these requirements to integrate with the platform:
@@ -122,6 +135,7 @@ Analysis does not automatically start GPU training. Only run training when expli
 ## Code Style
 
 - **Python**: 4-space indentation, `snake_case` for functions/variables, `UPPER_SNAKE_CASE` for constants
+- **Comments**: All code comments, docstrings, and inline explanations must be written in Chinese (中文)
 - **Paths**: Use `pathlib.Path` for filesystem operations
 - **Notebooks**: Focused cells, Markdown before major stages, seed all randomized experiments
 - **Markdown**: Descriptive headings, fenced code blocks, relative links, wrap prose for readable diffs
@@ -186,6 +200,119 @@ export MLFLOW_EXPERIMENT_NAME=your-experiment-name
 
 For remote MLflow servers, use the HTTPS tracking URI and authentication config. Never copy server database or MinIO credentials to training projects.
 
+## Agent System
+
+The `agent/` directory contains a Python-based agent orchestration system built on Claude Agent SDK with custom MCP tools for platform automation.
+
+### Purpose
+
+Automate ML platform operations through structured, auditable train-inference integrated workflows:
+- Data cleaning and dataset manifest/split validation
+- Model training planning, smoke checks, and Ray job orchestration
+- Inference acceleration, artifact recovery, and serving/promotion planning
+- Global inspection of service health, project structure, MLflow/Ray state, artifacts, resources, and governance
+- Documentation/report updates for auditable training-to-inference operations
+
+### Directory Structure
+
+```
+agent/
+├── runtime.py              # GalateaRuntime - Claude SDK wrapper
+├── client.py               # High-level client for common operations
+├── tools/                  # MCP tool implementations
+│   ├── server.py           # MCP server factory with @tool decorators
+│   └── inspection.py       # Read-only platform inspection tools
+├── schemas/                # Pydantic models for structured output
+│   ├── common.py           # StageResult, ArtifactRef, Evidence
+│   └── inspection.py       # InspectionResult models
+├── config/                 # Configuration loading and validation
+│   └── loader.py           # Load ANTHROPIC_API_KEY from ~/.claude/settings.json
+├── demo/                   # Demo scripts (requires ANTHROPIC_API_KEY)
+│   ├── demo_basic.py       # Full platform inspection demo
+│   └── demo_quick.py       # Quick tool demonstration
+├── test/                   # Test scripts
+│   ├── test_tools_direct.py   # Direct tool testing (no API calls)
+│   └── test_config.py      # Configuration loading tests
+├── summary/                # Implementation reports and completion records
+├── doc/                    # Architecture documentation
+├── agents/                 # Agent definitions (future: trainer, tuner, etc.)
+├── workflows/              # Multi-stage workflow orchestration (future)
+├── state/                  # Session and experiment state management (future)
+├── hooks/                  # Permission and policy hooks (future)
+└── scripts/                # CLI entry points (future)
+```
+
+### Organization Conventions
+
+When working in `agent/`:
+
+1. **Test files belong in `agent/test/`**: All test scripts use the pattern `test_*.py` and go in the `test/` directory
+2. **Demo files belong in `agent/demo/`**: All demonstration scripts use the pattern `demo_*.py` and go in the `demo/` directory
+3. **Core modules stay at top level**: Only `runtime.py`, `client.py`, `__init__.py` at the top level
+4. **Functional grouping in subdirectories**: Tools, schemas, configs, workflows each have dedicated directories
+5. **Documentation in `doc/`**: Architecture, implementation guides, and design documents
+6. **Summary reports in `summary/`**: Stage completion reports and implementation summaries
+
+Never place test or demo files directly in `agent/` root. Use the appropriate subdirectory.
+
+### Key Commands
+
+```bash
+# Direct tool testing (no API calls, fast)
+python agent/test/test_tools_direct.py
+
+# Configuration testing
+python agent/test/test_config.py
+
+# Full agent demo (requires ANTHROPIC_API_KEY in env or ~/.claude/settings.json)
+python agent/demo/demo_basic.py
+
+# Quick demo
+python agent/demo/demo_quick.py
+```
+
+### API Configuration
+
+The agent runtime requires Anthropic API credentials. Configure via `~/.claude/settings.json` (recommended) or environment variables:
+
+```json
+# ~/.claude/settings.json
+{
+  "env": {
+    "ANTHROPIC_API_KEY": "your-api-key",
+    "ANTHROPIC_BASE_URL": "https://ai.vdian.net/api/"  # Optional: custom endpoint
+  }
+}
+```
+
+Or environment variables:
+```bash
+export ANTHROPIC_API_KEY="your-api-key"
+export ANTHROPIC_BASE_URL="https://your-endpoint/api/"  # Optional
+```
+
+### Integration with Platform
+
+The agent system follows platform contracts:
+- Uses MLflow Tracking API only (never reads `mlflow.db` directly)
+- Submits Ray jobs through Ray Jobs API
+- Accesses artifacts through MLflow Artifact API (proxied to MinIO)
+- All operations are idempotent and auditable
+- Read-only by default; destructive actions require explicit approval
+
+### Current Status
+
+**Stage 1 Complete** (Read-only Runtime POC):
+- ✅ Claude SDK integration with in-process MCP server
+- ✅ 5 inspection tools: list projects, inspect structure, check services, MLflow/Ray status
+- ✅ Async context manager pattern with `GalateaRuntime`
+- ✅ Configuration auto-loading from `~/.claude/settings.json`
+- ✅ Structured schemas with Pydantic validation
+
+**Future Stages**: data cleaning tools, model training orchestration, inference acceleration/serving plans, documentation update flow, approval workflows, code maintenance.
+
+See `agent/README.md` for complete documentation, architecture details, and usage examples.
+
 ## Documentation
 
 - [JupyterLab deployment](doc/jupyter-start.md)
@@ -196,3 +323,5 @@ For remote MLflow servers, use the HTTPS tracking URI and authentication config.
 - [End-to-end implementation guide](doc/data-to-training-to-model-imp-guide.md)
 - [Repository development conventions](AGENTS.md)
 - [Platform overview and architecture](README.md)
+- [Agent system documentation](agent/README.md)
+- [Agent architecture](agent/doc/current-agent-architecture.md)

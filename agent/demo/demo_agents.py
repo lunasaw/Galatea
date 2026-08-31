@@ -2,7 +2,10 @@
 """
 Demo: Using Agent Definitions
 
-Demonstrates how to use pre-defined AgentDefinition objects with Claude SDK.
+Low-level demonstration of pre-defined SDK AgentDefinition objects.
+
+Use ``GalateaRuntime`` for application and production entry points. This demo
+keeps direct SDK usage only to show how the underlying definitions are wired.
 
 Shows:
 1. Using a single agent
@@ -15,17 +18,22 @@ Usage:
 """
 
 import asyncio
+import sys
 from pathlib import Path
+
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from claude_agent_sdk import (
     AssistantMessage,
-    ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
     SystemMessage,
     TextBlock,
     ToolUseBlock,
 )
+
+from agent.demo.demo_sdk_direct import low_level_options
 
 
 def display_message(msg, show_tools=False):
@@ -56,16 +64,10 @@ async def example_single_agent():
     print("=" * 70)
     print()
 
-    import sys
-    sys.path.insert(0, str(Path.cwd()))
-
-    from agent.tools.server import create_galatea_mcp_server
     from agent.agents import PLATFORM_INSPECTOR
 
-    options = ClaudeAgentOptions(
-        mcp_servers={"galatea": create_galatea_mcp_server()},
+    options = low_level_options(
         agents={"inspector": PLATFORM_INSPECTOR},
-        permission_mode="dontAsk",
     )
 
     async with ClaudeSDKClient(options) as client:
@@ -85,19 +87,13 @@ async def example_multiple_agents():
     print("=" * 70)
     print()
 
-    import sys
-    sys.path.insert(0, str(Path.cwd()))
-
-    from agent.tools.server import create_galatea_mcp_server
     from agent.agents import PLATFORM_INSPECTOR, EXPERIMENT_ANALYZER
 
-    options = ClaudeAgentOptions(
-        mcp_servers={"galatea": create_galatea_mcp_server()},
+    options = low_level_options(
         agents={
             "inspector": PLATFORM_INSPECTOR,
             "analyzer": EXPERIMENT_ANALYZER,
         },
-        permission_mode="dontAsk",
     )
 
     async with ClaudeSDKClient(options) as client:
@@ -120,19 +116,13 @@ async def example_agent_switching():
     print("=" * 70)
     print()
 
-    import sys
-    sys.path.insert(0, str(Path.cwd()))
-
-    from agent.tools.server import create_galatea_mcp_server
     from agent.agents import PLATFORM_INSPECTOR, DOCUMENTATION_GENERATOR
 
-    options = ClaudeAgentOptions(
-        mcp_servers={"galatea": create_galatea_mcp_server()},
+    options = low_level_options(
         agents={
             "inspector": PLATFORM_INSPECTOR,
             "docs": DOCUMENTATION_GENERATOR,
         },
-        permission_mode="dontAsk",
     )
 
     async with ClaudeSDKClient(options) as client:
@@ -160,24 +150,18 @@ async def example_all_stage_agents():
     print("=" * 70)
     print()
 
-    import sys
-    sys.path.insert(0, str(Path.cwd()))
-
-    from agent.tools.server import create_galatea_mcp_server
     from agent.agents import (
         DATA_PREPARER,
         TRAINING_ORCHESTRATOR,
         MODEL_EVALUATOR,
     )
 
-    options = ClaudeAgentOptions(
-        mcp_servers={"galatea": create_galatea_mcp_server()},
+    options = low_level_options(
         agents={
             "data": DATA_PREPARER,
             "training": TRAINING_ORCHESTRATOR,
             "inference": MODEL_EVALUATOR,
         },
-        permission_mode="dontAsk",
     )
 
     async with ClaudeSDKClient(options) as client:
@@ -199,7 +183,7 @@ async def main():
     print("Galatea Agent Definitions - Examples")
     print("=" * 70)
     print()
-    print("These examples demonstrate Claude SDK best practices:")
+    print("These low-level examples demonstrate SDK AgentDefinition wiring:")
     print("- Using pre-defined AgentDefinition objects")
     print("- Combining multiple agents")
     print("- Switching between agents")

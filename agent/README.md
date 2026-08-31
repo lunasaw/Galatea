@@ -23,11 +23,14 @@ Ray / MLflow / MinIO
 - **`GalateaRuntime`**: Async context manager wrapping ClaudeSDKClient
 - **Configuration**: Model selection, MCP server registration, permission mode
 - **Session Management**: SDK transcript resume/fork through Claude SDK `SessionStore`; Galatea application state remains under `agent.state`
+- **Skills**: SDK-native `skills`/`plugins`; local registry is display/preflight only
+- **Permissions**: SDK modes and approval flows plus narrow Galatea allow/deny hooks
 
 ### Tool Layer
 
 - **MCP Server**: In-process SDK MCP server with platform-specific tools
 - **Inspection Tools**: Read-only operations for platform state
+- **Metadata**: MCP `ToolAnnotations` declare read-only, destructive, idempotent, and open-world behavior
 - **Tool Categories**: inspect, validate, submit, status, documentation update (future stages)
 
 ### Schema Layer
@@ -44,7 +47,7 @@ Ray / MLflow / MinIO
 - Claude SDK integration with ClaudeSDKClient
 - In-process MCP server with 5 inspection tools
 - Streaming query/response handling
-- Permission mode enforcement
+- SDK permission mode enforcement and structured approval-request audit evidence
 - Basic schemas and types
 
 **Tools**:
@@ -124,8 +127,8 @@ asyncio.run(main())
 # Full agent demo with Claude API
 python agent/demo/demo_basic.py
 
-# Direct tool test (no API calls)
-python -m unittest agent.test.test_tools_direct
+# Direct tool smoke test (no API calls)
+python agent/test/test_tools_direct.py
 ```
 
 ## Project Structure
@@ -160,9 +163,9 @@ agent/
 │   └── __init__.py
 ├── state/                       # Galatea application state, not SDK transcript store
 │   └── __init__.py
-├── workflows/                   # Multi-stage workflows (future)
+├── workflows/                   # State/evidence tracking only
 │   └── __init__.py
-└── hooks/                       # Permission/policy hooks (future)
+└── hooks/                       # SDK-native permission/audit hooks
     └── __init__.py
 ```
 
@@ -172,7 +175,8 @@ agent/
 
 - Read-only tools in Stage 1
 - Explicit approval for destructive actions
-- Permission mode controls tool access
+- SDK permission mode controls prompts; Galatea rules only add scoped allow/deny decisions
+- `bypassPermissions` requires explicit runtime elevation
 - No automatic production changes
 
 ### 2. Platform API Only

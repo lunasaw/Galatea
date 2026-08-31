@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Literal, Optional
 
 from agent.core import AgentSDKConfig, GalateaSDKRuntime, SDKRunResult
+from agent.runtime import default_platform_allowed_tools
 
 
 class GalateaAgentClient:
@@ -36,7 +37,7 @@ class GalateaAgentClient:
                 project_root=self.project_root,
                 model=self.model,
                 agent_type="client",
-                allowed_tools=_default_allowed_tools(),
+                allowed_tools=default_platform_allowed_tools(),
                 max_budget_usd=self.max_budget_usd,
                 skills=self.skills,
             )
@@ -124,14 +125,3 @@ state when evidence is insufficient. Do not submit jobs or change Registry alias
         if self._runtime is None:
             raise RuntimeError("GalateaAgentClient is not connected. Use 'async with'.")
         return self._runtime
-
-
-def _default_allowed_tools() -> list[str]:
-    alias = "galatea-platform"
-    return [
-        f"mcp__{alias}__list_training_projects",
-        f"mcp__{alias}__inspect_project_structure",
-        f"mcp__{alias}__check_service_health",
-        f"mcp__{alias}__inspect_mlflow_experiment",
-        f"mcp__{alias}__inspect_ray_status",
-    ]

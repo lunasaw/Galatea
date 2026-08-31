@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 import tempfile
 from pathlib import Path
 
-from claude_agent_sdk import ResultMessage
+from claude_agent_sdk import ResultMessage, tool
 
-from agent.hooks import HookContext, HookEvent, HookInput, HookManager, HookOutput
+from agent.hooks import HookManager
 from agent.policies import BudgetExceededError, BudgetPolicy, PermissionDeniedError, PermissionPolicy, PermissionRule
 from agent.core import AgentSDKConfig, GalateaSDKRuntime, SDKRunResult
 from agent.skills import SkillRegistry
-from agent.tools.executor import ToolExecutor, ToolRegistry, ToolSpec
+from agent.tools.executor import DeterministicMcpToolExecutor, SdkMcpToolRegistry
 
 
 class TestPermissionPolicy(unittest.TestCase):
@@ -27,13 +28,13 @@ class TestPermissionPolicy(unittest.TestCase):
             "allow",
         )
         self.assertEqual(policy.check_permission("Bash", {"command": "echo ok"}), "deny")
-        self.assertEqual(policy.check_permission("mcp__galatea-platform__submit_job", {}), "deny")
+        self.assertEqual(policy.check_permission("mcp__galatea-platform__submit_job", {}), "defer")
 
     def test_rule_content_matches_input(self):
-        policy = PermissionPolicy(mode="default", default_behavior="ask")
+        policy = PermissionPolicy()
         policy.add_rule(PermissionRule("Read", "allow", "*.md"))
         self.assertEqual(policy.check_permission("Read", {"file_path": "README.md"}), "allow")
-        self.assertEqual(policy.check_permission("Read", {"file_path": "data.csv"}), "ask")
+        self.assertEqual(policy.check_permission("Read", {"file_path": "data.csv"}), "defer")
 
     def test_scoped_skill_rules_match_exact_and_prefix(self):
         policy = PermissionPolicy.for_galatea(
@@ -42,7 +43,6 @@ class TestPermissionPolicy(unittest.TestCase):
                 "Skill(mlflow-optimize-models:*)",
             ],
             disallowed_tools=[],
-            mode="dontAsk",
         )
 
         self.assertEqual(policy.check_permission("Skill", {"skill": "ray"}), "allow")
@@ -51,7 +51,7 @@ class TestPermissionPolicy(unittest.TestCase):
             policy.check_permission("Skill", {"skill": "mlflow-optimize-models advanced"}),
             "allow",
         )
-        self.assertEqual(policy.check_permission("Skill", {"skill": "unknown"}), "deny")
+        self.assertEqual(policy.check_permission("Skill", {"skill": "unknown"}), "defer")
 
 
 class TestRuntimeFoundationBoundary(unittest.TestCase):
@@ -72,6 +72,16 @@ class TestRuntimeFoundationBoundary(unittest.TestCase):
         self.assertIn("mcp__galatea-platform__inspect_ray_status", options.allowed_tools)
         self.assertNotIn("Bash(git push:*)", options.allowed_tools)
         self.assertNotIn("Bash", options.allowed_tools)
+
+    def test_runtime_preserves_explicit_empty_allowlist(self):
+        from agent.runtime import GalateaRuntime
+
+        runtime = GalateaRuntime(
+            project_root=Path.cwd(),
+            allowed_tools=[],
+            auto_load_config=False,
+        )
+        self.assertEqual(runtime.sdk_runtime.build_options().allowed_tools, [])
 
     def test_read_only_claude_code_tools_exclude_mutation_and_git_automation(self):
         from agent.runtime import claude_code_read_only_allowed_tools
@@ -98,35 +108,36 @@ class TestBudgetPolicy(unittest.TestCase):
 
 
 class TestHooks(unittest.IsolatedAsyncioTestCase):
-    async def test_local_hook_manager_and_sdk_adapter(self):
-        manager = HookManager(HookContext(session_id="s1", agent_type="test"))
-
+    async def test_hook_manager_preserves_sdk_callback_without_adapter(self):
+        manager = HookManager()
         seen_sessions = []
 
-        async def deny_hook(input_data: HookInput, context: HookContext) -> HookOutput:
-            seen_sessions.append(context.session_id)
-            return HookOutput(
-                permission_decision="deny",
-                permission_decision_reason="blocked",
-                reason="unit test",
-            )
+        async def deny_hook(input_data, tool_use_id, sdk_context):
+            del sdk_context
+            seen_sessions.append(input_data["session_id"])
+            return {
+                "reason": "unit test",
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "blocked",
+                },
+            }
 
-        manager.add_hook(HookEvent.PRE_TOOL_USE, deny_hook, matcher="Bash")
-        local_outputs = await manager.invoke_hooks(
-            HookEvent.PRE_TOOL_USE,
-            HookInput(HookEvent.PRE_TOOL_USE, {}, tool_name="Bash", tool_input={}),
-        )
-        self.assertEqual(local_outputs[0].permission_decision, "deny")
-        self.assertEqual(seen_sessions[-1], "s1")
+        manager.add_hook("PreToolUse", deny_hook, matcher="Bash")
 
         sdk_hooks = manager.to_sdk_hooks()
         callback = sdk_hooks["PreToolUse"][0].hooks[0]
+        self.assertIs(callback, deny_hook)
         sdk_output = await callback(
             {
                 "hook_event_name": "PreToolUse",
                 "session_id": "sdk-session",
+                "transcript_path": "/tmp/transcript.jsonl",
+                "cwd": "/tmp",
                 "tool_name": "Bash",
                 "tool_input": {"command": "touch x"},
+                "tool_use_id": "toolu_123",
             },
             "toolu_123",
             {"signal": None},
@@ -137,23 +148,41 @@ class TestHooks(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(seen_sessions[-1], "sdk-session")
 
+    async def test_custom_hooks_extend_instead_of_replacing_safety_hooks(self):
+        async def stop_hook(input_data, tool_use_id, sdk_context):
+            del input_data, tool_use_id, sdk_context
+            return {}
+
+        custom = HookManager()
+        custom.add_hook("Stop", stop_hook)
+        runtime = GalateaSDKRuntime(
+            AgentSDKConfig(project_root=Path.cwd(), auto_load_config=False),
+            hook_manager=custom,
+        )
+        hooks = runtime.build_options().hooks
+        self.assertIn("Stop", hooks)
+        self.assertIn("PreToolUse", hooks)
+        self.assertIn("PermissionRequest", hooks)
+
 
 class TestToolExecutor(unittest.IsolatedAsyncioTestCase):
     async def test_direct_tool_execution_and_permission_denial(self):
-        registry = ToolRegistry()
-
+        @tool("echo", "Echo text", {"text": str})
         async def echo(args):
             return {"content": [{"type": "text", "text": args["text"]}]}
 
-        registry.register(ToolSpec("echo", "Echo text", {"text": str}, echo))
+        registry = SdkMcpToolRegistry([echo])
         policy = PermissionPolicy.for_galatea(allowed_tools=["echo"], disallowed_tools=[])
-        executor = ToolExecutor(registry, policy)
+        executor = DeterministicMcpToolExecutor(registry, policy)
 
         result = await executor.execute("echo", {"text": "hello"})
         self.assertFalse(result.is_error)
         self.assertEqual(result.content[0]["text"], "hello")
 
-        denied = ToolExecutor(registry, PermissionPolicy.for_galatea(disallowed_tools=[]))
+        denied = DeterministicMcpToolExecutor(
+            registry,
+            PermissionPolicy.for_galatea(disallowed_tools=[]),
+        )
         with self.assertRaises(PermissionDeniedError):
             await denied.execute("echo", {"text": "no"})
 
@@ -166,8 +195,11 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
         server_config = create_galatea_mcp_server()
         server = server_config["instance"]
         list_response = await server.request_handlers[ListToolsRequest](ListToolsRequest(method="tools/list"))
-        tool_names = {tool.name for tool in list_response.root.tools}
+        listed_tools = {tool.name: tool for tool in list_response.root.tools}
+        tool_names = set(listed_tools)
         self.assertIn("list_training_projects", tool_names)
+        self.assertTrue(listed_tools["list_training_projects"].annotations.readOnlyHint)
+        self.assertFalse(listed_tools["list_training_projects"].annotations.destructiveHint)
 
         call_request = CallToolRequest(
             method="tools/call",
@@ -222,20 +254,25 @@ Use this for Ray work.
             )
 
             registry = SkillRegistry(project_root)
-            discovered = {skill.name: skill for skill in registry.discover()}
+            discovered = {
+                skill.name: skill
+                for skill in registry.discover(
+                    include_legacy_codex=True,
+                    include_plugin=True,
+                )
+            }
 
             self.assertIn("reviewer", discovered)
             self.assertIn("ray", discovered)
             self.assertIn("galatea-skills:ray", discovered)
             self.assertEqual(discovered["reviewer"].description, "Review project changes with repository conventions.")
-            self.assertEqual(discovered["reviewer"].allowed_tools, ("Read", "Grep"))
-            self.assertEqual(discovered["reviewer"].paths, ("agent", "train-model"))
 
-            runtime_config = registry.resolve(["reviewer"], include_plugin=False)
-            self.assertEqual(runtime_config.skills, ["reviewer"])
-            self.assertEqual(runtime_config.allowed_tools, ("Skill(reviewer)",))
+            report = registry.preflight(["reviewer"], include_plugin=False)
+            self.assertTrue(report.is_valid)
+            self.assertEqual(report.requested, ("reviewer",))
+            self.assertEqual(report.missing, ())
 
-    def test_runtime_builds_sdk_native_skill_options_and_policy(self):
+    def test_runtime_delegates_skill_rules_and_discovery_defaults_to_sdk(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             project_root = Path(tmp_dir)
             skill_dir = project_root / ".claude" / "skills" / "reviewer"
@@ -259,20 +296,21 @@ Use this for Ray work.
 
             options = runtime.build_options()
             self.assertEqual(options.skills, ["reviewer"])
-            self.assertEqual(options.tools, ["Skill"])
-            self.assertEqual(options.setting_sources, ["project"])
-            self.assertIn("Skill(reviewer)", options.allowed_tools)
+            self.assertEqual(options.tools, [])
+            self.assertIsNone(options.setting_sources)
+            self.assertNotIn("Skill(reviewer)", options.allowed_tools)
+
+            from claude_agent_sdk._internal.transport.subprocess_cli import (
+                SubprocessCLITransport,
+            )
+
+            transport = SubprocessCLITransport(prompt="test", options=options)
+            sdk_allowed_tools, sdk_setting_sources = transport._apply_skills_defaults()
+            self.assertIn("Skill(reviewer)", sdk_allowed_tools)
+            self.assertEqual(sdk_setting_sources, ["user", "project"])
             self.assertEqual(
                 runtime.permission_policy.check_permission("Skill", {"skill": "reviewer"}),
-                "allow",
-            )
-            self.assertEqual(
-                runtime.permission_policy.check_permission("Skill", {"skill": "/reviewer"}),
-                "allow",
-            )
-            self.assertEqual(
-                runtime.permission_policy.check_permission("Skill", {"skill": "unknown"}),
-                "deny",
+                "defer",
             )
 
     def test_predefined_agents_preload_relevant_skills(self):
@@ -280,6 +318,37 @@ Use this for Ray work.
 
         self.assertIn("ray", DATA_PREPARER.skills)
         self.assertIn("mlflow-optimize-models", TRAINING_ORCHESTRATOR.skills)
+
+    def test_repository_agent_skills_have_native_claude_discovery_paths(self):
+        from agent.agents import (
+            DATA_PREPARER,
+            DOCUMENTATION_GENERATOR,
+            EXPERIMENT_ANALYZER,
+            MODEL_EVALUATOR,
+            PLATFORM_INSPECTOR,
+            TRAINING_ORCHESTRATOR,
+        )
+
+        requested = sorted(
+            {
+                skill_name
+                for definition in (
+                    DATA_PREPARER,
+                    DOCUMENTATION_GENERATOR,
+                    EXPERIMENT_ANALYZER,
+                    MODEL_EVALUATOR,
+                    PLATFORM_INSPECTOR,
+                    TRAINING_ORCHESTRATOR,
+                )
+                for skill_name in definition.skills or []
+            }
+        )
+        report = SkillRegistry(Path.cwd()).preflight(
+            requested,
+            include_plugin=False,
+        )
+        self.assertTrue(report.is_valid, report.missing)
+        self.assertTrue(all(skill.source == "project" for skill in report.discovered))
 
 
 class TestRuntimeConfig(unittest.TestCase):
@@ -346,15 +415,15 @@ class TestRuntimeConfig(unittest.TestCase):
     def test_claude_code_runtime_options_allow_base_tools(self):
         from agent.runtime import (
             GalateaRuntime,
-            claude_code_allowed_tools,
             claude_code_tools_preset,
+            unsafe_full_claude_code_allowed_tools,
         )
 
         runtime = GalateaRuntime(
             project_root=Path.cwd(),
             auto_load_config=False,
             tools=claude_code_tools_preset(),
-            allowed_tools=claude_code_allowed_tools(),
+            allowed_tools=unsafe_full_claude_code_allowed_tools(),
             disallowed_tools=[],
             permission_mode="dontAsk",
         )
@@ -380,7 +449,6 @@ class TestRuntimeConfig(unittest.TestCase):
                 "Bash(git push:*)",
             ],
             disallowed_tools=[],
-            mode="dontAsk",
         )
 
         self.assertEqual(
@@ -393,8 +461,147 @@ class TestRuntimeConfig(unittest.TestCase):
         )
         self.assertEqual(
             policy.check_permission("Bash", {"command": "git reset --hard HEAD"}),
-            "deny",
+            "defer",
         )
+
+    def test_bypass_permissions_requires_explicit_elevation(self):
+        with self.assertRaisesRegex(ValueError, "allow_bypass_permissions"):
+            GalateaSDKRuntime(
+                AgentSDKConfig(
+                    project_root=Path.cwd(),
+                    permission_mode="bypassPermissions",
+                    auto_load_config=False,
+                )
+            )
+
+        runtime = GalateaSDKRuntime(
+            AgentSDKConfig(
+                project_root=Path.cwd(),
+                permission_mode="bypassPermissions",
+                allow_bypass_permissions=True,
+                auto_load_config=False,
+            )
+        )
+        self.assertEqual(runtime.build_options().permission_mode, "bypassPermissions")
+
+    def test_sdk_permission_flows_are_passed_through(self):
+        from claude_agent_sdk import create_sdk_mcp_server
+
+        async def approve(tool_name, tool_input, context):
+            from claude_agent_sdk import PermissionResultAllow
+
+            del tool_name, tool_input, context
+            return PermissionResultAllow()
+
+        runtime = GalateaSDKRuntime(
+            AgentSDKConfig(
+                project_root=Path.cwd(),
+                permission_mode="default",
+                can_use_tool=approve,
+                auto_load_config=False,
+            )
+        )
+        options = runtime.build_options()
+        self.assertIsNot(options.can_use_tool, approve)
+
+        async def invoke_approval():
+            from claude_agent_sdk import ToolPermissionContext
+
+            return await options.can_use_tool(
+                "Read",
+                {"file_path": "README.md"},
+                ToolPermissionContext(
+                    tool_use_id="toolu-sdk-approval",
+                    decision_reason="Read requires confirmation.",
+                ),
+            )
+
+        decision = asyncio.run(invoke_approval())
+        self.assertEqual(decision.behavior, "allow")
+        evidence = runtime.hook_context.metadata["approval_decisions"][0]
+        self.assertEqual(evidence["status"], "allowed")
+        self.assertEqual(evidence["scope"], {"file_path": "README.md"})
+
+        prompt_runtime = GalateaSDKRuntime(
+            AgentSDKConfig(
+                project_root=Path.cwd(),
+                permission_mode="default",
+                permission_prompt_tool_name="mcp__approval__request",
+                additional_mcp_servers={
+                    "approval": create_sdk_mcp_server(name="approval", tools=[])
+                },
+                auto_load_config=False,
+            )
+        )
+        prompt_options = prompt_runtime.build_options()
+        self.assertEqual(
+            prompt_options.permission_prompt_tool_name,
+            "mcp__approval__request",
+        )
+        self.assertIn("approval", prompt_options.mcp_servers)
+
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            GalateaSDKRuntime(
+                AgentSDKConfig(
+                    project_root=Path.cwd(),
+                    permission_mode="default",
+                    can_use_tool=approve,
+                    permission_prompt_tool_name="mcp__approval__request",
+                    auto_load_config=False,
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "cannot provide approvals"):
+            GalateaSDKRuntime(
+                AgentSDKConfig(
+                    project_root=Path.cwd(),
+                    permission_mode="dontAsk",
+                    can_use_tool=approve,
+                    auto_load_config=False,
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "cannot provide approvals"):
+            GalateaSDKRuntime(
+                AgentSDKConfig(
+                    project_root=Path.cwd(),
+                    permission_mode="dontAsk",
+                    permission_prompt_tool_name="mcp__approval__request",
+                    auto_load_config=False,
+                )
+            )
+
+    def test_permission_request_hook_records_structured_evidence(self):
+        runtime = GalateaSDKRuntime(
+            AgentSDKConfig(
+                project_root=Path.cwd(),
+                permission_mode="default",
+                auto_load_config=False,
+            )
+        )
+        callback = runtime.build_options().hooks["PermissionRequest"][0].hooks[0]
+
+        async def invoke():
+            return await callback(
+                {
+                    "hook_event_name": "PermissionRequest",
+                    "session_id": "session-approval",
+                    "transcript_path": "/tmp/transcript.jsonl",
+                    "cwd": str(Path.cwd()),
+                    "tool_name": "Write",
+                    "tool_input": {"file_path": "README.md"},
+                    "permission_suggestions": [
+                        {"type": "addRules", "destination": "session"}
+                    ],
+                },
+                "toolu-approval",
+                {"signal": None},
+            )
+
+        self.assertEqual(asyncio.run(invoke()), {})
+        request = runtime.hook_context.metadata["approval_requests"][0]
+        self.assertTrue(request["approval_request_id"].startswith("approval-"))
+        self.assertEqual(request["scope"], {"file_path": "README.md"})
+        self.assertEqual(request["tool_name"], "Write")
+        self.assertEqual(request["status"], "requested")
 
 class TestStateAndWorkflow(unittest.IsolatedAsyncioTestCase):
     async def test_session_manager_create_resume_fork(self):
@@ -439,6 +646,30 @@ class TestStateAndWorkflow(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(transition.allowed)
         machine.complete_stage("training", {"status": "success"})
         self.assertEqual(machine.state, WorkflowState.COMPLETED)
+
+    async def test_workflow_orchestrator_records_evidence_but_never_dispatches(self):
+        from agent.workflows import WorkflowOrchestrator
+        from agent.workflows.orchestrator import DATA_TRAINING_WORKFLOW
+
+        orchestrator = WorkflowOrchestrator(Path.cwd())
+        await orchestrator.create_workflow("wf-state-only", DATA_TRAINING_WORKFLOW)
+        started = await orchestrator.start_workflow("wf-state-only")
+        self.assertEqual(started["current_stage"], "data")
+        self.assertFalse(hasattr(orchestrator, "execute_stage"))
+        self.assertFalse(hasattr(orchestrator, "execute_workflow"))
+
+        after_data = await orchestrator.record_stage_result(
+            "wf-state-only",
+            "data",
+            {"status": "success", "manifest_digest": "sha256:test"},
+        )
+        self.assertEqual(after_data["current_stage"], "training")
+        completed = await orchestrator.record_stage_result(
+            "wf-state-only",
+            "training",
+            {"status": "success", "mlflow_run_id": "run-1"},
+        )
+        self.assertEqual(completed["state"], "completed")
 
 
 

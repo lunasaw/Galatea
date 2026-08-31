@@ -12,8 +12,9 @@ business tools on top of this base.
 | Options | `AgentSDKConfig` builds `ClaudeAgentOptions`. |
 | Tools | `agent/tools/server.py` creates an in-process SDK MCP server. |
 | Subagents | `agent/agents/definitions.py` uses SDK `AgentDefinition`. |
-| Hooks | `agent/hooks/registry.py` converts local callbacks to SDK `HookMatcher`. |
-| Permissions | `agent/policies/permission.py` plus `PreToolUse` hooks. |
+| Hooks | `agent/hooks/registry.py` collects SDK callbacks and SDK `HookMatcher` directly. |
+| Permissions | SDK modes/approval handlers plus Galatea allow/deny `PreToolUse` rules. |
+| Skills | SDK `skills`/`plugins`; `SkillRegistry` is display/preflight only. |
 | Sessions | SDK `SessionStore` for transcripts; `agent/state/store.py` for app metadata. |
 | Structured output | SDK `output_format` and local schema validation. |
 
@@ -24,12 +25,12 @@ agent/
 ├── core/                 # SDK runtime and result collection
 ├── runtime.py            # high-level runtime facade
 ├── client.py             # high-level SDK client
-├── tools/                # in-process SDK MCP tools and deterministic executor
+├── tools/                # in-process SDK MCP tools; offline executor is test-only
 ├── schemas/              # shared and inspection schemas
 ├── state/                # application state helpers, not SDK transcript storage
-├── workflows/            # generic workflow state machine and orchestrator
+├── workflows/            # deterministic workflow state/evidence only
 ├── policies/             # budget, permission, and quality policies
-├── hooks/                # SDK hook adapters and built-in safety hooks
+├── hooks/                # SDK-native callbacks and built-in safety hooks
 ├── agents/               # SDK AgentDefinition presets and registry
 ├── scripts/              # CLI entry points
 └── doc/                  # current architecture and usage docs
@@ -39,7 +40,7 @@ agent/
 
 Current runtime capabilities are limited to SDK session orchestration, read-only platform
 inspection tools, hooks, permission policy, structured output validation, and generic
-state/workflow helpers. Prompt commands and stage-specific business execution are not
+state/evidence helpers. Prompt commands and stage-specific business execution are not
 implemented in the foundation layer.
 
 ## Planned Business Integration

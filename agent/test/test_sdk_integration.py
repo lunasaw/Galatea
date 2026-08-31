@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-快速测试脚本 - 验证 SDK 最佳实践实现
+快速测试脚本 - 验证低层 SDK 接线
 
 测试所有关键功能：
 1. 导入测试
@@ -62,14 +62,11 @@ async def test_basic_query():
     print("2. 测试基础 SDK 查询")
     print("=" * 60)
 
-    from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
-    from agent.tools import create_galatea_mcp_server
+    from claude_agent_sdk import ClaudeSDKClient, AssistantMessage, TextBlock
+    from agent.demo.demo_sdk_direct import low_level_options
 
     try:
-        options = ClaudeAgentOptions(
-            mcp_servers={"galatea": create_galatea_mcp_server()},
-            permission_mode="dontAsk",
-        )
+        options = low_level_options()
         print("✅ SDK 选项创建成功")
 
         async with ClaudeSDKClient(options) as client:
@@ -112,15 +109,13 @@ async def test_agent_definition():
     print("3. 测试 AgentDefinition")
     print("=" * 60)
 
-    from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, AssistantMessage, TextBlock
-    from agent.tools import create_galatea_mcp_server
+    from claude_agent_sdk import ClaudeSDKClient, AssistantMessage, TextBlock
+    from agent.demo.demo_sdk_direct import low_level_options
     from agent.agents import PLATFORM_INSPECTOR
 
     try:
-        options = ClaudeAgentOptions(
-            mcp_servers={"galatea": create_galatea_mcp_server()},
+        options = low_level_options(
             agents={"inspector": PLATFORM_INSPECTOR},
-            permission_mode="dontAsk",
         )
         print("✅ 带 AgentDefinition 的选项创建成功")
 
@@ -160,7 +155,7 @@ async def test_agent_definition():
 async def main():
     """运行所有测试"""
     print("\n" + "=" * 60)
-    print("🧪 Galatea Agent SDK 最佳实践 - 快速测试")
+    print("🧪 Galatea Agent 低层 SDK 接线 - 快速测试")
     print("=" * 60)
     print()
 
@@ -184,7 +179,7 @@ async def main():
     print("✅ 所有测试通过！")
     print("=" * 60)
     print()
-    print("SDK 最佳实践实现验证成功！")
+    print("低层 SDK 接线验证成功；正式入口请使用 GalateaRuntime。")
     print()
     print("可以运行：")
     print("  python agent/scripts/chat_sdk.py        # 交互式对话")

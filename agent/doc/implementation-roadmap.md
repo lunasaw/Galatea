@@ -8,11 +8,12 @@
 | --- | --- |
 | SDK runtime | `GalateaSDKRuntime` builds `ClaudeAgentOptions` and uses `ClaudeSDKClient`. |
 | MCP server | `galatea-platform` in-process SDK MCP server with five read-only inspection tools. |
-| Permissions | Default-deny policy plus `PreToolUse` hook boundary. |
-| Hooks | SDK-supported hook events only. |
+| Permissions | SDK `dontAsk` default, exact allowlist/disallowlist, bypass opt-in, and SDK-native approval configuration. |
+| Hooks | SDK-native inputs/outputs and SDK-supported hook events only. |
+| Skills | SDK owns discovery/authorization; local registry is display/preflight only. |
+| Workflows | State/evidence registry only; no agent or stage-handler dispatch. |
 | Agent definitions | SDK `AgentDefinition` presets and SDK-native registry. |
 | Session boundary | SDK transcript store validation; app state kept separate. |
-| Commands | Scoped prompt-command planning for runtime options. |
 | Stage CLIs | Planned stage entry points return structured `unsupported`. |
 | Tests | SDK audit conformance and offline unit tests. |
 

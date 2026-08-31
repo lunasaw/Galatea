@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 """
-Direct Claude SDK Usage with Galatea Tools
+Low-level Claude SDK Usage with Galatea Tools
 
-展示如何直接使用 Claude SDK + Galatea MCP 工具，不经过 GalateaRuntime 封装。
-这是最灵活、最符合 SDK 最佳实践的方式。
+This file demonstrates the SDK primitives underneath ``GalateaRuntime``.
+Application and production entry points should use ``GalateaRuntime`` so the
+shared hooks, budgets, result validation, and permission boundaries stay active.
 
 Usage:
     python agent/demo/demo_sdk_direct.py
 """
 
 import asyncio
+import sys
 from pathlib import Path
 
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from claude_agent_sdk import (
+    AgentDefinition,
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
@@ -21,6 +27,32 @@ from claude_agent_sdk import (
     TextBlock,
     ToolUseBlock,
 )
+
+from agent.agents.definitions import GALATEA_TOOL_PREFIX
+from agent.policies.permission import DEFAULT_DISALLOWED_TOOLS
+from agent.runtime import default_platform_allowed_tools
+from agent.tools.server import create_galatea_mcp_server
+
+
+def low_level_options(*, agents=None):
+    """Build a complete, isolated option set for this low-level demo."""
+    allowed_tools = default_platform_allowed_tools()
+    tools = []
+    if agents:
+        tools.append("Task")
+        allowed_tools.append("Task")
+    return ClaudeAgentOptions(
+        model="claude-opus-5",
+        tools=tools,
+        allowed_tools=allowed_tools,
+        disallowed_tools=list(DEFAULT_DISALLOWED_TOOLS),
+        mcp_servers={"galatea-platform": create_galatea_mcp_server()},
+        strict_mcp_config=True,
+        setting_sources=["project"] if agents else [],
+        permission_mode="dontAsk",
+        agents=agents,
+        cwd=Path.cwd(),
+    )
 
 
 def display_message(msg):
@@ -53,16 +85,7 @@ async def example_basic_query():
     print("=" * 70)
     print()
 
-    # Import Galatea MCP server
-    from agent.tools.server import create_galatea_mcp_server
-
-    # Create options with Galatea tools
-    options = ClaudeAgentOptions(
-        model="claude-opus-5",
-        mcp_servers={"galatea-platform": create_galatea_mcp_server()},
-        permission_mode="dontAsk",  # Auto-approve read-only tools
-        cwd=Path.cwd(),
-    )
+    options = low_level_options()
 
     async with ClaudeSDKClient(options=options) as client:
         print("User: List all training projects")
@@ -81,24 +104,22 @@ async def example_with_agent_definition():
     print("=" * 70)
     print()
 
-    from claude_agent_sdk import AgentDefinition
-    from agent.tools.server import create_galatea_mcp_server
-
-    # Define a specialized agent
-    options = ClaudeAgentOptions(
-        model="claude-opus-5",
-        mcp_servers={"galatea-platform": create_galatea_mcp_server()},
+    options = low_level_options(
         agents={
             "platform-inspector": AgentDefinition(
                 description="Inspects Galatea platform health and status",
                 prompt="You are a platform inspector. Check service health, list projects, "
                        "and report status clearly and concisely.",
-                tools=["list_training_projects", "check_service_health", "inspect_ray_status"],
+                tools=[
+                    f"{GALATEA_TOOL_PREFIX}list_training_projects",
+                    f"{GALATEA_TOOL_PREFIX}check_service_health",
+                    f"{GALATEA_TOOL_PREFIX}inspect_ray_status",
+                ],
+                disallowedTools=list(DEFAULT_DISALLOWED_TOOLS),
                 model="sonnet",  # Use faster model for inspection
+                permissionMode="dontAsk",
             )
-        },
-        permission_mode="dontAsk",
-        cwd=Path.cwd(),
+        }
     )
 
     async with ClaudeSDKClient(options=options) as client:
@@ -118,14 +139,7 @@ async def example_multi_turn():
     print("=" * 70)
     print()
 
-    from agent.tools.server import create_galatea_mcp_server
-
-    options = ClaudeAgentOptions(
-        model="claude-opus-5",
-        mcp_servers={"galatea-platform": create_galatea_mcp_server()},
-        permission_mode="dontAsk",
-        cwd=Path.cwd(),
-    )
+    options = low_level_options()
 
     async with ClaudeSDKClient(options=options) as client:
         # Turn 1
@@ -151,13 +165,7 @@ async def example_using_query_function():
     print()
 
     from claude_agent_sdk import query
-    from agent.tools.server import create_galatea_mcp_server
-
-    options = ClaudeAgentOptions(
-        mcp_servers={"galatea-platform": create_galatea_mcp_server()},
-        permission_mode="dontAsk",
-        cwd=Path.cwd(),
-    )
+    options = low_level_options()
 
     print("User: What training projects exist?")
     print()
@@ -170,11 +178,11 @@ async def example_using_query_function():
 async def main():
     """Run all examples"""
     print("\n" + "=" * 70)
-    print("Galatea Agent - Direct Claude SDK Usage Examples")
+    print("Galatea Agent - Low-level Claude SDK Examples")
     print("=" * 70)
     print()
-    print("These examples show how to use Claude SDK directly with Galatea tools,")
-    print("following SDK best practices without the GalateaRuntime wrapper.")
+    print("These examples explain the SDK layer beneath GalateaRuntime.")
+    print("Use GalateaRuntime for application and production entry points.")
     print("\n")
 
     await example_basic_query()

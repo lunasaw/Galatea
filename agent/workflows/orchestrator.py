@@ -1,4 +1,4 @@
-"""Workflow orchestrator for multi-agent coordination."""
+"""Deterministic workflow state and evidence registry."""
 
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -11,11 +11,11 @@ from agent.workflows.state_machine import (
 
 
 class WorkflowOrchestrator:
-    """
-    Orchestrates multi-agent workflows.
+    """Track stage state without dispatching agents or platform actions.
 
-    Coordinates execution across multiple agents, manages state transitions,
-    and aggregates results.
+    Model/tool execution belongs to ``GalateaSDKRuntime`` and SDK MCP tools.
+    This class only records externally produced stage evidence and validates
+    deterministic transitions.
     """
 
     def __init__(
@@ -56,81 +56,42 @@ class WorkflowOrchestrator:
         self._active_workflows[workflow_id] = WorkflowStateMachine(workflow_id, definition)
         return workflow_id
 
-    async def execute_workflow(
+    async def start_workflow(
         self,
         workflow_id: str,
-        context: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """
-        Execute workflow to completion.
-
-        Args:
-            workflow_id: Workflow to execute
-            context: Execution context (project_name, config, etc.)
-
-        Returns:
-            Workflow results
-
-        The context may include ``stage_handlers`` mapping stage name to an
-        async callable. Without a handler, stages complete with a skipped result.
-        """
+        """Start state tracking and return the current workflow evidence."""
         machine = self._get_workflow(workflow_id)
-        if machine.state == WorkflowState.PENDING:
-            machine.start()
-
-        while machine.state == WorkflowState.RUNNING and machine.current_stage:
-            stage = machine.current_stage
-            result = await self.execute_stage(workflow_id, stage, context.get(stage, context))
-            if result.get("status") == "failed":
-                machine.fail_stage(stage, result.get("error", "stage failed"))
-                break
-            machine.complete_stage(stage, result)
-
-            next_stages = machine.definition.get_next_stages(stage)
-            if not next_stages:
-                if machine.state != WorkflowState.COMPLETED:
-                    machine.state = WorkflowState.COMPLETED
-                    machine.completed_at = machine.completed_at or result.get("completed_at")
-                break
-            transition = machine.transition_to(next_stages[0])
-            if not transition.allowed:
-                machine.fail_stage(stage, transition.reason)
-                break
-
+        machine.start()
         return machine.get_status()
 
-    async def execute_stage(
+    async def record_stage_result(
         self,
         workflow_id: str,
         stage: str,
-        stage_input: Dict[str, Any],
+        result: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """
-        Execute single workflow stage.
+        """Record MCP-produced evidence and advance one deterministic edge."""
+        machine = self._get_workflow(workflow_id)
+        if machine.state != WorkflowState.RUNNING:
+            raise ValueError(f"Workflow is not running: {machine.state.value}")
+        if stage != machine.current_stage:
+            raise ValueError(
+                f"Result stage {stage!r} does not match current stage "
+                f"{machine.current_stage!r}."
+            )
 
-        Args:
-            workflow_id: Workflow ID
-            stage: Stage name
-            stage_input: Stage input data
+        if result.get("status") == "failed":
+            machine.fail_stage(stage, str(result.get("error") or "stage failed"))
+            return machine.get_status()
 
-        Returns:
-            Stage result
-
-        If no stage handler is configured, this returns a skipped stage result.
-        """
-        self._get_workflow(workflow_id)
-        handlers = stage_input.get("stage_handlers") if isinstance(stage_input, dict) else None
-        handler = handlers.get(stage) if isinstance(handlers, dict) else None
-        if handler is None:
-            return {
-                "stage": stage,
-                "status": "skipped",
-                "reason": "No stage handler configured",
-            }
-        result = handler(stage_input)
-        if hasattr(result, "__await__"):
-            result = await result
-        return result
+        machine.complete_stage(stage, result)
+        next_stages = machine.definition.get_next_stages(stage)
+        if next_stages:
+            transition = machine.transition_to(next_stages[0])
+            if not transition.allowed:
+                machine.fail_stage(stage, transition.reason)
+        return machine.get_status()
 
     async def pause_workflow(self, workflow_id: str) -> None:
         """

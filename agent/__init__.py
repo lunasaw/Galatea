@@ -38,8 +38,8 @@ Ray / MLflow / MinIO
 - `ExperimentState`: Experiment workflow state tracking
 
 ### Hooks System
-- Hook events: SessionStart, PreToolUse, PostToolUse, etc.
-- Permission control, audit logging, validation
+- SDK hook inputs/outputs and supported events
+- Permission control, approval evidence, audit logging, validation
 
 ### Policies
 - `BudgetPolicy`: Token/cost budget enforcement
@@ -48,7 +48,7 @@ Ray / MLflow / MinIO
 
 ### Workflows
 - `WorkflowStateMachine`: State management and transitions
-- `WorkflowOrchestrator`: Multi-agent coordination
+- `WorkflowOrchestrator`: Deterministic state/evidence registry only
 
 ### Agent Definitions
 - `AgentDefinition`: Agent configuration framework
@@ -80,7 +80,7 @@ asyncio.run(main())
 python agent/scripts/inspect_platform.py
 
 # Direct tool testing (no API calls)
-python -m unittest agent.test.test_tools_direct
+python agent/test/test_tools_direct.py
 
 # Full agent demo
 python agent/demo/demo_basic.py
@@ -114,7 +114,7 @@ Set up API configuration in `~/.claude/settings.json`:
 - Galatea application state (`AgentStateStore`, `ExperimentState`)
 - SDK hook manager and built-in safety hooks
 - Budget, permission, and quality policies
-- Workflow state machines and orchestration helpers
+- Workflow state machines and evidence helpers
 - SDK `AgentDefinition` presets and registry
 - Utility modules and CLI entry points
 
@@ -123,7 +123,7 @@ Set up API configuration in `~/.claude/settings.json`:
 - **Stage 2**: DataAgent implementation with Ray Data
 - **Stage 3**: TrainingAgent with Ray Train/Jobs
 - **Stage 4**: InferenceAgent with model evaluation
-- **Stage 5**: Approval workflow integration
+- **Stage 5**: Business promotion approval integration
 - **Stage 6**: Code maintenance agent
 
 ## Module Structure
@@ -146,14 +146,14 @@ agent/
 │   ├── experiment.py       # ExperimentState manager
 │   └── persistence.py      # Persistence helpers
 ├── hooks/                  # Hook system
-│   ├── types.py            # Hook types
-│   ├── registry.py         # SDK hook adapter
+│   ├── types.py            # SDK types plus Galatea audit context
+│   ├── registry.py         # Thin SDK HookMatcher registry
 │   └── builtin.py          # Built-in safety hooks
 ├── policies/               # Policy framework
 │   ├── budget.py           # Budget policy
 │   ├── permission.py       # Permission policy
 │   └── quality.py          # Quality gates
-├── workflows/              # Workflow orchestration
+├── workflows/              # Workflow state/evidence tracking
 │   ├── state_machine.py    # State machine
 │   └── orchestrator.py     # Orchestrator
 ├── agents/                 # Agent definitions
@@ -194,8 +194,8 @@ from agent.core import (
     ContextCompressionConfig,
     GalateaSDKRuntime,
     SDKRunResult,
+    SkillPreflightReport,
     SkillRegistry,
-    SkillRuntimeConfig,
     SkillSpec,
 )
 
@@ -222,6 +222,7 @@ from agent.state import (
 
 # Hooks (interfaces)
 from agent.hooks import (
+    GalateaHookContext,
     HookEvent,
     HookContext,
     HookCallback,
@@ -263,8 +264,8 @@ __all__ = [
     "ContextCompressionConfig",
     "GalateaSDKRuntime",
     "SDKRunResult",
+    "SkillPreflightReport",
     "SkillRegistry",
-    "SkillRuntimeConfig",
     "SkillSpec",
     # Schemas
     "StageResult",
@@ -282,6 +283,7 @@ __all__ = [
     "ExperimentState",
     "ExperimentStage",
     # Hooks
+    "GalateaHookContext",
     "HookEvent",
     "HookContext",
     "HookCallback",

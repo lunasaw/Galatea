@@ -12,13 +12,21 @@ from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 from claude_agent_sdk import (
     AgentDefinition,
     AssistantMessage,
+    CanUseTool,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     HookEventMessage,
     InMemorySessionStore,
+    McpServerConfig,
     McpSdkServerConfig,
+    PermissionMode,
+    PermissionResultAllow,
+    PermissionResultDeny,
     ResultMessage,
+    SdkPluginConfig,
     SessionStore as SDKSessionStore,
+    SessionStoreFlushMode,
+    SettingSource,
     SystemMessage,
     TaskNotificationMessage,
     TaskProgressMessage,
@@ -27,27 +35,26 @@ from claude_agent_sdk import (
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
+    ToolPermissionContext,
     ToolUseBlock,
     UserMessage,
 )
 
 from agent.config import apply_anthropic_config_to_env
 from agent.hooks import (
-    HookContext,
-    HookEvent,
+    GalateaHookContext,
     HookManager,
-    audit_hook,
     classify_tool_failure_hook,
     compact_context_hook,
-    deny_builtin_mutation_hook,
-    logging_hook,
+    make_audit_hook,
+    make_logging_hook,
     make_permission_hook,
-    summarize_large_tool_output_hook,
+    make_permission_request_audit_hook,
+    make_summarize_large_tool_output_hook,
     validation_hook,
 )
 from agent.policies import BudgetPolicy, PermissionPolicy
 from agent.policies.permission import DEFAULT_DISALLOWED_TOOLS
-from agent.skills import SkillRuntimeConfig, resolve_skill_runtime
 from agent.tools.server import create_galatea_mcp_server
 
 logger = logging.getLogger(__name__)
@@ -112,13 +119,17 @@ class AgentSDKConfig:
     model: str = DEFAULT_MODEL
     mcp_server_alias: str = DEFAULT_MCP_SERVER_ALIAS
     mcp_server: Optional[McpSdkServerConfig] = None
+    additional_mcp_servers: Dict[str, McpServerConfig] = field(default_factory=dict)
     stage_run_id: Optional[str] = None
     agent_type: str = "general"
     project_name: Optional[str] = None
     allowed_tools: List[str] = field(default_factory=list)
     disallowed_tools: List[str] = field(default_factory=lambda: list(DEFAULT_DISALLOWED_TOOLS))
     tools: list[str] | dict[str, str] | None = field(default_factory=list)
-    permission_mode: str = "dontAsk"
+    permission_mode: PermissionMode = "dontAsk"
+    allow_bypass_permissions: bool = False
+    can_use_tool: CanUseTool | None = None
+    permission_prompt_tool_name: Optional[str] = None
     max_turns: int = 12
     max_budget_usd: float = 0.20
     max_tokens: Optional[int] = None
@@ -128,14 +139,11 @@ class AgentSDKConfig:
     agents: Optional[Dict[str, AgentDefinition]] = None
     include_hook_events: bool = True
     strict_mcp_config: bool = True
-    setting_sources: Optional[List[str]] = field(default_factory=list)
+    setting_sources: Optional[List[SettingSource]] = None
     skills: list[str] | Literal["all"] | None = None
-    skill_plugins: List[Dict[str, str]] = field(default_factory=list)
-    include_legacy_codex_skills: bool = True
-    include_skill_plugins: bool = True
-    sync_legacy_codex_skills: bool = False
+    plugins: List[SdkPluginConfig] = field(default_factory=list)
     session_store: SDKSessionStore | None = None
-    session_store_flush: str = "batched"
+    session_store_flush: SessionStoreFlushMode = "batched"
     resume: Optional[str] = None
     fork_session: bool = False
     context: ContextCompressionConfig = field(default_factory=ContextCompressionConfig)
@@ -198,6 +206,76 @@ def _validate_session_store(session_store: SDKSessionStore | None) -> None:
     )
 
 
+def _validate_permission_config(config: AgentSDKConfig) -> None:
+    """Fail early when an SDK permission configuration is ambiguous or unsafe."""
+    if config.permission_mode == "bypassPermissions" and not config.allow_bypass_permissions:
+        raise ValueError(
+            "permission_mode='bypassPermissions' is disabled by default; set "
+            "allow_bypass_permissions=True only for an explicitly elevated runtime."
+        )
+    if config.can_use_tool is not None and config.permission_prompt_tool_name is not None:
+        raise ValueError(
+            "can_use_tool and permission_prompt_tool_name are mutually exclusive SDK flows."
+        )
+    approval_flow_configured = (
+        config.can_use_tool is not None
+        or config.permission_prompt_tool_name is not None
+    )
+    if approval_flow_configured and config.permission_mode in {
+        "dontAsk",
+        "plan",
+        "bypassPermissions",
+    }:
+        raise ValueError(
+            f"SDK approval flows cannot provide approvals in {config.permission_mode!r} mode; "
+            "use default, acceptEdits, or auto."
+        )
+
+
+def _audited_can_use_tool(
+    handler: CanUseTool,
+    runtime_context: GalateaHookContext,
+) -> CanUseTool:
+    """Wrap an SDK approval callback with structured Galatea evidence."""
+
+    async def audited_handler(
+        tool_name: str,
+        tool_input: Dict[str, Any],
+        context: ToolPermissionContext,
+    ) -> PermissionResultAllow | PermissionResultDeny:
+        request_id = f"approval-{uuid.uuid4()}"
+        evidence = {
+            "approval_request_id": request_id,
+            "session_id": runtime_context.session_id,
+            "agent_id": context.agent_id,
+            "tool_use_id": context.tool_use_id,
+            "tool_name": tool_name,
+            "scope": dict(tool_input),
+            "reason": context.decision_reason or context.description,
+            "persistence_options": [suggestion.to_dict() for suggestion in context.suggestions],
+            "status": "requested",
+        }
+        runtime_context.metadata.setdefault("approval_decisions", []).append(evidence)
+        try:
+            result = await handler(tool_name, tool_input, context)
+        except Exception as exc:
+            evidence.update({"status": "error", "error": str(exc)})
+            raise
+        evidence.update(
+            {
+                "status": "allowed" if isinstance(result, PermissionResultAllow) else "denied",
+                "decision": result.behavior,
+            }
+        )
+        if isinstance(result, PermissionResultAllow) and result.updated_permissions:
+            evidence["persisted_permissions"] = [
+                permission.to_dict() for permission in result.updated_permissions
+            ]
+        return result
+
+    return audited_handler
+
+
 class GalateaSDKRuntime:
     """Reusable wrapper around ClaudeSDKClient with Galatea safety defaults."""
 
@@ -211,20 +289,25 @@ class GalateaSDKRuntime:
         self.stage_run_id = config.effective_stage_run_id()
         self.mcp_server = config.mcp_server or create_galatea_mcp_server()
         _validate_session_store(config.session_store)
-        self.skill_runtime = self._resolve_skill_runtime()
+        _validate_permission_config(config)
         self.permission_policy = permission_policy or PermissionPolicy.for_galatea(
             allowed_tools=self._policy_allowed_tools(),
             disallowed_tools=config.disallowed_tools,
-            mode=config.permission_mode,
-            default_behavior="deny",
         )
-        self.hook_context = HookContext(
+        self.hook_context = GalateaHookContext(
             session_id=self.stage_run_id,
             agent_type=config.agent_type,
             project_name=config.project_name,
             metadata={"stage_run_id": self.stage_run_id},
         )
-        self.hook_manager = hook_manager or self._create_default_hooks()
+        self.can_use_tool = (
+            _audited_can_use_tool(config.can_use_tool, self.hook_context)
+            if config.can_use_tool is not None
+            else None
+        )
+        self.hook_manager = self._create_default_hooks()
+        if hook_manager is not None:
+            self.hook_manager.extend(hook_manager)
         self.budget = BudgetPolicy(
             max_budget_usd=config.max_budget_usd,
             max_tokens=config.max_tokens,
@@ -259,40 +342,37 @@ class GalateaSDKRuntime:
             session_store = InMemorySessionStore()
 
         allowed_tools = list(dict.fromkeys(self.config.allowed_tools))
-        for tool_name in self.skill_runtime.allowed_tools:
-            if tool_name not in allowed_tools:
-                allowed_tools.append(tool_name)
         if self.config.agents and "Task" not in allowed_tools:
             allowed_tools.append("Task")
         disallowed_tools = list(dict.fromkeys(self.config.disallowed_tools))
         base_tools = self.config.tools
         if self.config.agents and isinstance(base_tools, list) and "Task" not in base_tools:
             base_tools = [*base_tools, "Task"]
-        if self._has_enabled_skills() and isinstance(base_tools, list) and "Skill" not in base_tools:
-            base_tools = [*base_tools, "Skill"]
-        setting_sources = self._effective_setting_sources()
-        plugins = [
-            *self.config.skill_plugins,
-            *self.skill_runtime.plugins,
-        ]
 
-        can_use_tool = None if self.config.permission_mode == "dontAsk" else self.permission_policy.can_use_tool
+        mcp_servers = dict(self.config.additional_mcp_servers)
+        if self.config.mcp_server_alias in mcp_servers:
+            raise ValueError(
+                f"additional_mcp_servers cannot replace reserved alias "
+                f"{self.config.mcp_server_alias!r}."
+            )
+        mcp_servers[self.config.mcp_server_alias] = self.mcp_server
 
         return ClaudeAgentOptions(
             model=self.config.model,
             cwd=self.config.project_root,
             tools=base_tools,
-            mcp_servers={self.config.mcp_server_alias: self.mcp_server},
+            mcp_servers=mcp_servers,
             strict_mcp_config=self.config.strict_mcp_config,
-            setting_sources=setting_sources,
+            setting_sources=self.config.setting_sources,
             permission_mode=self.config.permission_mode,
             allowed_tools=allowed_tools,
             disallowed_tools=disallowed_tools,
             hooks=self.hook_manager.to_sdk_hooks(),
             include_hook_events=self.config.include_hook_events,
-            can_use_tool=can_use_tool,
-            skills=self.skill_runtime.skills,
-            plugins=plugins,
+            can_use_tool=self.can_use_tool,
+            permission_prompt_tool_name=self.config.permission_prompt_tool_name,
+            skills=self.config.skills,
+            plugins=list(self.config.plugins),
             max_turns=self.config.max_turns,
             max_budget_usd=self.config.max_budget_usd,
             output_format=output_format,
@@ -406,8 +486,23 @@ class GalateaSDKRuntime:
     async def stop_task(self, task_id: str) -> None:
         await self._require_client().stop_task(task_id)
 
-    async def set_permission_mode(self, mode: str) -> None:
-        self.permission_policy.set_mode(mode)
+    async def set_permission_mode(self, mode: PermissionMode) -> None:
+        if mode == "bypassPermissions" and not self.config.allow_bypass_permissions:
+            raise ValueError(
+                "permission_mode='bypassPermissions' requires "
+                "allow_bypass_permissions=True."
+            )
+        approval_flow_configured = (
+            self.config.can_use_tool is not None
+            or self.config.permission_prompt_tool_name is not None
+        )
+        if approval_flow_configured and mode in {
+            "dontAsk",
+            "plan",
+            "bypassPermissions",
+        }:
+            raise ValueError(f"SDK approval flows cannot provide approvals in {mode!r} mode.")
+        self.config.permission_mode = mode
         await self._require_client().set_permission_mode(mode)
 
     async def get_mcp_status(self) -> Dict[str, Any]:
@@ -420,23 +515,26 @@ class GalateaSDKRuntime:
         await self._require_client().toggle_mcp_server(server_name, enabled)
 
     def _create_default_hooks(self) -> HookManager:
-        manager = HookManager(context=self.hook_context)
-        manager.add_hook(HookEvent.SESSION_START, compact_context_hook)
-        manager.add_hook(HookEvent.PRE_TOOL_USE, logging_hook)
-        manager.add_hook(HookEvent.PRE_TOOL_USE, validation_hook)
-        manager.add_hook(HookEvent.PRE_TOOL_USE, audit_hook)
-        manager.add_hook(HookEvent.PRE_TOOL_USE, make_permission_hook(self.permission_policy))
-        if self.config.disallowed_tools:
-            manager.add_hook(
-                HookEvent.PRE_TOOL_USE,
-                deny_builtin_mutation_hook,
-                matcher="|".join(self.config.disallowed_tools),
-            )
-        manager.add_hook(HookEvent.POST_TOOL_USE, logging_hook)
-        manager.add_hook(HookEvent.POST_TOOL_USE, audit_hook)
-        manager.add_hook(HookEvent.POST_TOOL_USE, summarize_large_tool_output_hook)
-        manager.add_hook(HookEvent.POST_TOOL_USE_FAILURE, classify_tool_failure_hook)
-        manager.add_hook(HookEvent.PRE_COMPACT, compact_context_hook)
+        manager = HookManager()
+        logging_hook = make_logging_hook(self.hook_context)
+        audit_hook = make_audit_hook(self.hook_context)
+        manager.add_hook("PreToolUse", logging_hook)
+        manager.add_hook("PreToolUse", validation_hook)
+        manager.add_hook("PreToolUse", audit_hook)
+        manager.add_hook("PreToolUse", make_permission_hook(self.permission_policy))
+        manager.add_hook("PostToolUse", logging_hook)
+        manager.add_hook("PostToolUse", audit_hook)
+        manager.add_hook(
+            "PostToolUse",
+            make_summarize_large_tool_output_hook(self.config.context.max_tool_output_chars),
+            matcher="mcp__.*",
+        )
+        manager.add_hook("PostToolUseFailure", classify_tool_failure_hook)
+        manager.add_hook("PreCompact", compact_context_hook)
+        manager.add_hook(
+            "PermissionRequest",
+            make_permission_request_audit_hook(self.hook_context),
+        )
         return manager
 
     def _policy_allowed_tools(self) -> List[str]:
@@ -450,36 +548,11 @@ class GalateaSDKRuntime:
             dict.fromkeys(
                 [
                     *self.config.allowed_tools,
-                    *self.skill_runtime.allowed_tools,
                     *agent_tools,
                     *unqualified_mcp_tools,
                 ]
             )
         )
-
-    def _resolve_skill_runtime(self) -> SkillRuntimeConfig:
-        if self.config.skills is None:
-            return SkillRuntimeConfig()
-        return resolve_skill_runtime(
-            self.config.project_root,
-            self.config.skills,
-            include_legacy_codex=self.config.include_legacy_codex_skills,
-            include_plugin=self.config.include_skill_plugins,
-            sync_legacy_codex=self.config.sync_legacy_codex_skills,
-        )
-
-    def _effective_setting_sources(self) -> Optional[List[str]]:
-        if self.config.skills is None:
-            return self.config.setting_sources
-        if self.config.setting_sources == []:
-            # Claude SDK only discovers project Skill dirs when project settings
-            # are enabled; keep user/global settings isolated by default.
-            return ["project"]
-        return self.config.setting_sources
-
-    def _has_enabled_skills(self) -> bool:
-        skills = self.skill_runtime.skills
-        return skills == "all" or (isinstance(skills, list) and len(skills) > 0)
 
     def _record_result_usage(self, result: SDKRunResult) -> None:
         try:

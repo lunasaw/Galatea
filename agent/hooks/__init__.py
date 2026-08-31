@@ -1,56 +1,43 @@
-"""
-Hooks system for Galatea agents.
+"""Claude SDK-native hooks used by the Galatea runtime."""
 
-Provides hook registration, invocation, and built-in hooks.
-
-Key components:
-- HookEvent: Hook event types (PreToolUse, PostToolUse, etc.)
-- HookCallback: Hook callback signature
-- HookRegistry: Hook registration and management
-- HookManager: High-level hook API
-- Built-in hooks: Logging, cost tracking, audit, validation
-
-Reference: Claude SDK's hooks system.
-"""
-
-from agent.hooks.types import (
-    HookEvent,
-    HookContext,
-    HookInput,
-    HookOutput,
-    HookCallback,
-    HookMatcher,
-    HookRegistry,
-)
-from agent.hooks.registry import HookManager
 from agent.hooks.builtin import (
-    logging_hook,
-    cost_tracking_hook,
-    audit_hook,
-    validation_hook,
-    make_permission_hook,
-    deny_builtin_mutation_hook,
-    summarize_large_tool_output_hook,
     classify_tool_failure_hook,
     compact_context_hook,
+    make_audit_hook,
+    make_logging_hook,
+    make_permission_hook,
+    make_permission_request_audit_hook,
+    make_summarize_large_tool_output_hook,
+    validation_hook,
+)
+from agent.hooks.registry import HookManager
+from agent.hooks.types import (
+    GalateaHookContext,
+    HookCallback,
+    HookContext,
+    HookEvent,
+    HookInput,
+    HookJSONOutput,
+    HookMatcher,
+    SDK_HOOK_EVENTS,
 )
 
 __all__ = [
-    "HookEvent",
-    "HookContext",
-    "HookInput",
-    "HookOutput",
+    "GalateaHookContext",
     "HookCallback",
-    "HookMatcher",
-    "HookRegistry",
+    "HookContext",
+    "HookEvent",
+    "HookInput",
+    "HookJSONOutput",
     "HookManager",
-    "logging_hook",
-    "cost_tracking_hook",
-    "audit_hook",
-    "validation_hook",
-    "make_permission_hook",
-    "deny_builtin_mutation_hook",
-    "summarize_large_tool_output_hook",
+    "HookMatcher",
+    "SDK_HOOK_EVENTS",
     "classify_tool_failure_hook",
     "compact_context_hook",
+    "make_audit_hook",
+    "make_logging_hook",
+    "make_permission_hook",
+    "make_permission_request_audit_hook",
+    "make_summarize_large_tool_output_hook",
+    "validation_hook",
 ]

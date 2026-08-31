@@ -1,10 +1,8 @@
-"""Claude Code-compatible Skill discovery and SDK option helpers."""
+"""Display and preflight helpers for SDK/Claude Code Skills."""
 
 from __future__ import annotations
 
-import fnmatch
 import json
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Literal, Optional
@@ -15,11 +13,8 @@ except ImportError:  # pragma: no cover - repository environment includes PyYAML
     yaml = None
 
 SkillSource = Literal["project", "legacy-codex", "plugin"]
-SkillsOption = list[str] | Literal["all"] | None
-
 DEFAULT_PLUGIN_NAME = "galatea-skills"
 DEFAULT_PLUGIN_DIRNAME = ".claude-plugin"
-_SAFE_SKILL_NAME_PATTERN = re.compile(r"^[^\s/(),:*\\\x00-\x1f\x7f-\x9f]+(?::[^\s/(),:*\\\x00-\x1f\x7f-\x9f]+)?$")
 
 
 @dataclass(frozen=True)
@@ -32,29 +27,12 @@ class SkillSpec:
     base_dir: Path
     source: SkillSource
     display_name: Optional[str] = None
-    allowed_tools: tuple[str, ...] = ()
-    paths: tuple[str, ...] = ()
-    when_to_use: Optional[str] = None
-    version: Optional[str] = None
-    model: Optional[str] = None
-    user_invocable: bool = True
-    disable_model_invocation: bool = False
-    context: Optional[str] = None
-    agent: Optional[str] = None
-    effort: Optional[str | int] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def canonical_name(self) -> str:
-        """Name passed to ``ClaudeAgentOptions.skills`` and ``Skill(name)`` rules."""
+        """Display the SDK/Claude Code name represented by this local file."""
         return self.name
-
-    def matches_path(self, relative_path: str) -> bool:
-        """Return whether this conditional skill applies to a project path."""
-        if not self.paths:
-            return True
-        normalized = relative_path.strip().lstrip("./")
-        return any(fnmatch.fnmatchcase(normalized, pattern) for pattern in self.paths)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -64,39 +42,30 @@ class SkillSpec:
             "base_dir": str(self.base_dir),
             "source": self.source,
             "display_name": self.display_name,
-            "allowed_tools": list(self.allowed_tools),
-            "paths": list(self.paths),
-            "when_to_use": self.when_to_use,
-            "version": self.version,
-            "model": self.model,
-            "user_invocable": self.user_invocable,
-            "disable_model_invocation": self.disable_model_invocation,
-            "context": self.context,
-            "agent": self.agent,
-            "effort": self.effort,
             "metadata": dict(self.metadata),
         }
 
 
 @dataclass(frozen=True)
-class SkillRuntimeConfig:
-    """Resolved Skill runtime configuration for Claude SDK sessions."""
+class SkillPreflightReport:
+    """Local filesystem evidence; never an authorization decision."""
 
-    skills: SkillsOption = None
-    plugins: tuple[dict[str, str], ...] = ()
-    allowed_tools: tuple[str, ...] = ()
-    discovered: tuple[SkillSpec, ...] = ()
+    requested: tuple[str, ...] | Literal["all"]
+    discovered: tuple[SkillSpec, ...]
+    missing: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
-    def names(self) -> list[str]:
-        if self.skills == "all":
-            return [skill.name for skill in self.discovered]
-        if self.skills is None:
-            return []
-        return list(self.skills)
+    @property
+    def is_valid(self) -> bool:
+        return not self.missing
 
 
 class SkillRegistry:
-    """Discover repository Skills without reimplementing the SDK transport."""
+    """Inspect Skill files for UI display and optional startup preflight.
+
+    Claude SDK ``skills`` and ``plugins`` remain the runtime source of truth.
+    Discovery here must never be converted into ``allowed_tools`` rules.
+    """
 
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root.resolve()
@@ -108,8 +77,8 @@ class SkillRegistry:
         self,
         *,
         include_project: bool = True,
-        include_legacy_codex: bool = True,
-        include_plugin: bool = True,
+        include_legacy_codex: bool = False,
+        include_plugin: bool = False,
     ) -> list[SkillSpec]:
         """Discover Skills in Claude Code order, deduplicating identical files."""
         specs: list[SkillSpec] = []
@@ -122,53 +91,43 @@ class SkillRegistry:
             specs.extend(self._load_plugin_skills(set()))
         return specs
 
-    def resolve(
+    def preflight(
         self,
-        names: Iterable[str] | Literal["all"] | None = None,
+        names: Iterable[str] | Literal["all"],
         *,
-        include_legacy_codex: bool = True,
-        include_plugin: bool = True,
-        sync_legacy_codex: bool = False,
-    ) -> SkillRuntimeConfig:
-        """Build SDK-native ``skills``/``plugins``/``allowed_tools`` configuration."""
-        if sync_legacy_codex:
-            sync_codex_skills_to_claude(self.project_root)
-
+        include_legacy_codex: bool = False,
+        include_plugin: bool = False,
+    ) -> SkillPreflightReport:
+        """Check local discovery prerequisites without granting runtime access."""
         discovered = self.discover(
             include_project=True,
             include_legacy_codex=include_legacy_codex,
             include_plugin=include_plugin,
         )
-        available_names = [skill.name for skill in discovered]
+        available_names = {skill.name for skill in discovered}
         if names == "all":
-            selected: SkillsOption = "all"
-        elif names is None:
-            selected = None
+            requested: tuple[str, ...] | Literal["all"] = "all"
+            missing: tuple[str, ...] = ()
         elif isinstance(names, str):
             raise ValueError(
                 "skills must be a list of skill names or \"all\"; "
                 f"got bare string {names!r}"
             )
         else:
-            selected = unique_preserve_order(names)
-            missing = [name for name in selected if name not in available_names]
-            if missing:
-                raise ValueError(
-                    "Unknown Skill(s): "
-                    + ", ".join(missing)
-                    + ". Available Skills: "
-                    + ", ".join(available_names)
-                )
+            requested = tuple(dict.fromkeys(names))
+            missing = tuple(name for name in requested if name not in available_names)
 
-        plugins: list[dict[str, str]] = []
-        if include_plugin and _has_plugin_manifest(self.plugin_dir):
-            plugins.append({"type": "local", "path": str(self.plugin_dir)})
-
-        return SkillRuntimeConfig(
-            skills=selected,
-            plugins=tuple(plugins),
-            allowed_tools=tuple(skill_permission_rules(selected, discovered)),
+        warnings: list[str] = []
+        if include_legacy_codex:
+            warnings.append(
+                "Legacy .codex/skills discovery is display-only; expose Skills through "
+                ".claude/skills or an explicit SDK plugin."
+            )
+        return SkillPreflightReport(
+            requested=requested,
             discovered=tuple(discovered),
+            missing=missing,
+            warnings=tuple(warnings),
         )
 
     def _load_skills_dir(
@@ -225,119 +184,7 @@ class SkillRegistry:
         return specs
 
 
-def resolve_skill_runtime(
-    project_root: Path,
-    skills: Iterable[str] | Literal["all"] | None,
-    *,
-    include_legacy_codex: bool = True,
-    include_plugin: bool = True,
-    sync_legacy_codex: bool = False,
-) -> SkillRuntimeConfig:
-    """Convenience wrapper for callers that do not need a persistent registry."""
-    return SkillRegistry(project_root).resolve(
-        skills,
-        include_legacy_codex=include_legacy_codex,
-        include_plugin=include_plugin,
-        sync_legacy_codex=sync_legacy_codex,
-    )
-
-
-def skill_permission_rules(
-    skills: SkillsOption,
-    discovered: Iterable[SkillSpec] = (),
-) -> list[str]:
-    """Return Claude Code permission rules for the selected Skills."""
-    if skills is None:
-        return []
-    if skills == "all":
-        return ["Skill"]
-    return [f"Skill({name})" for name in unique_preserve_order(skills)]
-
-
-def validate_skill_name(name: str) -> None:
-    """Validate names before they become ``Skill(name)`` permission rules."""
-    if not isinstance(name, str):
-        raise TypeError(f"Skill names must be strings, got {type(name).__name__}: {name!r}")
-    if not name:
-        raise ValueError("Skill names must be non-empty strings")
-    if name.strip() != name:
-        raise ValueError(f"Skill name has surrounding whitespace: {name!r}")
-    if name == "*":
-        raise ValueError('Invalid skill name "*": use skills="all"')
-    if not _SAFE_SKILL_NAME_PATTERN.match(name):
-        raise ValueError(f"Invalid Skill name for SDK permission rule: {name!r}")
-    if any(0xD800 <= ord(char) <= 0xDFFF for char in name):
-        raise ValueError(f"Invalid Skill name contains surrogate code point: {name!r}")
-
-
-def unique_preserve_order(values: Iterable[str]) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        validate_skill_name(value)
-        if value not in seen:
-            seen.add(value)
-            result.append(value)
-    return result
-
-
-def sync_codex_skills_to_claude(project_root: Path) -> list[Path]:
-    """Mirror legacy ``.codex/skills`` into ``.claude/skills`` via symlinks.
-
-    Claude Code discovers project Skills from ``.claude/skills/<name>/SKILL.md``.
-    The repository still keeps Codex Skills under ``.codex/skills``; this helper
-    creates non-destructive symlinks so the SDK's native Skill tool can load them.
-    """
-    project_root = project_root.resolve()
-    source_dir = project_root / ".codex" / "skills"
-    target_dir = project_root / ".claude" / "skills"
-    if not source_dir.is_dir():
-        return []
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    created: list[Path] = []
-    for source_skill_dir in sorted(source_dir.iterdir(), key=lambda path: path.name):
-        if not (source_skill_dir / "SKILL.md").is_file():
-            continue
-        target_skill_dir = target_dir / source_skill_dir.name
-        if target_skill_dir.exists() or target_skill_dir.is_symlink():
-            continue
-        target_skill_dir.symlink_to(source_skill_dir.resolve(), target_is_directory=True)
-        created.append(target_skill_dir)
-    return created
-
-
-def ensure_local_skill_plugin(
-    project_root: Path,
-    *,
-    plugin_name: str = DEFAULT_PLUGIN_NAME,
-    description: str = "Galatea repository Skills bridged from .codex/skills",
-) -> Path:
-    """Create or update a minimal local plugin manifest for repository Skills."""
-    project_root = project_root.resolve()
-    manifest_dir = project_root / DEFAULT_PLUGIN_DIRNAME
-    manifest_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = manifest_dir / "plugin.json"
-    payload = {
-        "name": plugin_name,
-        "description": description,
-        "version": "0.1.0",
-        "skills": "./.codex/skills",
-    }
-    if manifest_path.exists():
-        try:
-            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            existing = {}
-        existing.update({key: value for key, value in payload.items() if key not in existing})
-        existing["skills"] = existing.get("skills") or payload["skills"]
-        payload = existing
-    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return manifest_path
-
-
 def _read_skill_file(path: Path, skill_name: str, source: SkillSource) -> SkillSpec:
-    validate_skill_name(skill_name)
     raw = path.read_text(encoding="utf-8")
     frontmatter, markdown = _parse_frontmatter(raw)
     description = _coerce_description(frontmatter.get("description")) or _extract_description(markdown, skill_name)
@@ -348,16 +195,6 @@ def _read_skill_file(path: Path, skill_name: str, source: SkillSource) -> SkillS
         base_dir=path.parent,
         source=source,
         display_name=_optional_str(frontmatter.get("name")),
-        allowed_tools=tuple(_parse_allowed_tools(frontmatter.get("allowed-tools"))),
-        paths=tuple(_parse_paths(frontmatter.get("paths"))),
-        when_to_use=_optional_str(frontmatter.get("when_to_use")),
-        version=_optional_str(frontmatter.get("version")),
-        model=_optional_str(frontmatter.get("model")),
-        user_invocable=_parse_bool(frontmatter.get("user-invocable"), default=True),
-        disable_model_invocation=_parse_bool(frontmatter.get("disable-model-invocation"), default=False),
-        context=_optional_str(frontmatter.get("context")),
-        agent=_optional_str(frontmatter.get("agent")),
-        effort=frontmatter.get("effort") if isinstance(frontmatter.get("effort"), int) else _optional_str(frontmatter.get("effort")),
         metadata={"frontmatter": frontmatter},
     )
 
@@ -404,46 +241,6 @@ def _optional_str(value: Any) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
-
-
-def _parse_bool(value: Any, *, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _parse_allowed_tools(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [part.strip() for part in value.split(",") if part.strip()]
-    if isinstance(value, list):
-        return [str(part).strip() for part in value if str(part).strip()]
-    return []
-
-
-def _parse_paths(value: Any) -> list[str]:
-    if value is None:
-        return []
-    raw_parts: list[str]
-    if isinstance(value, str):
-        raw_parts = [part.strip() for part in re.split(r"[,\n]", value) if part.strip()]
-    elif isinstance(value, list):
-        raw_parts = [str(part).strip() for part in value if str(part).strip()]
-    else:
-        raw_parts = []
-    patterns = [part[:-3] if part.endswith("/**") else part for part in raw_parts]
-    if not patterns or all(pattern == "**" for pattern in patterns):
-        return []
-    return patterns
-
-
-def _has_plugin_manifest(plugin_dir: Path) -> bool:
-    return (plugin_dir / DEFAULT_PLUGIN_DIRNAME / "plugin.json").is_file() or (plugin_dir / "plugin.json").is_file()
 
 
 def _load_plugin_manifest(plugin_dir: Path) -> dict[str, Any] | None:

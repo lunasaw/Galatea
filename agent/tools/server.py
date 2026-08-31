@@ -8,6 +8,7 @@ from typing import Any, Dict
 import json
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
+from mcp.types import ToolAnnotations
 
 from .inspection import (
     inspect_project_structure,
@@ -32,7 +33,14 @@ def _mcp_json_content(data: Any) -> Dict[str, Any]:
     {
         "project_root": str,
         "project_name": str,
-    }
+    },
+    annotations=ToolAnnotations(
+        title="Inspect project structure",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
 )
 async def tool_inspect_project_structure(args: Dict[str, Any]) -> Dict[str, Any]:
     """检查项目结构。"""
@@ -46,7 +54,14 @@ async def tool_inspect_project_structure(args: Dict[str, Any]) -> Dict[str, Any]
     {
         "service_name": str,
         "port": int,
-    }
+    },
+    annotations=ToolAnnotations(
+        title="Check service health",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
 )
 async def tool_check_service_health(args: Dict[str, Any]) -> Dict[str, Any]:
     """检查服务健康状况。"""
@@ -64,7 +79,14 @@ async def tool_check_service_health(args: Dict[str, Any]) -> Dict[str, Any]:
     {
         "tracking_uri": str,
         "experiment_name": str,
-    }
+    },
+    annotations=ToolAnnotations(
+        title="Inspect MLflow experiment",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
 )
 async def tool_inspect_mlflow_experiment(args: Dict[str, Any]) -> Dict[str, Any]:
     """检查 MLflow 实验。"""
@@ -75,7 +97,14 @@ async def tool_inspect_mlflow_experiment(args: Dict[str, Any]) -> Dict[str, Any]
 @tool(
     "inspect_ray_status",
     "检查 Ray 集群状态。返回集群可用性和基本资源信息。只读操作。",
-    {}
+    {},
+    annotations=ToolAnnotations(
+        title="Inspect Ray status",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    ),
 )
 async def tool_inspect_ray_status(args: Dict[str, Any]) -> Dict[str, Any]:
     """检查 Ray 状态。"""
@@ -88,7 +117,14 @@ async def tool_inspect_ray_status(args: Dict[str, Any]) -> Dict[str, Any]:
     "列出 train-model 目录中的所有训练项目。返回项目名称。只读操作。",
     {
         "project_root": str,
-    }
+    },
+    annotations=ToolAnnotations(
+        title="List training projects",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
 )
 async def tool_list_training_projects(args: Dict[str, Any]) -> Dict[str, Any]:
     """列出训练项目。"""
@@ -104,6 +140,11 @@ INSPECTION_TOOLS = [
     tool_inspect_ray_status,
     tool_list_training_projects,
 ]
+
+
+def inspection_tool_permission_names(alias: str = "galatea-platform") -> list[str]:
+    """Build exact SDK permission names from the production MCP catalog."""
+    return [f"mcp__{alias}__{sdk_tool.name}" for sdk_tool in INSPECTION_TOOLS]
 
 
 def create_galatea_mcp_server():

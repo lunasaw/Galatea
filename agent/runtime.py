@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Literal, Optional
 
-from claude_agent_sdk import ClaudeSDKClient
+from claude_agent_sdk import (
+    CanUseTool,
+    ClaudeSDKClient,
+    McpServerConfig,
+    PermissionMode,
+    SdkPluginConfig,
+    SettingSource,
+)
 
 from agent.core import (
     AgentSDKConfig,
@@ -19,6 +26,7 @@ from agent.core import (
     message_display_parts,
 )
 from agent.policies.permission import DEFAULT_DISALLOWED_TOOLS
+from agent.tools.server import inspection_tool_permission_names
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -67,10 +75,16 @@ class GalateaRuntime:
         auto_load_config: bool = True,
         allowed_tools: Optional[list[str]] = None,
         disallowed_tools: Optional[list[str]] = None,
+        additional_mcp_servers: Optional[dict[str, McpServerConfig]] = None,
         tools: list[str] | dict[str, str] | None = None,
-        permission_mode: str = "dontAsk",
+        permission_mode: PermissionMode = "dontAsk",
+        allow_bypass_permissions: bool = False,
+        can_use_tool: CanUseTool | None = None,
+        permission_prompt_tool_name: Optional[str] = None,
         system_prompt: Optional[str | Dict[str, Any]] = None,
         skills: list[str] | Literal["all"] | None = None,
+        plugins: Optional[list[SdkPluginConfig]] = None,
+        setting_sources: Optional[list[SettingSource]] = None,
         output_schema: Optional[Dict[str, Any]] = None,
         max_turns: int = 12,
         max_budget_usd: float = 0.20,
@@ -86,7 +100,12 @@ class GalateaRuntime:
             project_root=project_root,
             model=model,
             agent_type="runtime",
-            allowed_tools=allowed_tools or _default_allowed_tools(),
+            allowed_tools=(
+                _default_allowed_tools()
+                if allowed_tools is None
+                else allowed_tools
+            ),
+            additional_mcp_servers=dict(additional_mcp_servers or {}),
             disallowed_tools=(
                 list(DEFAULT_DISALLOWED_TOOLS)
                 if disallowed_tools is None
@@ -94,8 +113,13 @@ class GalateaRuntime:
             ),
             tools=[] if tools is None else tools,
             permission_mode=permission_mode,
+            allow_bypass_permissions=allow_bypass_permissions,
+            can_use_tool=can_use_tool,
+            permission_prompt_tool_name=permission_prompt_tool_name,
             system_prompt=system_prompt,
             skills=skills,
+            plugins=list(plugins or []),
+            setting_sources=setting_sources,
             output_schema=output_schema,
             agents=agents,
             include_hook_events=include_hook_events,
@@ -243,17 +267,15 @@ def _default_allowed_tools() -> list[str]:
 
 def default_platform_allowed_tools(alias: str = "galatea-platform") -> list[str]:
     """Return Galatea SDK foundation MCP inspection tools."""
-    return [
-        f"mcp__{alias}__list_training_projects",
-        f"mcp__{alias}__inspect_project_structure",
-        f"mcp__{alias}__check_service_health",
-        f"mcp__{alias}__inspect_mlflow_experiment",
-        f"mcp__{alias}__inspect_ray_status",
-    ]
+    return inspection_tool_permission_names(alias)
 
 
-def claude_code_allowed_tools(alias: str = "galatea-platform") -> list[str]:
-    """Return all Galatea inspection tools plus base Claude Code tools."""
+def unsafe_full_claude_code_allowed_tools(alias: str = "galatea-platform") -> list[str]:
+    """Return the explicit elevated allowlist for maintainer-only runtimes.
+
+    This includes shell and file-mutation tools. It must never be used by a
+    default runtime and should be paired with SDK sandbox and scoped rules.
+    """
     return list(
         dict.fromkeys(
             [

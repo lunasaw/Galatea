@@ -1,18 +1,14 @@
-"""Permission policy for SDK and direct tool access control."""
+"""Galatea-specific permission rules layered under the Claude SDK."""
 
 from __future__ import annotations
 
 import fnmatch
-import json
-from typing import Dict, Any, Optional, List, Literal
 from dataclasses import dataclass
+import json
+from typing import Any, Dict, List, Literal, Optional
 
-from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
-from claude_agent_sdk import ToolPermissionContext
-
-
-PermissionBehavior = Literal["allow", "deny", "ask"]
-PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"]
+PermissionBehavior = Literal["allow", "deny"]
+PermissionDecision = Literal["allow", "deny", "defer"]
 
 
 @dataclass
@@ -57,26 +53,9 @@ class PermissionRule:
 
 
 class PermissionPolicy:
-    """
-    Permission policy for tool access control.
+    """Evaluate Galatea allow/deny rules without emulating SDK modes."""
 
-    Manages permission rules and enforces access control.
-    """
-
-    def __init__(
-        self,
-        mode: PermissionMode = "default",
-        default_behavior: PermissionBehavior = "ask",
-    ):
-        """
-        Initialize permission policy.
-
-        Args:
-            mode: Permission mode
-            default_behavior: Default behavior when no rule matches
-        """
-        self.mode = mode
-        self.default_behavior = default_behavior
+    def __init__(self) -> None:
         self.rules: List[PermissionRule] = []
 
     def add_rule(self, rule: PermissionRule) -> None:
@@ -111,7 +90,7 @@ class PermissionPolicy:
         self,
         tool_name: str,
         tool_input: Dict[str, Any],
-    ) -> PermissionBehavior:
+    ) -> PermissionDecision:
         """
         Check if tool use is permitted.
 
@@ -120,14 +99,9 @@ class PermissionPolicy:
             tool_input: Tool input parameters
 
         Returns:
-            Permission behavior (allow/deny/ask)
+            Explicit Galatea decision, or ``defer`` for SDK evaluation.
 
         """
-        if self.mode == "bypassPermissions":
-            return "allow"
-        if self.mode == "plan":
-            return "deny"
-
         # Deny rules win over allow rules.
         matching = [rule for rule in self.rules if rule.matches(tool_name, tool_input)]
         for rule in matching:
@@ -136,25 +110,7 @@ class PermissionPolicy:
         for rule in matching:
             if rule.behavior == "allow":
                 return "allow"
-        for rule in matching:
-            if rule.behavior == "ask":
-                return "ask"
-
-        if self.mode == "dontAsk":
-            return "deny"
-        if self.mode == "acceptEdits" and tool_name in {"Edit", "Write", "MultiEdit"}:
-            return "allow"
-        return self.default_behavior
-
-    def set_mode(self, mode: PermissionMode) -> None:
-        """
-        Set permission mode.
-
-        Args:
-            mode: New permission mode
-
-        """
-        self.mode = mode
+        return "defer"
 
     def get_rules(self, tool_name: Optional[str] = None) -> List[PermissionRule]:
         """
@@ -180,37 +136,18 @@ class PermissionPolicy:
         behavior = self.check_permission(tool_name, tool_input)
         if behavior == "allow":
             return f"{tool_name} is allowed by Galatea permission policy."
-        if behavior == "ask":
-            return f"{tool_name} requires explicit approval by Galatea policy."
-        if self.mode == "plan":
-            return "Plan mode blocks tool execution."
-        if self.mode == "dontAsk":
-            return f"{tool_name} is not pre-approved and dontAsk mode denies prompts."
-        return f"{tool_name} is denied by Galatea permission policy."
-
-    async def can_use_tool(
-        self,
-        tool_name: str,
-        tool_input: Dict[str, Any],
-        context: ToolPermissionContext,
-    ) -> PermissionResultAllow | PermissionResultDeny:
-        """Claude SDK ``can_use_tool`` adapter for ask-mode permission requests."""
-        behavior = self.check_permission(tool_name, tool_input)
-        reason = self.explain_permission(tool_name, tool_input)
-        if behavior == "allow":
-            return PermissionResultAllow()
-        return PermissionResultDeny(message=reason, interrupt=False)
+        if behavior == "deny":
+            return f"{tool_name} is denied by Galatea permission policy."
+        return f"{tool_name} has no Galatea rule; defer to Claude SDK permissions."
 
     @classmethod
     def for_galatea(
         cls,
         allowed_tools: Optional[List[str]] = None,
         disallowed_tools: Optional[List[str]] = None,
-        mode: PermissionMode = "dontAsk",
-        default_behavior: PermissionBehavior = "deny",
     ) -> "PermissionPolicy":
         """Create a safe Galatea default policy with exact allow and deny rules."""
-        policy = cls(mode=mode, default_behavior=default_behavior)
+        policy = cls()
         effective_disallowed_tools = (
             list(DEFAULT_DISALLOWED_TOOLS)
             if disallowed_tools is None

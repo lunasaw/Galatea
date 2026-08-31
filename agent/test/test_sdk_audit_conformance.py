@@ -99,12 +99,11 @@ class TestProjectClaudeAgents(unittest.TestCase):
 
 class TestSdkThinAdapters(unittest.TestCase):
     def test_hook_events_match_sdk_supported_events(self) -> None:
-        from agent.hooks import HookEvent
+        from agent.hooks import SDK_HOOK_EVENTS
 
         self.assertEqual(
-            {event.value for event in HookEvent},
+            SDK_HOOK_EVENTS,
             {
-                "SessionStart",
                 "UserPromptSubmit",
                 "PreToolUse",
                 "PostToolUse",
@@ -118,6 +117,14 @@ class TestSdkThinAdapters(unittest.TestCase):
             },
         )
 
+    def test_hooks_export_sdk_types_without_local_input_output_models(self) -> None:
+        import agent.hooks as hooks
+
+        self.assertFalse(hasattr(hooks, "HookOutput"))
+        self.assertFalse(hasattr(hooks, "HookRegistry"))
+        self.assertEqual(hooks.HookInput.__module__, "types")
+        self.assertEqual(hooks.HookMatcher.__module__, "claude_agent_sdk.types")
+
     def test_mcp_tool_name_static_introspection_is_not_exported(self) -> None:
         import agent.core as core
         import agent.core.sdk as sdk
@@ -125,13 +132,64 @@ class TestSdkThinAdapters(unittest.TestCase):
         self.assertFalse(hasattr(core, "mcp_tool_names"))
         self.assertFalse(hasattr(sdk, "mcp_tool_names"))
 
-    def test_skill_runtime_config_only_exposes_sdk_options(self) -> None:
-        from agent.skills import SkillRuntimeConfig
+    def test_runtime_has_no_local_skill_authorization_config(self) -> None:
+        import agent.skills as skills
+        from agent.core import AgentSDKConfig, GalateaSDKRuntime
 
-        config = SkillRuntimeConfig()
-        self.assertFalse(hasattr(config, "add_dirs"))
-        self.assertTrue(hasattr(config, "skills"))
-        self.assertTrue(hasattr(config, "plugins"))
+        self.assertFalse(hasattr(skills, "SkillRuntimeConfig"))
+        self.assertFalse(hasattr(skills, "skill_permission_rules"))
+        runtime = GalateaSDKRuntime(
+            AgentSDKConfig(
+                project_root=Path.cwd(),
+                skills=["ray"],
+                auto_load_config=False,
+            )
+        )
+        options = runtime.build_options()
+        self.assertEqual(options.skills, ["ray"])
+        self.assertNotIn("Skill(ray)", options.allowed_tools)
+
+    def test_repository_skill_plugin_manifest_points_to_existing_directory(self) -> None:
+        manifest_path = Path(".claude-plugin/plugin.json")
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["name"], "galatea-skills")
+        self.assertTrue(payload["skills"].startswith("./"))
+        self.assertTrue((Path.cwd() / payload["skills"]).is_dir())
+
+    def test_sdk_plugins_are_explicit_and_passed_through(self) -> None:
+        from agent.core import AgentSDKConfig, GalateaSDKRuntime
+
+        plugin = {"type": "local", "path": str(Path.cwd())}
+        runtime = GalateaSDKRuntime(
+            AgentSDKConfig(
+                project_root=Path.cwd(),
+                plugins=[plugin],
+                auto_load_config=False,
+            )
+        )
+        self.assertEqual(runtime.build_options().plugins, [plugin])
+
+    def test_direct_executor_is_not_a_public_tool_runtime(self) -> None:
+        import agent.tools as tools
+        from agent.tools.executor import inspection_test_executor
+        from agent.tools.server import INSPECTION_TOOLS
+
+        self.assertFalse(hasattr(tools, "ToolExecutor"))
+        self.assertFalse(hasattr(tools, "DeterministicMcpToolExecutor"))
+        executor = inspection_test_executor()
+        self.assertEqual(
+            executor.registry.list(),
+            sorted(sdk_tool.name for sdk_tool in INSPECTION_TOOLS),
+        )
+
+    def test_mcp_tools_declare_read_only_annotations(self) -> None:
+        from agent.tools.server import INSPECTION_TOOLS
+
+        for sdk_tool in INSPECTION_TOOLS:
+            self.assertIsNotNone(sdk_tool.annotations)
+            self.assertTrue(sdk_tool.annotations.readOnlyHint)
+            self.assertFalse(sdk_tool.annotations.destructiveHint)
+            self.assertTrue(sdk_tool.annotations.idempotentHint)
 
 
 class TestInspectPlatformCli(unittest.IsolatedAsyncioTestCase):

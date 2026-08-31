@@ -1,11 +1,11 @@
 """
-Workflow orchestration for multi-stage agent coordination.
+Workflow state and evidence helpers.
 
 Provides workflow state machines, orchestration, and predefined workflows.
 
 Key components:
 - WorkflowStateMachine: State management and transitions
-- WorkflowOrchestrator: Multi-agent coordination
+- WorkflowOrchestrator: deterministic state/evidence registry
 - WorkflowDefinition: Workflow structure and validation
 - Predefined workflows: Common training workflow patterns
 

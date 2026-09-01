@@ -1,0 +1,216 @@
+<mxfile host="app.diagrams.net"><diagram id="galatea-architecture-page" name="Galatea 平台架构">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Galatea 机器学习训练平台架构" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#17324D;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="860" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="JupyterLab 开发 · Ray 执行 · MLflow 治理 · MinIO 持久化｜可复现、可审计、可恢复" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#5B6B7A;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="860" height="32" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend" value="图例" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=#CBD5E1;verticalAlign=top;align=left;spacingLeft=8;fontSize=11;fontStyle=1;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="940" y="16" width="620" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-control-text" value="控制流" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;fontColor=#2563EB;" vertex="1" parent="legend">
+          <mxGeometry x="104" y="34" width="84" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-data-text" value="数据流" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;fontColor=#07856C;" vertex="1" parent="legend">
+          <mxGeometry x="294" y="34" width="84" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-audit-text" value="Artifact / 审计流" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;fontColor=#D97706;" vertex="1" parent="legend">
+          <mxGeometry x="480" y="34" width="136" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-control-line" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#2563EB;strokeWidth=2;endArrow=classic;" edge="1" parent="legend">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="24" y="52" as="sourcePoint" /><mxPoint x="94" y="52" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="legend-data-line" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#07856C;strokeWidth=2;dashed=1;dashPattern=6 4;endArrow=classic;" edge="1" parent="legend">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="214" y="52" as="sourcePoint" /><mxPoint x="284" y="52" as="targetPoint" /></mxGeometry>
+        </mxCell>
+        <mxCell id="legend-audit-line" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#D97706;strokeWidth=2;dashed=1;dashPattern=2 3;endArrow=classic;" edge="1" parent="legend">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="404" y="52" as="sourcePoint" /><mxPoint x="474" y="52" as="targetPoint" /></mxGeometry>
+        </mxCell>
+
+        <mxCell id="entry-layer" value="使用者与开发入口" style="swimlane;startSize=52;rounded=1;html=1;fillColor=#F1F7FF;swimlaneFillColor=#E2EEFF;strokeColor=#3B82C4;strokeWidth=1.5;fontSize=14;fontStyle=1;fontColor=#174A75;horizontal=1;collapsible=0;container=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="350" height="500" as="geometry" />
+        </mxCell>
+        <mxCell id="training-layer" value="训练与调度层" style="swimlane;startSize=52;rounded=1;html=1;fillColor=#F1FBF7;swimlaneFillColor=#DDF4E9;strokeColor=#27926F;strokeWidth=1.5;fontSize=14;fontStyle=1;fontColor=#145A46;horizontal=1;collapsible=0;container=1;" vertex="1" parent="1">
+          <mxGeometry x="410" y="120" width="630" height="500" as="geometry" />
+        </mxCell>
+        <mxCell id="governance-layer" value="实验治理层" style="swimlane;startSize=52;rounded=1;html=1;fillColor=#FFF9F1;swimlaneFillColor=#FFE8CA;strokeColor=#D97706;strokeWidth=1.5;fontSize=14;fontStyle=1;fontColor=#8A4300;horizontal=1;collapsible=0;container=1;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="120" width="500" height="500" as="geometry" />
+        </mxCell>
+        <mxCell id="persistence-layer" value="持久化与运维层" style="swimlane;startSize=44;rounded=1;html=1;fillColor=#FAF8FC;swimlaneFillColor=#ECE5F3;strokeColor=#8765A8;strokeWidth=1.5;fontSize=12;fontStyle=1;fontColor=#55356F;horizontal=1;collapsible=0;container=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="636" width="1520" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="algorithm-engineer" value="算法工程师" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCEEFF;strokeColor=#3B82C4;fontSize=11;fontStyle=1;fontColor=#174A75;" vertex="1" parent="entry-layer">
+          <mxGeometry x="28" y="76" width="136" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="platform-engineer" value="平台工程师" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCEEFF;strokeColor=#3B82C4;fontSize=11;fontStyle=1;fontColor=#174A75;" vertex="1" parent="entry-layer">
+          <mxGeometry x="186" y="76" width="136" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="jupyterlab" value="JupyterLab｜8888
+Notebook · 数据探索
+配置 · 单批/Smoke Test" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#3B82C4;strokeWidth=1.5;fontSize=11;fontStyle=1;fontColor=#17324D;" vertex="1" parent="entry-layer">
+          <mxGeometry x="28" y="168" width="294" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="formal-entry" value="正式长任务入口
+scripts/train.py（参数化）
+不依赖 Notebook Kernel" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E9F3FF;strokeColor=#2563EB;strokeWidth=1.5;fontSize=11;fontStyle=1;fontColor=#173B72;" vertex="1" parent="entry-layer">
+          <mxGeometry x="28" y="320" width="294" height="108" as="geometry" />
+        </mxCell>
+        <mxCell id="dev-note" value="Notebook 仅用于探索、展示与短 Smoke Test" style="text;html=1;align=center;verticalAlign=middle;fontSize=9;fontColor=#64748B;" vertex="1" parent="entry-layer">
+          <mxGeometry x="28" y="436" width="294" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ray-jobs-api" value="Ray Jobs API
+任务提交" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDF4E9;strokeColor=#27926F;fontSize=11;fontStyle=1;fontColor=#145A46;" vertex="1" parent="training-layer">
+          <mxGeometry x="28" y="72" width="164" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="ray-head" value="Ray Head
+Dashboard 8265" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DDF4E9;strokeColor=#27926F;fontSize=11;fontStyle=1;fontColor=#145A46;" vertex="1" parent="training-layer">
+          <mxGeometry x="232" y="72" width="164" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="ray-train-controller" value="Ray Train Controller
+权威 Run / 重试协调" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#CDEDDD;strokeColor=#1D8669;strokeWidth=1.5;fontSize=11;fontStyle=1;fontColor=#104E3C;" vertex="1" parent="training-layer">
+          <mxGeometry x="436" y="72" width="168" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="data-identity" value="数据身份链
+MinIO / 已验证本地缓存 → Manifest + SHA-256
+确定性 train / val / test split" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F0FDFA;strokeColor=#0F9F83;fontSize=10;fontStyle=1;fontColor=#115E59;" vertex="1" parent="training-layer"><mxGeometry x="28" y="188" width="292" height="116" as="geometry" /></mxCell>
+        <mxCell id="ray-data" value="Ray Data CPU Tasks
+数据校验 · 解码 · 预处理 · 分片" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DFF7F1;strokeColor=#0F9F83;fontSize=11;fontStyle=1;fontColor=#115E59;" vertex="1" parent="training-layer"><mxGeometry x="356" y="200" width="248" height="92" as="geometry" /></mxCell>
+        <mxCell id="pytorch-worker-1" value="PyTorch Worker 1
+CPU / GPU · BF16 / DDP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#1D8669;strokeWidth=1.5;fontSize=11;fontStyle=1;fontColor=#145A46;" vertex="1" parent="training-layer">
+          <mxGeometry x="28" y="344" width="188" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="pytorch-worker-n" value="PyTorch Worker N
+一个或多个并行 Worker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#1D8669;strokeWidth=1.5;fontSize=11;fontStyle=1;fontColor=#145A46;" vertex="1" parent="training-layer">
+          <mxGeometry x="236" y="344" width="188" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="checkpoint-resume" value="Checkpoint / 恢复
+失败可恢复 · 重试幂等" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4D6;strokeColor=#D79B00;fontSize=11;fontStyle=1;fontColor=#7A4A00;" vertex="1" parent="training-layer">
+          <mxGeometry x="444" y="344" width="160" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="training-context-spine" value="全链路训练身份：Run ID + 数据摘要 + 代码摘要 + 配置 / 环境 / Seed / 资源" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E7;strokeColor=#D97706;dashed=1;fontSize=10;fontStyle=1;fontColor=#8A4300;" vertex="1" parent="training-layer">
+          <mxGeometry x="28" y="442" width="576" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mlflow-tracking-api" value="MLflow Tracking API
+服务端口 5000" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8CA;strokeColor=#D97706;strokeWidth=1.5;fontSize=11;fontStyle=1;fontColor=#8A4300;" vertex="1" parent="governance-layer">
+          <mxGeometry x="28" y="72" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="mlflow-experiment-run" value="Experiment / Run
+独立、可追溯、可比较" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D97706;fontSize=11;fontStyle=1;fontColor=#8A4300;" vertex="1" parent="governance-layer">
+          <mxGeometry x="252" y="72" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="mlflow-run-metadata" value="Metrics · Params · Tags · Dataset Input
+数据/切分/预处理/代码/环境/资源与完整超参数" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E2;strokeColor=#E38B2C;fontSize=10;fontColor=#7C3A00;" vertex="1" parent="governance-layer">
+          <mxGeometry x="28" y="176" width="444" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="evaluation-policy" value="评测隔离：验证集用于选参与早停；测试集仅由 Champion 最终评测一次" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8D8;strokeColor=#D6B656;fontSize=10;fontStyle=1;fontColor=#6B5200;" vertex="1" parent="governance-layer">
+          <mxGeometry x="28" y="276" width="444" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="mlflow-artifact-api" value="Artifact API
+Checkpoint / 模型 / 报告" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF0DD;strokeColor=#D97706;fontSize=10;fontStyle=1;fontColor=#8A4300;" vertex="1" parent="governance-layer">
+          <mxGeometry x="28" y="356" width="200" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="model-registry" value="Model Registry
+版本 / 别名 / 审批记录" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E9F8;strokeColor=#8765A8;fontSize=10;fontStyle=1;fontColor=#55356F;" vertex="1" parent="governance-layer">
+          <mxGeometry x="252" y="356" width="220" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="quality-gate" value="质量门禁
+主指标 · 血缘 · 可恢复性" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=9;fontStyle=1;fontColor=#6B5200;" vertex="1" parent="governance-layer">
+          <mxGeometry x="28" y="440" width="200" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="manual-promotion" value="人工审核与晋级
+candidate → champion" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E5F3E4;strokeColor=#5B9F54;strokeWidth=1.5;fontSize=10;fontStyle=1;fontColor=#2F612D;" vertex="1" parent="governance-layer">
+          <mxGeometry x="252" y="440" width="220" height="52" as="geometry" />
+        </mxCell>
+
+        <mxCell id="minio-store" value="MinIO 对象存储
+API 9000 · Console 9001
+training-data · mlflow-artifacts
+checkpoints / models / reports" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#E3F3E2;strokeColor=#5B9F54;strokeWidth=1.5;fontSize=10;fontStyle=1;fontColor=#2F612D;" vertex="1" parent="persistence-layer">
+          <mxGeometry x="28" y="60" width="316" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="mlflow-backend-store" value="MLflow Backend Store
+SQLite：mlflow.db
+仅服务端内部" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#F3E9F8;strokeColor=#8765A8;fontSize=10;fontStyle=1;fontColor=#55356F;" vertex="1" parent="persistence-layer">
+          <mxGeometry x="376" y="60" width="252" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="platform-data" value="platform-data/
+运行数据库、对象与状态
+Git 忽略 · 成组备份" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E9F8;strokeColor=#8765A8;fontSize=10;fontStyle=1;fontColor=#55356F;" vertex="1" parent="persistence-layer">
+          <mxGeometry x="660" y="60" width="252" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="systemd-operations" value="systemd 服务生命周期
+JupyterLab / MLflow / MinIO
+Ray Head：按需启动 / 可托管" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF2F7;strokeColor=#64748B;fontSize=10;fontStyle=1;fontColor=#334155;" vertex="1" parent="persistence-layer">
+          <mxGeometry x="944" y="60" width="340" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="single-node-baseline" value="单节点基线
+单机单盘
+需异机备份" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE7E7;strokeColor=#C85C5C;fontSize=10;fontStyle=1;fontColor=#7F1D1D;" vertex="1" parent="persistence-layer">
+          <mxGeometry x="1316" y="60" width="176" height="112" as="geometry" />
+        </mxCell>
+
+        <mxCell id="security-boundary" value="安全边界｜训练客户端仅访问 MLflow Tracking / Artifact API：不读取 mlflow.db，不持有 MinIO 长期密钥；未认证对外端口不得暴露公网（防火墙 / 认证代理 / 受控内网）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2ECF7;strokeColor=#8765A8;strokeWidth=1.5;fontSize=10;fontStyle=1;fontColor=#55356F;" vertex="1" parent="1">
+          <mxGeometry x="40" y="850" width="1520" height="36" as="geometry" />
+        </mxCell>
+
+        <mxCell id="control-algorithm-to-jupyter" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.7;endArrow=classic;exitX=0.5;exitY=1;entryX=0.3;entryY=0;" edge="1" parent="entry-layer" source="algorithm-engineer" target="jupyterlab">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="control-platform-to-jupyter" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.7;endArrow=classic;exitX=0.5;exitY=1;entryX=0.7;entryY=0;" edge="1" parent="entry-layer" source="platform-engineer" target="jupyterlab">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="control-jupyter-to-script" value="配置与触发" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.7;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#1D4ED8;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="entry-layer" source="jupyterlab" target="formal-entry">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="-0.2" y="0" as="offset" /></mxGeometry>
+        </mxCell>
+        <mxCell id="control-script-to-ray-job" value="参数化提交" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=2;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#1D4ED8;exitX=1;exitY=0.35;entryX=0;entryY=0.5;" edge="1" parent="1" source="formal-entry" target="ray-jobs-api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="control-ray-job-to-head" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.7;endArrow=classic;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="training-layer" source="ray-jobs-api" target="ray-head">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="control-head-to-controller" value="调度 / 资源" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.7;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#1D4ED8;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="training-layer" source="ray-head" target="ray-train-controller">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="control-controller-to-worker-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.6;endArrow=classic;exitX=1;exitY=0.35;entryX=0.5;entryY=0;" edge="1" parent="training-layer" source="ray-train-controller" target="pytorch-worker-1"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="618" y="100" /><mxPoint x="618" y="320" /><mxPoint x="122" y="320" /></Array></mxGeometry></mxCell>
+        <mxCell id="control-controller-to-worker-n" value="训练控制" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.6;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#1D4ED8;exitX=0.75;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="training-layer" source="ray-train-controller" target="pytorch-worker-n"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="562" y="310" /><mxPoint x="330" y="310" /></Array></mxGeometry></mxCell>
+        <mxCell id="data-minio-to-identity" value="版本化数据 / 已验证缓存" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#07856C;strokeWidth=1.8;dashed=1;dashPattern=6 4;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#047857;exitX=0.75;exitY=0;entryX=0.25;entryY=1;" edge="1" parent="1" source="minio-store" target="data-identity">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="308" y="628" /><mxPoint x="516" y="628" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="data-identity-to-ray-data" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#07856C;strokeWidth=1.8;dashed=1;dashPattern=6 4;endArrow=classic;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="training-layer" source="data-identity" target="ray-data"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="data-ray-data-to-worker-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#07856C;strokeWidth=1.7;dashed=1;dashPattern=6 4;endArrow=classic;exitX=0.25;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="training-layer" source="ray-data" target="pytorch-worker-1"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="418" y="300" /><mxPoint x="122" y="300" /></Array></mxGeometry></mxCell>
+        <mxCell id="data-ray-data-to-worker-n" value="批次 / 分片" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#07856C;strokeWidth=1.7;dashed=1;dashPattern=6 4;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#047857;exitX=0.55;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="training-layer" source="ray-data" target="pytorch-worker-n"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="492" y="314" /><mxPoint x="330" y="314" /></Array></mxGeometry></mxCell>
+        <mxCell id="audit-worker-to-controller" value="指标 / 状态" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=1.8;dashed=1;dashPattern=2 3;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#B45309;exitX=1;exitY=0.05;entryX=1;entryY=0.5;" edge="1" parent="training-layer" source="pytorch-worker-n" target="ray-train-controller"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="430" y="330" /><mxPoint x="620" y="330" /><mxPoint x="620" y="110" /></Array></mxGeometry></mxCell>
+        <mxCell id="audit-controller-to-tracking" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=2;dashed=1;dashPattern=2 3;endArrow=classic;exitX=1;exitY=0.45;entryX=0;entryY=0.5;" edge="1" parent="1" source="ray-train-controller" target="mlflow-tracking-api"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="audit-tracking-to-run" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=1.8;dashed=1;dashPattern=2 3;endArrow=classic;exitX=1;exitY=0.4;entryX=0;entryY=0.4;" edge="1" parent="governance-layer" source="mlflow-tracking-api" target="mlflow-experiment-run"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="audit-run-to-metadata" value="记录证据" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=1.6;dashed=1;dashPattern=2 3;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#B45309;exitX=0.5;exitY=1;entryX=0.75;entryY=0;" edge="1" parent="governance-layer" source="mlflow-experiment-run" target="mlflow-run-metadata">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="data-ray-to-evaluation-policy" value="验证 / 最终测试语义" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#07856C;strokeWidth=1.7;dashed=1;dashPattern=6 4;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#047857;exitX=1;exitY=0.55;entryX=0;entryY=0.5;" edge="1" parent="1" source="ray-data" target="evaluation-policy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="audit-worker-to-checkpoint" value="周期保存" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=1.7;dashed=1;dashPattern=2 3;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#B45309;exitX=1;exitY=0.75;entryX=0;entryY=0.75;" edge="1" parent="training-layer" source="pytorch-worker-n" target="checkpoint-resume"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="control-checkpoint-to-worker" value="失败恢复" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.5;dashed=1;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#1D4ED8;exitX=0;exitY=0.25;entryX=1;entryY=0.25;" edge="1" parent="training-layer" source="checkpoint-resume" target="pytorch-worker-n"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="audit-checkpoint-to-artifact-api" value="通过 Artifact API 持久化" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=2;dashed=1;dashPattern=2 3;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#B45309;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="checkpoint-resume" target="mlflow-artifact-api">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1044" y="508" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="audit-artifact-api-to-minio" value="MLflow Server 代理写入" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=2;dashed=1;dashPattern=2 3;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#B45309;exitX=0.2;exitY=1;entryX=1;entryY=0.35;" edge="1" parent="1" source="mlflow-artifact-api" target="minio-store">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1072" y="624" /><mxPoint x="380" y="624" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="audit-tracking-to-backend" value="元数据（服务端内部）" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=1.7;dashed=1;dashPattern=2 3;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#B45309;exitX=0.8;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="mlflow-tracking-api" target="mlflow-backend-store">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1260" y="624" /><mxPoint x="542" y="624" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="audit-run-to-registry" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=1.6;dashed=1;dashPattern=2 3;endArrow=classic;exitX=1;exitY=0.65;entryX=0.8;entryY=0;" edge="1" parent="governance-layer" source="mlflow-experiment-run" target="model-registry"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="488" y="120" /><mxPoint x="488" y="340" /><mxPoint x="428" y="340" /></Array></mxGeometry></mxCell>
+        
+        
+      <mxCell id="control-artifact-to-gate" value="可恢复性验证" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.6;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#1D4ED8;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="governance-layer" source="mlflow-artifact-api" target="quality-gate"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="control-gate-to-registry" value="通过门禁" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.7;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#1D4ED8;exitX=1;exitY=0.5;entryX=0.25;entryY=1;" edge="1" parent="governance-layer" source="quality-gate" target="model-registry"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="240" y="466" /><mxPoint x="240" y="426" /><mxPoint x="307" y="426" /></Array></mxGeometry></mxCell><mxCell id="control-registry-to-promotion" value="人工决定" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2563EB;strokeWidth=1.7;endArrow=classic;labelBackgroundColor=#FFFFFF;fontSize=9;fontColor=#1D4ED8;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="governance-layer" source="model-registry" target="manual-promotion"><mxGeometry relative="1" as="geometry" /></mxCell></root>
+    </mxGraphModel>
+  </diagram></mxfile>

@@ -13,6 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@deepseek-ai/cordis': `${harnessRoot}/vendor/cordis/src/index.ts`,
+      '@deepseek-ai/cordis-plugin-loader': `${harnessRoot}/vendor/loader/src/index.ts`,
       '@deepseek-ai/schemastery': `${harnessRoot}/vendor/schemastery/src/index.ts`,
       '@deepseek-ai/dsh-brand': `${harnessRoot}/packages/util/brand/src/index.ts`,
       '@deepseek-ai/dsh-app-boot': `${harnessRoot}/packages/boot/app-boot/src/index.ts`,

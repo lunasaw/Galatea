@@ -23,8 +23,10 @@ from ray_cats_dogs.data import (
     validate_equal_shards,
 )
 from ray_cats_dogs.evaluate import evaluate_checkpoint
+from ray_cats_dogs.integrity import build_integrity_report, integrity_digest
 from ray_cats_dogs.runtime import (
     controller_pickle_by_value,
+    execution_provenance,
     ray_init_runtime_env,
     worker_runtime_env,
 )
@@ -46,9 +48,24 @@ from ray_cats_dogs.worker import train_loop_per_worker
 os.environ.setdefault("MLFLOW_RECORD_ENV_VARS_IN_MODEL_LOGGING", "false")
 
 
-def config_plan(config: ProjectConfig) -> dict[str, Any]:
+def config_plan(
+    config: ProjectConfig,
+    dataset: PreparedDataset | None = None,
+) -> dict[str, Any]:
+    integrity = build_integrity_report(
+        config,
+        dataset,
+        include_test=config.run.role == "champion",
+    )
     return {
         "config": config.as_dict(),
+        "integrity": {
+            "preprocessing": integrity["preprocessing"],
+            "migration": integrity["migration"],
+            "preprocessing_digest": integrity["preprocessing_digest"],
+            "migration_contamination_digest": integrity["migration_contamination_digest"],
+            "integrity_digest": integrity["integrity_digest"],
+        },
         "config_digest": config.config_digest,
         "objective": {
             "metric": config.training.objective_metric,
@@ -81,11 +98,12 @@ def read_only_plan(config: ProjectConfig) -> dict[str, Any]:
     dataset = prepare_dataset(config.data, config.run.seed)
     validate_equal_shards(dataset, config.ray.num_workers)
     code = code_identity(config)
-    identity_key = idempotency_key(config, dataset, code["source_sha256"])
+    integrity = build_integrity_report(config, dataset, include_test=config.run.role == "champion")
+    identity_key = idempotency_key(config, dataset, code["source_sha256"], integrity_digest(integrity))
     prior_runs = runs_for_identity(tracking, identity_key) if tracking else []
     existing = successful_run(prior_runs)
     return {
-        **config_plan(config),
+        **config_plan(config, dataset),
         "tracking": {
             "uri": config.mlflow.tracking_uri,
             "experiment": config.mlflow.experiment_name,
@@ -357,7 +375,8 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
     dataset = prepare_dataset(config.data, config.run.seed)
     validate_equal_shards(dataset, config.ray.num_workers)
     code = code_identity(config)
-    identity_key = idempotency_key(config, dataset, code["source_sha256"])
+    integrity = build_integrity_report(config, dataset, include_test=config.run.role == "champion")
+    identity_key = idempotency_key(config, dataset, code["source_sha256"], integrity_digest(integrity))
     prior_runs = runs_for_identity(tracking, identity_key)
     existing = successful_run(prior_runs)
     if existing is not None and not force:
@@ -416,6 +435,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
             "ray.task_timeline.requested": str(
                 config.ray.record_task_timeline
             ).lower(),
+            **execution_provenance(config.project_name),
         }
         phase = "run-setup"
         with mlflow.start_run(
@@ -443,7 +463,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
             )
             timeline_metadata = None
             try:
-                log_run_inputs(config, dataset, code, ray_job_id, identity_key)
+                log_run_inputs(config, dataset, code, ray_job_id, identity_key, integrity)
                 mlflow.log_dict(
                     available_resources, "ray/available-resources-at-start.json"
                 )

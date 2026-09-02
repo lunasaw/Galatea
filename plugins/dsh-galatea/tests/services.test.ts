@@ -88,7 +88,12 @@ test('Ray service reuses an existing deterministic submission and caps logs', as
       metadata: { project: 'demo' },
     })
     assert.deepEqual(submitted, { submissionId: 'train-abc', reused: true, status: 'RUNNING' })
-    assert.deepEqual(await ray.logs('train-abc'), { logs: '56789', truncated: true })
+    assert.deepEqual(await ray.logs('train-abc'), {
+      logs: '56789', truncated: true, cursor: 0, nextCursor: 10, reset: false,
+    })
+    assert.deepEqual(await ray.logs('train-abc', 8), {
+      logs: '89', truncated: false, cursor: 8, nextCursor: 10, reset: false,
+    })
     assert.equal(server.requests.some(request => request.method === 'POST'), false)
     assert.equal(deterministicSubmissionId('demo', 'train', 'sha256:abcdef'), 'demo-train-abcdef')
   } finally {

@@ -1,5 +1,6 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { defineTool, type JsonValue as HarnessJsonValue, type ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { JsonValue as HarnessJsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import type { JsonValue, ToolResult } from '../contracts/index.ts'
 import { failure, redactSecrets } from '../contracts/index.ts'
@@ -7,6 +8,8 @@ import type { ApprovalReference, ExecutionRole } from '../policies/lifecycle.ts'
 import type { GalateaController, StageEvidence } from './controller.ts'
 
 export const GALATEA_TOOL_NAMES = [
+  'galatea_list_projects',
+  'galatea_select_project',
   'galatea_inspect_project',
   'galatea_patch_config',
   'galatea_plan_run',
@@ -23,6 +26,10 @@ export const GALATEA_TOOL_NAMES = [
 
 export interface GalateaToolContext {
   readonly controller: GalateaController
+  readonly controllerFor?: (agent: Agent | undefined) => Promise<GalateaController>
+  readonly listProjects?: (agent: Agent | undefined) => Promise<JsonValue>
+  readonly selectProject?: (agent: Agent | undefined, projectId: string) => Promise<JsonValue>
+  readonly approvalPolicy?: (agent: Agent | undefined) => string
   readonly approval: {
     request(request: ApprovalRequest): Promise<ApprovalOutcome>
   }
@@ -103,6 +110,9 @@ async function requestApproval(
 
 /** Build the bounded model-facing surface over one stateless Controller. */
 export function createGalateaTools(context: GalateaToolContext): ToolDefinition[] {
+  const controller = async (agent: Agent | undefined) => context.controllerFor === undefined
+    ? context.controller
+    : await context.controllerFor(agent)
   const role = { type: 'string', enum: ['smoke', 'trial', 'champion'], required: true } as const
   const configPath = { type: 'string', required: true, description: 'Project-relative YAML path below configRoot.' } as const
   const releaseManifestPath = { type: 'string', required: true, description: 'Path below the configured immutable release root.' } as const
@@ -110,10 +120,41 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
   const tools: ToolDefinition[] = []
 
   tools.push(defineTool({
-    name: 'galatea_inspect_project',
-    description: 'Inspect the configured training project contract and declared capabilities.',
+    name: 'galatea_list_projects',
+    description: 'List the administrator-configured Galatea projects and the current Session selection.',
     parameters: {}, output,
-    async execute() { return safeResult(await context.controller.inspectProject()) },
+    async execute(_args, exec) {
+      if (context.listProjects === undefined) {
+        return safeResult(failure({ category: 'unsupported', message: 'multi-project registry is not configured', retryable: false, stateChanged: false }))
+      }
+      return safeResult({ ok: true, data: await context.listProjects(exec.agent), summary: 'Listed configured Galatea projects.' })
+    },
+  }))
+  tools.push(defineTool({
+    name: 'galatea_select_project',
+    description: 'Select one administrator-configured Galatea project for this Harness Session.',
+    parameters: { projectId: { type: 'string', required: true } }, output,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      if (exec.agent === undefined) return safeResult(failure({ category: 'precondition-failed', message: 'a live Harness Agent is required for Session project selection', retryable: false, stateChanged: false }))
+      if (context.selectProject === undefined) {
+        return safeResult(failure({ category: 'unsupported', message: 'multi-project registry is not configured', retryable: false, stateChanged: false }))
+      }
+      return safeResult({ ok: true, data: await context.selectProject(exec.agent, args.projectId), summary: `Selected Galatea project ${args.projectId} for this Session.` })
+    },
+  }))
+  tools.push(defineTool({
+    name: 'galatea_inspect_project',
+    description: 'Inspect the selected training project, service identities, approval policy, and declared capabilities.',
+    parameters: {}, output,
+    async execute(_args, exec) {
+      const selected = await controller(exec.agent)
+      const policy = context.approvalPolicy?.(exec.agent)
+      return safeResult(await selected.inspectProject({
+        ...(policy === undefined ? {} : { approvalPolicy: policy }),
+        signal: exec.signal,
+      }))
+    },
   }))
   tools.push(defineTool({
     name: 'galatea_patch_config',
@@ -132,7 +173,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     }, output,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      return safeResult(await context.controller.patchConfig({
+      return safeResult(await (await controller(exec.agent)).patchConfig({
         configPath: args.configPath,
         patches: args.patches as unknown as readonly { readonly path: readonly string[]; readonly value: JsonValue }[],
         signal: exec.signal,
@@ -144,7 +185,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     description: 'Run the declared read-only preflight and build readiness evidence without starting training.',
     parameters: { configPath, releaseManifestPath, role, attempt: { type: 'string', required: true } }, output,
     async execute(args, exec) {
-      return safeResult(await context.controller.planRun({ ...args, role: args.role as ExecutionRole, signal: exec.signal }))
+      return safeResult(await (await controller(exec.agent)).planRun({ ...args, role: args.role as ExecutionRole, signal: exec.signal }))
     },
   }))
   tools.push(defineTool({
@@ -164,7 +205,8 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     async execute(args, exec) {
       const agentFailure = requireAgent(exec.agent)
       if (agentFailure !== undefined) return safeResult(agentFailure)
-      const planned = await context.controller.planRun({ ...args, role: args.role as ExecutionRole, signal: exec.signal })
+      const selectedController = await controller(exec.agent)
+      const planned = await selectedController.planRun({ ...args, role: args.role as ExecutionRole, signal: exec.signal })
       if (!planned.ok) return safeResult(planned)
       const requested = await requestApproval(
         context,
@@ -188,7 +230,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
             nextAction: 'Build and approve training-optimization evidence for the selected Trial Run.',
           }))
         }
-        const candidate = await context.controller.buildStageEvidence({
+        const candidate = await selectedController.buildStageEvidence({
           runId: args.candidateRunId,
           stage: 'training-optimization',
           signal: exec.signal,
@@ -213,7 +255,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
           stateChanged: false,
         }))
       }
-      return safeResult(await context.controller.submitJob({
+      return safeResult(await selectedController.submitJob({
         ...args,
         role: args.role as ExecutionRole,
         approval,
@@ -225,8 +267,15 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
   tools.push(defineTool({
     name: 'galatea_observe_job',
     description: 'Read a Ray Job status and optionally its bounded logs.',
-    parameters: { submissionId, includeLogs: { type: 'boolean' } }, output,
-    async execute(args, exec) { return safeResult(await context.controller.observeJob({ ...args, signal: exec.signal })) },
+    parameters: {
+      submissionId,
+      includeLogs: { type: 'boolean' },
+      logCursor: {
+        type: 'number',
+        description: 'Non-negative integer character offset returned as nextLogCursor by the previous observation.',
+      },
+    }, output,
+    async execute(args, exec) { return safeResult(await (await controller(exec.agent)).observeJob({ ...args, signal: exec.signal })) },
   }))
   tools.push(defineTool({
     name: 'galatea_stop_job',
@@ -237,7 +286,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       idempotencyKey: { type: 'string', required: true },
     }, output,
     isConcurrencySafe: () => false,
-    async execute(args, exec) { return safeResult(await context.controller.stopJob({ ...args, signal: exec.signal })) },
+    async execute(args, exec) { return safeResult(await (await controller(exec.agent)).stopJob({ ...args, signal: exec.signal })) },
   }))
   tools.push(defineTool({
     name: 'galatea_pause_job',
@@ -245,7 +294,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     parameters: { submissionId, reason: { type: 'string', required: true } }, output,
     isConcurrencySafe: () => false,
     async execute(args, exec) {
-      return safeResult(await context.controller.pauseJob({ ...args, signal: exec.signal }))
+      return safeResult(await (await controller(exec.agent)).pauseJob({ ...args, signal: exec.signal }))
     },
   }))
   tools.push(defineTool({
@@ -267,7 +316,8 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     async execute(args, exec) {
       const agentFailure = requireAgent(exec.agent)
       if (agentFailure !== undefined) return safeResult(agentFailure)
-      const planned = await context.controller.planResume({ ...args, signal: exec.signal })
+      const selectedController = await controller(exec.agent)
+      const planned = await selectedController.planResume({ ...args, signal: exec.signal })
       if (!planned.ok) return safeResult(planned)
       const requested = await requestApproval(
         context,
@@ -280,7 +330,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       )
       if (!('valid' in requested)) return safeResult(requested)
       const approval = requested
-      return safeResult(await context.controller.resumeJob({
+      return safeResult(await selectedController.resumeJob({
         ...args,
         approval,
         signal: exec.signal,
@@ -293,7 +343,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     parameters: {
       referenceRunId: { type: 'string', required: true },
     }, output,
-    async execute(args, exec) { return safeResult(await context.controller.compareRuns({ ...args, signal: exec.signal })) },
+    async execute(args, exec) { return safeResult(await (await controller(exec.agent)).compareRuns({ ...args, signal: exec.signal })) },
   }))
   tools.push(defineTool({
     name: 'galatea_build_stage_evidence',
@@ -302,13 +352,13 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       runId: { type: 'string', required: true },
       stage: { type: 'string', const: 'training-optimization', required: true },
     }, output,
-    async execute(args, exec) { return safeResult(await context.controller.buildStageEvidence({ ...args, signal: exec.signal })) },
+    async execute(args, exec) { return safeResult(await (await controller(exec.agent)).buildStageEvidence({ ...args, signal: exec.signal })) },
   }))
   tools.push(defineTool({
     name: 'galatea_verify_candidate',
     description: 'Re-read a champion Run and declared Artifacts, evaluate quality gates, and build final-validation evidence.',
     parameters: { runId: { type: 'string', required: true } }, output,
-    async execute(args, exec) { return safeResult(await context.controller.verifyCandidate({ ...args, signal: exec.signal })) },
+    async execute(args, exec) { return safeResult(await (await controller(exec.agent)).verifyCandidate({ ...args, signal: exec.signal })) },
   }))
   tools.push(defineTool({
     name: 'galatea_promote_model',
@@ -322,7 +372,8 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     async execute(args, exec) {
       const agentFailure = requireAgent(exec.agent)
       if (agentFailure !== undefined) return safeResult(agentFailure)
-      const verified = await context.controller.verifyCandidate({ runId: args.runId, signal: exec.signal })
+      const selectedController = await controller(exec.agent)
+      const verified = await selectedController.verifyCandidate({ runId: args.runId, signal: exec.signal })
       if (!verified.ok) return safeResult(verified)
       const requested = await requestApproval(
         context,
@@ -335,7 +386,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       )
       if (!('valid' in requested)) return safeResult(requested)
       const approval = requested
-      return safeResult(await context.controller.promoteModel({ ...args, approval, signal: exec.signal }))
+      return safeResult(await selectedController.promoteModel({ ...args, approval, signal: exec.signal }))
     },
   }))
   return tools

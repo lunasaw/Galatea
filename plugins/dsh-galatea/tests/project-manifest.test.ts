@@ -63,6 +63,163 @@ test('validates a framework-neutral project declaration', () => {
   assert.deepEqual(manifest.spec.runEvidence.compatibility.role, { source: 'tag', key: 'run.role' })
 })
 
+test('accepts old manifests with unknown optional integrity', () => {
+  const manifest = validateProjectManifest(validManifest)
+  assert.equal(manifest.spec.integrity, undefined)
+})
+
+test('validates framework-neutral integrity declarations defensively', () => {
+  const integrity = {
+    planOutputPath: 'readiness.integrity',
+    reports: {
+      preprocessing: {
+        artifactPath: 'reports/preprocessing.json', roles: ['smoke', 'trial', 'champion'],
+        statusPath: 'status', digestPath: 'content_digest',
+        statusSource: { source: 'tag', key: 'integrity.preprocessing.status' },
+        digestSource: { source: 'param', key: 'integrity.preprocessing_artifact_digest' },
+      },
+      migration: {
+        artifactPath: 'reports/migration.json', roles: ['smoke', 'trial', 'champion'],
+        statusPath: 'status', digestPath: 'content_digest',
+        statusSource: { source: 'tag', key: 'integrity.migration.status' },
+        digestSource: { source: 'param', key: 'integrity.migration_artifact_digest' },
+      },
+    },
+    preprocessing: {
+      contexts: [
+        { id: 'train', roles: ['smoke', 'trial', 'champion'], outputPath: 'preprocessing.contexts.train' },
+        { id: 'evaluate', roles: ['champion'], outputPath: 'preprocessing.contexts.evaluate' },
+      ],
+      comparisons: [{
+        id: 'train-evaluate', roles: ['champion'], checkPath: 'preprocessing.checks.trainEvaluate',
+        leftContext: 'train', rightContext: 'evaluate', fields: ['dtype', 'range.minimum', 'range.maximum'], required: true,
+      }],
+    },
+    migration: {
+      enabled: true,
+      lineage: { roles: ['trial', 'champion'], outputPath: 'migration.lineage', allowed: ['clean-room', 'demo-template'], required: true },
+      contaminationChecks: [{ id: 'old-task-names', roles: ['trial', 'champion'], checkPath: 'migration.checks.oldTaskNames', required: true }],
+    },
+    improvementBacklog: [{ id: 'platform-debt', roles: ['smoke', 'trial', 'champion'], outputPath: 'advisories', blocking: false }],
+  } as const
+  const manifest = validateProjectManifest({ ...validManifest, spec: { ...validManifest.spec, integrity } })
+  assert.equal(manifest.spec.integrity?.migration.enabled, true)
+  assert.equal(manifest.spec.integrity?.preprocessing.comparisons[0]?.required, true)
+  assert.equal(manifest.spec.integrity?.improvementBacklog?.[0]?.blocking, false)
+
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: { ...validManifest.spec, integrity: { ...integrity, extra: true } },
+  }), /unknown fields/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: {
+      ...validManifest.spec,
+      integrity: { ...integrity, preprocessing: { ...integrity.preprocessing, contexts: [...integrity.preprocessing.contexts, integrity.preprocessing.contexts[0]] } },
+    },
+  }), /duplicate IDs/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: { ...validManifest.spec, integrity: { ...integrity, improvementBacklog: [{ ...integrity.improvementBacklog[0], blocking: true }] } },
+  }), /blocking must be false/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: { ...validManifest.spec, integrity: { ...integrity, planOutputPath: '../secrets' } },
+  }), /safe dotted path/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: {
+      ...validManifest.spec,
+      integrity: {
+        ...integrity,
+        reports: { ...integrity.reports, preprocessing: { ...integrity.reports.preprocessing, artifactPath: '../integrity.json' } },
+      },
+    },
+  }), /Artifact path/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: {
+      ...validManifest.spec,
+      integrity: {
+        ...integrity,
+        reports: {
+          ...integrity.reports,
+          preprocessing: {
+            ...integrity.reports.preprocessing,
+            statusSource: { source: 'tag', key: 'authorization.token' },
+          },
+        },
+      },
+    },
+  }), /secret-like evidence key/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: { ...validManifest.spec, integrity: { ...integrity, reports: { preprocessing: integrity.reports.preprocessing } } },
+  }), /reports\.migration/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: {
+      ...validManifest.spec,
+      integrity: {
+        ...integrity,
+        reports: { ...integrity.reports, migration: { ...integrity.reports.migration, artifactPath: 'reports/preprocessing.json' } },
+      },
+    },
+  }), /must be unique/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: {
+      ...validManifest.spec,
+      integrity: {
+        ...integrity,
+        preprocessing: {
+          ...integrity.preprocessing,
+          comparisons: [{ ...integrity.preprocessing.comparisons[0], roles: ['production'] }],
+        },
+      },
+    },
+  }), /smoke, trial, or champion/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: {
+      ...validManifest.spec,
+      integrity: {
+        ...integrity,
+        preprocessing: {
+          ...integrity.preprocessing,
+          comparisons: [{ ...integrity.preprocessing.comparisons[0], id: 'old-task-names' }],
+        },
+      },
+    },
+  }), /check IDs must be unique/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: {
+      ...validManifest.spec,
+      integrity: {
+        ...integrity,
+        preprocessing: {
+          contexts: integrity.preprocessing.contexts.map(context => context.id === 'evaluate'
+            ? { ...context, roles: ['trial'] }
+            : context),
+          comparisons: integrity.preprocessing.comparisons,
+        },
+      },
+    },
+  }), /contexts do not cover roles/)
+})
+
+test('rejects duplicate compatibility fields and quality gate names', () => {
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: { ...validManifest.spec, compatibility: [...validManifest.spec.compatibility, 'role'] },
+  }), /duplicate fields/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: { ...validManifest.spec, qualityGates: [...validManifest.spec.qualityGates, validManifest.spec.qualityGates[0]] },
+  }), /duplicate names/)
+})
+
 test('validates fixed checkpoint and resume entrypoints for resumable projects', () => {
   const manifest = validateProjectManifest({
     ...validManifest,

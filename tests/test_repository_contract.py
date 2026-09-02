@@ -19,16 +19,27 @@ class RepositoryContractTest(unittest.TestCase):
         self.assertTrue((plugin / "cordis.patch.yml").is_file())
 
     def test_training_projects_own_their_tests(self) -> None:
-        project = REPOSITORY_ROOT / "train-model" / "ray-cats-and-dogs"
-        self.assertTrue((project / "tests").is_dir())
-        self.assertTrue(any((project / "tests").glob("test_*.py")))
-        self.assertTrue((project / "configs").is_dir())
-        self.assertTrue(any((project / "configs").glob("*.yaml")))
+        projects = (
+            REPOSITORY_ROOT / "train-model" / "ray-cats-and-dogs",
+            REPOSITORY_ROOT / "train-model" / "ray-handwritten-digits",
+        )
+        for project in projects:
+            self.assertTrue((project / "tests").is_dir(), project)
+            self.assertTrue(any((project / "tests").glob("test_*.py")), project)
+            self.assertTrue((project / "configs").is_dir(), project)
+            self.assertTrue(any((project / "configs").glob("*.yaml")), project)
+            self.assertTrue((project / "galatea.project.yaml").is_file(), project)
+
+    def test_runtime_artifacts_stay_ignored(self) -> None:
+        ignore = (REPOSITORY_ROOT / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("/platform-data/", ignore)
+        self.assertIn("/mlflow.db", ignore)
 
     def test_platform_sources_do_not_use_unsafe_shell_or_server_filesystem(self) -> None:
         source_roots = (
             REPOSITORY_ROOT / "plugins" / "dsh-galatea" / "src",
             REPOSITORY_ROOT / "train-model" / "ray-cats-and-dogs" / "src",
+            REPOSITORY_ROOT / "train-model" / "ray-handwritten-digits" / "src",
         )
         forbidden = ("shell: true", "execSync", "claude_agent_sdk")
         for root in source_roots:

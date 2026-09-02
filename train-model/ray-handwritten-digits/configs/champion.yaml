@@ -1,0 +1,9 @@
+extends: baseline.yaml
+
+run:
+  role: champion
+  name_prefix: ray-handwritten-digits-champion
+  log_model: true
+
+evaluation:
+  evaluate_test: true

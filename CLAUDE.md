@@ -52,6 +52,8 @@ jupyter lab --no-browser --allow-root --ServerApp.root_dir="$PWD"
   -s train-model/cats-and-dogs/tests -p 'test_*.py'
 /data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
   -s train-model/ray-cats-and-dogs/tests -p 'test_*.py'
+/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+  -s train-model/ray-handwritten-digits/tests -p 'test_*.py'
 ```
 
 **Validate systemd units** before deployment:
@@ -210,17 +212,38 @@ For remote MLflow servers, use the HTTPS tracking URI and authentication config.
 ## Harness Integration
 
 DeepSeek Harness is the repository's only Agent Runtime. The TypeScript ESM package in
-`plugins/dsh-galatea/` registers 13 typed Cordis Tools for project inspection, configuration changes,
-Ray Job lifecycle, MLflow evidence, stage approval, and explicitly approved model promotion.
+`plugins/dsh-galatea/` registers 14 typed Cordis Tools for administrator-configured project listing and
+Session-scoped selection, project inspection/configuration, Ray Job lifecycle, MLflow evidence, stage
+approval, and explicitly approved model promotion. The current bundle registers `ray-cats-and-dogs`
+and `ray-handwritten-digits`, defaulting to the former.
 
 The plugin does not own an Agent Loop, Session, Workflow, permission system, Skill Registry, CLI, or
-model client. It reads platform state through Ray Jobs and MLflow Tracking/Artifact/Registry APIs. Its
-project entrypoints are fixed argv arrays declared in `galatea.project.yaml`; arbitrary shell commands
-are not model-facing capabilities.
+model client. Successful project-selection Tool events are replayed through the Harness
+`galateaProjectSelection` Session projection; selection is not a process-global singleton and can only
+route to registry entries configured by an administrator. This trusted-project routing is not tenant
+isolation: shared Ray/MLflow clients and credentials remain a common trust domain. Its project entrypoints
+are fixed argv arrays declared in `galatea.project.yaml`; arbitrary shell commands are not model-facing
+capabilities. `configPath` is project-relative below the declared `configRoot`, while
+`releaseManifestPath` is relative to that project's configured immutable `releaseRoot`.
+
+Lifecycle/evidence results with `operationStatus` report execution, quality, governance, and
+preprocessing/migration integrity independently. Readiness fails closed when required integrity evidence
+is absent, unknown, inapplicable for an applicable role, or failed. A Ray success never implies quality or
+approval. Promotion is never automatic and always requires an explicit `galatea_promote_model` call with
+current final-validation evidence and one-time approval. With Harness approval policy `never`, governed
+submit, resume, and promotion fail closed; retrying cannot bypass disabled prompts.
 
 Credentials are injected by the Harness process. Plugin configuration stores only the name of an
 environment variable containing a bearer token, never the token itself. Missing referenced variables
-fail startup rather than silently falling back to unauthenticated access.
+fail startup rather than silently falling back to unauthenticated access. Project subprocesses inherit only
+the configured environment allowlist (a small non-secret default), not the full Harness environment.
+Ray log reads use a character-offset cursor: feed each `nextLogCursor` into the next `logCursor`, handle
+truncation/reset flags, and prefer status-only observations after the first log read.
+
+The plugin consumes and binds declarations from immutable release manifests but does not build or overwrite
+runtime packages. After source, entrypoint, dependency/packaging, or data/split-identity changes, rebuild and
+publish a new release and plan against its new relative `<release-id>/release.json`; old releases do not
+absorb workspace changes.
 
 See `plugins/dsh-galatea/README.md` for development commands and `doc/dsh-galatea-operations.md` for
 Profile installation, deployment configuration, release handling, and operational recovery.

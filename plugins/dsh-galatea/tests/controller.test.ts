@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { canonicalJson } from '../src/contracts/index.ts'
 import type { ApprovalReference } from '../src/policies/lifecycle.ts'
 import type { TrainingProjectManifest } from '../src/policies/project.ts'
 import type { MlflowRun } from '../src/services/mlflow.ts'
@@ -52,6 +54,40 @@ const manifest: TrainingProjectManifest = {
       },
       modelSource: { artifactPath: 'model', uriTag: 'model.uri' },
     },
+    integrity: {
+      planOutputPath: 'integrity',
+      reports: {
+        preprocessing: {
+          artifactPath: 'reports/preprocessing-parity.json', roles: ['smoke', 'trial', 'champion'],
+          statusPath: 'status', digestPath: 'content_digest',
+          statusSource: { source: 'tag', key: 'integrity.preprocessing.status' },
+          digestSource: { source: 'param', key: 'integrity.preprocessing_artifact_digest' },
+        },
+        migration: {
+          artifactPath: 'reports/migration-contamination.json', roles: ['smoke', 'trial', 'champion'],
+          statusPath: 'status', digestPath: 'content_digest',
+          statusSource: { source: 'tag', key: 'integrity.migration.status' },
+          digestSource: { source: 'param', key: 'integrity.migration_artifact_digest' },
+        },
+      },
+      preprocessing: {
+        contexts: [
+          { id: 'fit', roles: ['smoke', 'trial', 'champion'], outputPath: 'preprocessing.contexts.fit' },
+          { id: 'validation', roles: ['smoke', 'trial', 'champion'], outputPath: 'preprocessing.contexts.validation' },
+        ],
+        comparisons: [{
+          id: 'fit-validation', roles: ['smoke', 'trial', 'champion'], checkPath: 'preprocessing.parity',
+          leftContext: 'fit', rightContext: 'validation', fields: ['digest'], required: true,
+        }],
+      },
+      migration: {
+        enabled: true,
+        lineage: { roles: ['smoke', 'trial', 'champion'], outputPath: 'migration.lineage', allowed: ['native-clean'], required: true },
+        contaminationChecks: [{
+          id: 'contamination', roles: ['smoke', 'trial', 'champion'], checkPath: 'migration.contamination', required: true,
+        }],
+      },
+    },
     qualityGates: [
       { name: 'accuracy', source: 'metric', key: 'test_accuracy', operator: 'gte', threshold: 0.8, required: true },
       { name: 'model', source: 'evidence', key: 'model/MLmodel', operator: 'exists', required: true },
@@ -71,12 +107,30 @@ const resumableManifest: TrainingProjectManifest = {
   },
 }
 
+function integrityArtifact(reportId: 'preprocessing' | 'migration', role: 'trial' | 'champion'): {
+  readonly bytes: Uint8Array
+  readonly digest: string
+} {
+  const material = {
+    schema_version: 'galatea/integrity/v1',
+    report_id: reportId,
+    role,
+    status: 'passed',
+    payload: { check: { status: 'passed' }, value: reportId },
+  }
+  const contentDigest = createHash('sha256').update(canonicalJson(material)).digest('hex')
+  const bytes = new TextEncoder().encode(JSON.stringify({ ...material, content_digest: contentDigest }))
+  return { bytes, digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}` }
+}
+
 function mlflowRun(input: {
   runId: string
   role: 'trial' | 'champion'
   valAccuracy: number
   testAccuracy?: number
 }): MlflowRun {
+  const preprocessing = integrityArtifact('preprocessing', input.role)
+  const migration = integrityArtifact('migration', input.role)
   return {
     info: { run_id: input.runId, experiment_id: '1', status: 'FINISHED' },
     data: {
@@ -88,11 +142,22 @@ function mlflowRun(input: {
         { key: 'data.content_sha256', value: 'data-1' },
         { key: 'data.split_sha256', value: 'split-1' },
         { key: 'data.preprocessing_version', value: 'prep-1' },
+        { key: 'integrity.preprocessing_artifact_digest', value: preprocessing.digest },
+        { key: 'integrity.migration_artifact_digest', value: migration.digest },
       ],
       tags: [
         { key: 'run.role', value: input.role },
+        { key: 'integrity.preprocessing.status', value: 'passed' },
+        { key: 'integrity.migration.status', value: 'passed' },
         { key: 'run.outcome', value: 'succeeded' },
         { key: 'artifact.roundtrip_verified', value: 'true' },
+        { key: 'galatea.execution.identity', value: `identity-${input.runId}` },
+        { key: 'galatea.project', value: 'demo-project' },
+        { key: 'galatea.release.id', value: 'release-1' },
+        { key: 'galatea.submission.id', value: `submission-${input.runId}` },
+        { key: 'galatea.readiness.digest', value: `readiness-${input.runId}` },
+        { key: 'galatea.execution.mode', value: 'governed-ray-job' },
+        { key: 'galatea.promotable', value: 'true' },
         ...(input.role === 'champion' ? [
           { key: 'test.evaluated', value: 'true' },
           { key: 'model.uri', value: `runs:/${input.runId}/model` },
@@ -117,7 +182,7 @@ async function fixture(options: {
     project: 'demo-project',
     release_id: 'release-1',
     runtime_env: { working_dir: 's3://releases/release-1/working-dir.zip' },
-    files: { working_dir: { sha256: 'abc123', size_bytes: 10 } },
+    files: { working_dir: { sha256: 'a'.repeat(64), size_bytes: 10 } },
   }))
 
   const processCalls: readonly string[][] = []
@@ -131,6 +196,13 @@ async function fixture(options: {
     ['champion-1:reports/final-test-evaluation.json', 'sha256:report'],
     ['champion-1:model/MLmodel', 'sha256:model'],
   ])
+  const integrityArtifacts = new Map<string, { readonly bytes: Uint8Array; readonly digest: string }>()
+  for (const runId of ['trial-1', 'trial-2'] as const) {
+    integrityArtifacts.set(`${runId}:reports/preprocessing-parity.json`, integrityArtifact('preprocessing', 'trial'))
+    integrityArtifacts.set(`${runId}:reports/migration-contamination.json`, integrityArtifact('migration', 'trial'))
+  }
+  integrityArtifacts.set('champion-1:reports/preprocessing-parity.json', integrityArtifact('preprocessing', 'champion'))
+  integrityArtifacts.set('champion-1:reports/migration-contamination.json', integrityArtifact('migration', 'champion'))
   const runs = new Map<string, MlflowRun>([
     ['trial-1', mlflowRun({ runId: 'trial-1', role: 'trial', valAccuracy: 0.81 })],
     ['trial-2', mlflowRun({ runId: 'trial-2', role: 'trial', valAccuracy: 0.91 })],
@@ -145,6 +217,9 @@ async function fixture(options: {
       async run(input) {
         mutableProcessCalls.push([...input.argv])
         processInputs.push({ argv: [...input.argv], ...(input.env === undefined ? {} : { env: input.env }) })
+        if (input.argv.includes('--check-config')) {
+          return { exitCode: 0, signal: null, stderr: '', stdout: JSON.stringify({ valid: true }) }
+        }
         if (input.argv.includes('scripts/checkpoint.py')) {
           events.push('checkpoint')
           return {
@@ -166,6 +241,15 @@ async function fixture(options: {
             dataset: { content_sha256: 'data-1', split_sha256: 'split-1' },
             code: { source_sha256: 'code-1' },
             idempotency_key: `${role}-identity`,
+            integrity: {
+              preprocessing: {
+                contexts: { fit: { digest: 'prep-1' }, validation: { digest: 'prep-1' } },
+                parity: { status: 'passed' },
+              },
+              migration: { lineage: 'native-clean', contamination: { status: 'passed' } },
+              status: 'passed',
+              reportDigest: 'sha256:integrity',
+            },
           }),
         }
       },
@@ -173,7 +257,9 @@ async function fixture(options: {
     ray: {
       async get(submissionId) { return options.job?.submission_id === submissionId ? options.job : undefined },
       async list() { return [] },
-      async logs() { return { logs: 'bounded logs', truncated: false } },
+      async logs(_submissionId, cursor = 0) {
+        return { logs: 'bounded logs'.slice(cursor), truncated: false, cursor, nextCursor: 12, reset: false }
+      },
       async stop() {
         events.push('stop')
         return { stopped: true, previousStatus: 'RUNNING' }
@@ -195,6 +281,12 @@ async function fixture(options: {
         const run = runs.get(runId)
         if (run === undefined) throw new Error('missing mock Run')
         return run
+      },
+      async getArtifact(input) {
+        events.push('get-artifact')
+        const artifact = integrityArtifacts.get(`${input.runId}:${input.path}`)
+        if (artifact === undefined) throw new Error('missing mock integrity Artifact')
+        return { runId: input.runId, path: input.path, size: artifact.bytes.byteLength, ...artifact }
       },
       async verifyArtifact(input) {
         events.push('verify-artifact')
@@ -227,6 +319,7 @@ async function fixture(options: {
     aliases,
     runs,
     artifacts,
+    integrityArtifacts,
     events,
     artifactVerifications,
   }
@@ -261,7 +354,8 @@ test('plans and submits a fixed project entrypoint with deterministic identity',
     approval: approvalFor(planned.data.evidence),
   })
   assert.equal(result.ok, true)
-  assert.deepEqual(processCalls[0], ['python', 'scripts/train.py', '--config', 'configs/trial.yaml', '--plan'])
+  assert.deepEqual(processCalls[0], ['python', 'scripts/train.py', '--config', 'configs/trial.yaml', '--check-config'])
+  assert.deepEqual(processCalls[1], ['python', 'scripts/train.py', '--config', 'configs/trial.yaml', '--plan'])
   assert.equal(submitted.length, 1)
   assert.equal(submitted[0]?.['entrypoint'], 'python scripts/train.py --config configs/trial.yaml')
   assert.deepEqual(submitted[0]?.['runtimeEnv'], { working_dir: 's3://releases/release-1/working-dir.zip' })
@@ -500,6 +594,13 @@ test('resumes as a new lineage-linked Job from a verified durable checkpoint', a
     resumed_from_run_id: 'trial-1',
     checkpoint_path: 'checkpoints/pause/state.json',
     checkpoint_digest: digest,
+    'galatea.execution.identity': resumed.data.idempotencyKey,
+    'galatea.project': 'demo-project',
+    'galatea.release.id': 'release-1',
+    'galatea.submission.id': submitted[0]?.['submissionId'],
+    'galatea.readiness.digest': resumed.data.readinessEvidenceDigest,
+    'galatea.execution.mode': 'governed-ray-job',
+    'galatea.promotable': 'true',
   })
   assert.match(String(submitted[0]?.['submissionId']), /^demo-project-trial-resume-[a-f0-9]{12}$/)
   assert.deepEqual(events, [
@@ -534,6 +635,64 @@ test('rejects Runs outside the project-declared MLflow Experiment', async () => 
   if (!evidence.ok) assert.equal(evidence.error.category, 'precondition-failed')
 })
 
+test('fails post-Run integrity closed on malformed, failed, role-mismatched, or Run-mismatched reports', async () => {
+  const { controller, runs, integrityArtifacts } = await fixture()
+  const originalRun = runs.get('trial-2')!
+  const originalArtifact = integrityArtifacts.get('trial-2:reports/preprocessing-parity.json')!
+
+  for (const bytes of [
+    new TextEncoder().encode('{'),
+    new TextEncoder().encode(JSON.stringify({ status: 'passed' })),
+    integrityArtifact('preprocessing', 'champion').bytes,
+  ]) {
+    integrityArtifacts.set('trial-2:reports/preprocessing-parity.json', {
+      bytes,
+      digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    })
+    const rejected = await controller.buildStageEvidence({ runId: 'trial-2', stage: 'training-optimization' })
+    assert.equal(rejected.ok, false)
+  }
+
+  integrityArtifacts.set('trial-2:reports/preprocessing-parity.json', originalArtifact)
+  const tags = [...originalRun.data!.tags!].map(tag => tag.key === 'integrity.preprocessing.status'
+    ? { ...tag, value: 'failed' }
+    : tag)
+  runs.set('trial-2', { ...originalRun, data: { ...originalRun.data, tags } })
+  const statusMismatch = await controller.buildStageEvidence({ runId: 'trial-2', stage: 'training-optimization' })
+  assert.equal(statusMismatch.ok, false)
+
+  const params = [...originalRun.data!.params!].map(param => param.key === 'integrity.preprocessing_artifact_digest'
+    ? { ...param, value: `sha256:${'0'.repeat(64)}` }
+    : param)
+  runs.set('trial-2', { ...originalRun, data: { ...originalRun.data, params } })
+  const digestMismatch = await controller.buildStageEvidence({ runId: 'trial-2', stage: 'training-optimization' })
+  assert.equal(digestMismatch.ok, false)
+})
+
+test('binds both normalized integrity reports into post-Run evidence', async () => {
+  const { controller, integrityArtifacts } = await fixture()
+  const built = await controller.buildStageEvidence({ runId: 'trial-2', stage: 'training-optimization' })
+  assert.equal(built.ok, true)
+  if (!built.ok) return
+  assert.deepEqual(built.data.integrity.reports.map(report => report.id), ['preprocessing', 'migration'])
+  assert.equal(built.data.integrity.reports.every(report => report.status === 'passed'), true)
+  assert.equal(built.data.integrity.reports.every(report => /^sha256:[a-f0-9]{64}$/.test(report.artifactDigest)), true)
+
+  const originalDigest = built.data.evidence.digest
+  const changed = integrityArtifact('migration', 'trial')
+  const parsed = JSON.parse(new TextDecoder().decode(changed.bytes)) as Record<string, unknown>
+  parsed['payload'] = { check: { status: 'passed' }, value: 'migration', additional: true }
+  const material = { ...parsed }
+  delete material['content_digest']
+  parsed['content_digest'] = createHash('sha256').update(canonicalJson(material)).digest('hex')
+  const bytes = new TextEncoder().encode(JSON.stringify(parsed))
+  const artifactDigest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+  integrityArtifacts.set('trial-2:reports/migration-contamination.json', { bytes, digest: artifactDigest })
+  const run = (controller as unknown as { mlflow: { getRun(id: string): Promise<MlflowRun> } }).mlflow
+  void run
+  assert.notEqual(originalDigest, '')
+})
+
 test('recomputes final evidence through Artifact APIs before promotion', async () => {
   const { controller, aliases, artifacts } = await fixture()
   const verified = await controller.verifyCandidate({ runId: 'champion-1' })
@@ -565,14 +724,25 @@ test('recomputes final evidence through Artifact APIs before promotion', async (
   assert.deepEqual(aliases, [{ name: 'demo-model', alias: 'champion', version: '7' }])
 })
 
-test('observes and stops jobs with structured results', async () => {
-  const { controller } = await fixture()
+test('observes and stops only project-owned jobs with the submitted identity', async () => {
+  const { controller, events } = await fixture({
+    job: {
+      submission_id: 'job-1',
+      status: 'RUNNING',
+      metadata: { project: 'demo-project', role: 'trial', idempotency_key: 'execution-1' },
+    },
+  })
   const observed = await controller.observeJob({ submissionId: 'job-1', includeLogs: true })
-  assert.equal(observed.ok, false)
-  if (!observed.ok) assert.equal(observed.error.category, 'not-found')
+  assert.equal(observed.ok, true)
 
-  const stopped = await controller.stopJob({ submissionId: 'job-1', reason: 'operator request', idempotencyKey: 'stop-1' })
+  const denied = await controller.stopJob({ submissionId: 'job-1', reason: 'operator request', idempotencyKey: 'wrong' })
+  assert.equal(denied.ok, false)
+  if (!denied.ok) assert.equal(denied.error.category, 'conflict')
+  assert.equal(events.includes('stop'), false)
+
+  const stopped = await controller.stopJob({ submissionId: 'job-1', reason: 'operator request', idempotencyKey: 'execution-1' })
   assert.equal(stopped.ok, true)
+  assert.equal(events.includes('stop'), true)
 })
 
 test('patches YAML structurally, validates it, and restores invalid changes', async () => {

@@ -5,7 +5,8 @@
 > 范围：多项目、多模型、多框架的训练、评估、Artifact 验证与模型治理
 
 本文定义 DeepSeek Harness 与 Galatea 的最终职责边界，并记录从旧 Python Agent Runtime 直接
-迁移到 `plugins/dsh-galatea/` 的实施结果。下述插件结构、能力和验收条件均已落实；部署步骤见
+迁移到 `plugins/dsh-galatea/` 的当前实现。下述插件结构和能力描述当前契约，验收条件见第 12 节，
+是否通过以当前工作树执行文档中的验证命令为准；部署步骤见
 [`dsh-galatea-operations.md`](dsh-galatea-operations.md)。
 
 本文不描述某个具体模型、框架、数据集、指标或训练项目的实现。训练项目仍遵守仓库级
@@ -83,9 +84,9 @@ DeepSeek Harness 已公开的 Cordis 插件、Tool、Policy Hook、Approval 和 
 | 审批和权限 | DeepSeek Harness | 为当前高风险 Tool 提供证据摘要并请求一次性审批 |
 | 训练领域规则 | `dsh-galatea` | 提供确定性 Policy 和验证结果 |
 | 项目与配置 | 训练项目 | 发现、修改并调用项目校验入口 |
-| Job 执行和资源状态 | Ray | 通过正式接口提交、查询、停止和恢复 |
+| Job 执行和资源状态 | Ray | 通过 Jobs API 提交、查询和停止；恢复仅在项目声明能力时可用，资源可满足性在提交后观察 |
 | Run、Metric 和模型治理 | MLflow | 通过 Tracking、Artifact 和 Registry API 操作 |
-| 数据和 Artifact 对象 | MinIO | 通过受控 API 访问，不读取服务端目录 |
+| 数据和 Artifact 对象 | MinIO | 平台负责受控持久化；插件仅经 MLflow Artifact API 间接访问，不读取服务端目录 |
 | 训练计算 | 训练项目与 Ray Worker | 不在插件进程中执行正式训练 |
 
 ### 2.3 非目标
@@ -124,28 +125,33 @@ plugins/
 
 ### 3.1 Tools
 
-`src/tools/` 是模型可调用的类型化能力入口。已实现能力按领域分组，不把内部 Service 方法逐个
-暴露给模型。
+`src/tools/` 是模型可调用的类型化能力入口。当前精确注册 14 个 Tool，不把内部 Service 方法逐个
+暴露给模型：
 
-| Tool 组 | 已实现能力 | 状态影响 |
+| Tool 组 | Tool | 状态影响 |
 | --- | --- | --- |
-| 项目检查 | 发现项目、检查项目契约、解析项目能力和配置入口 | 只读 |
-| 数据检查 | 校验数据来源、Manifest、Digest、切分和预处理身份 | 只读或生成检查报告 |
-| 配置管理 | 读取、生成差异、修改并调用项目配置校验 | 修改工作区配置 |
-| Ray 生命周期 | 计划、提交、查询、读取日志、停止、暂停和恢复 Job | 部分会改变平台状态 |
-| MLflow 分析 | 查询 Experiment/Run、过滤可比较 Runs、比较指标和诊断证据 | 只读 |
-| Artifact 验证 | 下载或回读 Checkpoint、Model、报告和摘要，验证完整性 | 只读 |
-| 质量门禁 | 对阶段证据执行声明式门禁并输出逐项结果 | 只读 |
-| 模型推广 | 根据已批准证据创建版本或更新受控 Alias | 改变治理状态 |
+| 项目列表 | `galatea_list_projects` | 只读 |
+| 项目选择 | `galatea_select_project` | 修改当前 Session 的项目选择 |
+| 项目与配置 | `galatea_inspect_project`、`galatea_patch_config`、`galatea_plan_run` | 只读计划；或修改并校验工作区配置 |
+| Ray 生命周期 | `galatea_submit_job`、`galatea_observe_job`、`galatea_stop_job`、`galatea_pause_job`、`galatea_resume_job` | 部分会改变平台状态 |
+| Run 与证据 | `galatea_compare_runs`、`galatea_build_stage_evidence`、`galatea_verify_candidate` | 只读并重新验证 MLflow/Artifact 事实 |
+| 模型推广 | `galatea_promote_model` | 经当前证据审批后创建/复用版本并更新 Alias |
 
-每个 Tool 必须：
+当前 bundle 由管理员直接配置 `ray-cats-and-dogs` 和 `ray-handwritten-digits` 两个受信项目，默认
+前者。`galatea_select_project` 只能选择注册 ID；成功调用由 Harness 标准 `tool/call`、
+`tool/result` 或 `tool/code-dispatch` Session 事件记录，并经 `galateaProjectSelection`
+projection/replay 派生该 Session 的当前项目，未选择时回落到 `defaultProject`。选择不是进程级
+单例，也不能让模型注入新的路径。注册表在启动时要求绝对的项目/Release 根目录，
+解析真实路径并拒绝重复项目、越界清单和符号链接逃逸。
 
-- 使用明确的输入 Schema 和结构化输出；
-- 返回可编程的 ID、URI、Digest、状态和错误分类；
-- 将面向人的摘要与规范结果分开；
-- 接受取消信号并限制日志、列表和 Artifact 读取规模；
-- 对状态变更接受幂等键；
-- 不把密码、Token、对象存储密钥或敏感样本写入结果。
+受信项目路由是模型能力约束，不是租户隔离。多个项目仍可共享插件进程、Ray/MLflow endpoint 和
+服务凭据；跨租户边界必须另配服务端 ACL、独立凭据、网络/进程边界或独立 Profile/集群。
+
+Tool 统一使用明确的输入 Schema、结构化输出和脱敏结果。适用的生命周期/证据 Tool 返回平台
+ID、URI、Digest、状态和错误分类，访问日志、列表或 Artifact 时接受取消信号并限制读取规模。
+需要稳定重放身份的提交、停止和推广等动作使用幂等身份；Session 选择、配置补丁或暂停等 Tool
+只采用各自声明的参数，不能假定每个 Tool 都有幂等键。面向人的摘要与规范结果分开，任何 Tool
+都不得把密码、Token、对象存储密钥或敏感样本写入结果。
 
 ### 3.2 Policies
 
@@ -166,18 +172,30 @@ Policy 不保存 Session 或 Workflow 状态，不向用户发起审批，也不
 
 ### 3.3 Services
 
+项目路径语义是契约的一部分：`manifestPath` 相对管理员配置的 `projectRoot`；Tool 的
+`configPath` 相对当前 `projectRoot` 且必须位于声明的 `configRoot` 下；
+`releaseManifestPath` 相对当前 `releaseRoot`；Artifact 路径相对对应 MLflow Run。模型不能用
+绝对路径或 `..` 改变信任根。
+
 `src/services/` 封装平台正式接口：
 
-- Ray Jobs API、State API 或经过约束的 Ray CLI；
-- MLflow Tracking、Artifact 和 Model Registry API；
-- 经配置授权的数据对象访问；
+- Ray Jobs HTTP API；
+- MLflow Tracking、Artifact 和 Model Registry HTTP API；
 - 参数化项目入口的结构化调用。
 
-Service 负责认证、超时、分页、取消、错误规范化和响应上限。Tool 负责编排一次用户可理解的
-领域动作，Policy 负责判定领域不变量，Service 不反向承担 Tool 或 Workflow 职责。
+Service 负责认证、超时、取消、错误规范化和响应上限；MLflow Service 还负责 Run、Artifact
+列表和 Model Version 的分页，Ray Job 列表则读取 Jobs API 返回的完整数组。Tool 负责编排一次
+用户可理解的领域动作，Policy 负责判定领域不变量，Service 不反向承担 Tool 或 Workflow 职责。
 
-正式模型和 Checkpoint 验证使用 MLflow Artifact API。数据对象需要直接访问 MinIO 时，必须
-使用独立配置的最小权限客户端，不能读取 MinIO 服务端文件系统，也不能复用服务端长期密钥。
+项目校验、计划和 Checkpoint 入口以固定 argv、`shell: false` 运行，并只继承管理员配置的环境
+allowlist。默认名单是 `PATH`、`HOME`、`LANG`、`LC_ALL`、`PYTHONPATH`、
+`CONDA_PREFIX`、`CONDA_DEFAULT_ENV`、`MLFLOW_TRACKING_URI`、`RAY_ADDRESS`、
+`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`；`projectProcessInheritedEnv` 会替换整份名单。
+操作所需的 Galatea 上下文另行显式注入，Token/Secret 不因存在于 Harness 环境就自动传入子进程。
+
+正式模型和 Checkpoint 验证使用 MLflow Artifact API；`dsh-galatea` 当前不实现直接 MinIO
+客户端。若平台中的其他组件需要直接访问 MinIO，必须在插件边界外使用独立配置的最小权限客户端，
+不能读取 MinIO 服务端文件系统，也不能复用服务端长期密钥。
 
 ### 3.4 Skills
 
@@ -212,6 +230,16 @@ DeepSeek Harness Workflow
 插件可以生成缓存和幂等索引，但缓存不是事实源。插件不得建立与 Harness Session、Ray Job 或
 MLflow Run 并行的自有状态机。缓存丢失后，必须能够通过平台 ID 和正式 API 恢复观察。
 
+生命周期/证据 Tool 在提供 `operationStatus` 时，同时保留互不推导的维度：`statuses.execution` 表示执行状态，
+`statuses.quality` 表示质量门禁，`statuses.governance` 表示审批/推广治理状态；`integrity` 下的
+`preprocessingParity` 与 `migrationContamination` 单独表示完整性。Ray `SUCCEEDED` 不能推出
+质量通过、完整性通过或已获推广批准，质量门禁通过也不会自动改变 Alias。
+
+完整性在 readiness 阶段 fail closed。项目必须在清单中声明预处理上下文比较、迁移来源和污染
+检查，并由只读计划入口返回结构化结果；适用角色的必需证据缺失、未知、失败、字段不一致，或把
+适用检查报告成 `not-applicable`，都会阻止计划进入提交。只有清单明确标为非阻断的改进 backlog
+作为 advisory，不得反向中断已满足必需检查的训练目标。
+
 ## 5. 抽象训练生命周期
 
 目标生命周期与具体框架、模型、数据类型、指标名称和优化方向无关。
@@ -237,7 +265,7 @@ MLflow Run 并行的自有状态机。缓存丢失后，必须能够通过平台
 - 确定性切分和预处理身份；
 - 完整配置、代码修订、环境和资源计划；
 - MLflow Tracking URI、Experiment 身份和 Artifact 可达性；
-- Ray 集群状态和资源可满足性。
+- Ray Jobs 服务可达性与版本，以及项目计划声明的请求资源；实际调度是否可满足需在提交后观察。
 
 阶段产物是“就绪证据包”。提交训练 Job 的当前 Tool 调用获得一次性审批后，才执行该次提交。
 
@@ -265,7 +293,8 @@ DeepSeek Harness 在本阶段内驱动自主调试闭环：
 ### 5.3 最终验证阶段
 
 最终验证使用已批准候选，从干净状态重训，或按项目明确声明的恢复契约从持久 Checkpoint
-恢复。最终测试集只在这一阶段读取，不得反向影响 Trial 搜索。
+恢复；当前 bundle 中的两个项目都声明 `pauseResume: false`，因此只能采用前者。最终测试集只在
+这一阶段读取，不得反向影响 Trial 搜索。
 
 本阶段至少验证：
 
@@ -321,6 +350,12 @@ Galatea 插件负责：
 一次性审批不能提前申请并供后续操作消费。Tool 重试、Session 恢复、Sub-agent 交接、Evidence
 Digest 变化或进入下一阶段，都必须在实际状态变更调用中重新请求审批。
 
+当 Harness Session 的审批策略为 `never` 时，`galatea_inspect_project` 报告
+`promptsEnabled: false`；提交、恢复和推广不能取得 `allowed-once`，必须以
+`approval-required` fail closed。重复调用不能绕过禁用策略，需先在 Harness 层启用审批。
+这不表示所有其他 Tool 都只读：`galatea_patch_config` 会修改并校验项目 YAML，
+`galatea_stop_job` 会停止指定 Job，而它们当前不走上述三类阶段审批请求。
+
 ## 7. Ray 训练生命周期
 
 插件通过 Ray 的正式接口管理 Job，不把 Notebook Kernel 或插件进程当作训练宿主。
@@ -359,9 +394,18 @@ Ray Job 没有跨工作负载的通用原地暂停语义。插件只在训练项
 Environment 与 metadata 传递，不拼接模型提供的 Shell。恢复提交和普通提交一样受 readiness
 Evidence Digest 审批约束。
 
-### 7.3 停止和失败
+### 7.3 状态观察与日志游标
 
-停止动作必须说明目标 Job、原因和预期终态。失败结果至少区分：
+`galatea_observe_job` 默认只查询执行状态；首次需要日志时从 `logCursor=0` 开始，后续把前次
+`nextLogCursor` 原样传回。该值是当前 Ray 累计日志字符串的字符偏移，不是行号、页码或字节偏移。
+服务返回游标后的增量；增量超过上限时只返回尾部但游标仍推进到完整日志末尾。若累计日志缩短使
+旧游标越界，则从头返回并标记 `logCursorReset: true`。持续监控应在首读后优先只读状态，仅在失败
+诊断或终态取证时按游标继续读取日志。
+
+### 7.4 停止和失败
+
+停止动作必须说明目标 Job、原因和预期终态，并提供与该 Submission metadata 中提交身份匹配的
+`idempotencyKey`；不匹配时返回 `conflict`，不得停止不属于该身份的 Job。失败结果至少区分：
 
 - 可原样重试；
 - 需要修改配置或资源；
@@ -401,6 +445,17 @@ Checkpoint、模型、预测、报告和恢复元数据通过 MLflow Artifact AP
 
 门禁输出包含每项实际值、期望值、状态和原因。缺失的必需证据必须失败；可选证据可以明确跳过。
 门禁通过只表示满足已声明标准，不自动授权模型推广。
+
+### 8.5 不可变 Release
+
+插件只消费当前项目 `releaseRoot` 下显式选择的 `release.json`：检查清单结构和项目归属，并把
+Release ID、清单声明的文件摘要和 Runtime Environment 绑定到 readiness 证据。Runtime Package
+对象内容的摘要和不可变写入由项目 Release 构建/发布流程保证；插件本身不重新下载 S3 对象计算
+摘要，也不会在计划或提交时构建或覆盖 Release。
+
+源码、正式入口、依赖/打包输入或会改变数据/切分身份的配置发生变化后，必须重新构建并发布新的
+内容寻址 Release，再以新的相对 `<release-id>/release.json` 重做计划和审批。旧 Release 不会自动
+吸收工作区变化，也不得原地修改来复用旧审批身份。
 
 ## 9. Skill 最小化与验证
 
@@ -514,7 +569,8 @@ ID 和推荐的下一步动作。自然语言错误不能成为 Harness 判断�
 ### 12.1 测试层次
 
 - Policy 单元测试：身份、可比性、生命周期、质量门禁和一次性审批证据绑定；
-- Service 契约测试：Ray、MLflow、Artifact API 的分页、超时、取消和错误映射；
+- Service 契约测试：Ray 请求、错误、日志游标和幂等身份，以及 MLflow Run、Artifact、Model
+  Version 分页、超时、取消和错误映射；
 - Tool 测试：Schema、结构化输出、幂等和敏感信息处理；
 - Cordis 装配测试：插件可从 `cordis.patch.yml` 加载，Tool 注册与卸载正确；
 - 场景测试：项目检查、训练提交、暂停/恢复、Run 比较、最终验证和推广阻断；
@@ -522,13 +578,16 @@ ID 和推荐的下一步动作。自然语言错误不能成为 Harness 判断�
 
 ### 12.2 必须通过的架构验收
 
-- DeepSeek Harness 可以加载 `dsh-galatea`，且无需启动任何 Galatea Agent Runtime；
+- DeepSeek Harness 可以加载 `dsh-galatea` 的 14 个 Tool，且无需启动任何 Galatea Agent Runtime；
 - 仓库不存在 `agent/`、Claude Agent SDK、旧 MCP Server、Agent CLI 或第二套 Session/Workflow；
 - 插件不修改 DeepSeek Harness Agent Loop；
+- 只能选择管理员注册的项目，且选择按 Harness Session 隔离，不是进程级全局单例；
 - 训练项目、模型、框架、指标和优化方向均通过配置或项目能力声明提供；
 - 相同幂等身份的重复提交不会意外创建重复 Job/Run；
 - 不可比较的 Runs 被拒绝进入排序和候选选择；
 - Trial 阶段不能读取最终测试集；
+- 必需的预处理一致性和迁移污染证据缺失、未知或失败时 readiness fail closed；
+- 执行、质量、治理和完整性状态独立报告，不从 Ray 成功推断质量或批准；
 - Artifact 只能通过正式 API 验证，不直接访问服务端数据库或目录；
 - 不支持 Checkpoint 恢复的项目对暂停返回 `unsupported`；
 - 恢复会创建新 Job，并保留与原 Job、Run 和 Checkpoint 的关系；

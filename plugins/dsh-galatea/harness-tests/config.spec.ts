@@ -8,20 +8,27 @@ describe('dsh-galatea bundle overlay', () => {
   it('parses through the Harness overlay loader with the expected plugin row', () => {
     const patches = loadOverlayPatches('dsh-galatea', patchPath)
 
-    expect(patches).toHaveLength(1)
-    expect(patches[0]).toMatchObject({
+    expect(patches).toHaveLength(3)
+    expect(patches[2]).toMatchObject({
       insert: [
         {
           id: 'dsh-galatea',
           name: 'dsh-galatea',
-          inject: ['tools', 'approval'],
+          inject: ['tools', 'approval', 'sessionProjections', 'systemPrompt'],
           config: {
-            projectRoot: {
-              __jsExpr: "process.env.GALATEA_PROJECT_ROOT ?? '/data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs'",
-            },
-            manifestPath: {
-              __jsExpr: "process.env.GALATEA_MANIFEST_PATH ?? 'galatea.project.yaml'",
-            },
+            projects: [
+              {
+                id: 'ray-cats-and-dogs',
+                projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs',
+                releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-cats-and-dogs-release',
+              },
+              {
+                id: 'ray-handwritten-digits',
+                projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-handwritten-digits',
+                releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-handwritten-digits-release',
+              },
+            ],
+            defaultProject: 'ray-cats-and-dogs',
             rayTokenEnv: { __jsExpr: 'process.env.GALATEA_RAY_TOKEN_ENV' },
             mlflowTokenEnv: { __jsExpr: 'process.env.GALATEA_MLFLOW_TOKEN_ENV' },
           },

@@ -4,10 +4,12 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
-import GalateaPlugin from '../src/index.ts'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import * as GalateaPlugin from '../src/index.ts'
 import { GALATEA_TOOL_NAMES } from '../src/tools/index.ts'
 
 const roots: string[] = []
@@ -83,14 +85,21 @@ async function harness() {
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime, { mode: 'native' })
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(ApprovalService, { policy: 'ask' })
   return ctx
 }
 
 describe('dsh-galatea Cordis plugin', () => {
-  it('registers all tools and removes them with its fiber', async () => {
+  it('survives the real Loader export path, registers every tool, and disposes them', async () => {
+    expect('default' in GalateaPlugin).toBe(false)
+    const loader = Object.create(Loader.prototype) as Loader
+    const unwrapped = loader.unwrapExports(GalateaPlugin) as Parameters<Context['plugin']>[0]
+    expect(unwrapped).toBe(GalateaPlugin)
+    expect(GalateaPlugin.inject).toEqual(['tools', 'approval', 'sessionProjections', 'systemPrompt'])
+
     const ctx = await harness()
-    const fiber = await ctx.plugin(GalateaPlugin, await projectConfig())
+    const fiber = await ctx.plugin(unwrapped, await projectConfig())
 
     expect(GALATEA_TOOL_NAMES.every(name => ctx.tools.get(name) !== undefined)).toBe(true)
 

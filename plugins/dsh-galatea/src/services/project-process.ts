@@ -4,6 +4,7 @@ import { realpath } from 'node:fs/promises'
 export interface ProjectProcessConfig {
   readonly timeoutMs?: number
   readonly maxOutputBytes?: number
+  readonly inheritedEnv?: readonly string[]
 }
 
 export interface ProjectProcessResult {
@@ -16,10 +17,18 @@ export interface ProjectProcessResult {
 export class ProjectProcessService {
   readonly timeoutMs: number
   readonly maxOutputBytes: number
+  readonly inheritedEnv: readonly string[]
 
   constructor(config: ProjectProcessConfig = {}) {
     this.timeoutMs = config.timeoutMs ?? 60_000
     this.maxOutputBytes = config.maxOutputBytes ?? 1_000_000
+    this.inheritedEnv = config.inheritedEnv ?? [
+      'PATH', 'HOME', 'LANG', 'LC_ALL', 'PYTHONPATH', 'CONDA_PREFIX', 'CONDA_DEFAULT_ENV',
+      'MLFLOW_TRACKING_URI', 'RAY_ADDRESS',
+    ]
+    for (const name of this.inheritedEnv) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new TypeError('inherited environment names must be valid')
+    }
   }
 
   async run(input: {
@@ -32,12 +41,17 @@ export class ProjectProcessService {
       throw new TypeError('project entrypoint must be a non-empty argv array')
     }
     const cwd = await realpath(input.projectRoot)
+    const inherited = Object.fromEntries(this.inheritedEnv.flatMap(name => {
+      const value = process.env[name]
+      return value === undefined ? [] : [[name, value]]
+    }))
     return await new Promise<ProjectProcessResult>((resolve, reject) => {
       const child = spawn(input.argv[0]!, input.argv.slice(1), {
         cwd,
         shell: false,
+        detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, ...input.env },
+        env: { ...inherited, ...input.env },
       })
       const stdout: Buffer[] = []
       const stderr: Buffer[] = []
@@ -47,7 +61,15 @@ export class ProjectProcessService {
         if (settled) return
         settled = true
         cleanup()
-        child.kill('SIGKILL')
+        if (child.pid !== undefined && process.platform !== 'win32') {
+          try {
+            process.kill(-child.pid, 'SIGKILL')
+          } catch (killError: unknown) {
+            if ((killError as NodeJS.ErrnoException).code !== 'ESRCH') child.kill('SIGKILL')
+          }
+        } else {
+          child.kill('SIGKILL')
+        }
         reject(error)
       }
       const collect = (target: Buffer[]) => (chunk: Buffer) => {

@@ -33,6 +33,14 @@ export interface ArtifactFile {
   readonly is_dir?: boolean
 }
 
+export interface MlflowArtifact {
+  readonly runId: string
+  readonly path: string
+  readonly size: number
+  readonly digest: string
+  readonly bytes: Uint8Array
+}
+
 export interface MlflowModelVersion {
   readonly name: string
   readonly version: string
@@ -131,7 +139,11 @@ export class MlflowService {
     if (response.run === undefined || response.run === null || typeof response.run !== 'object') {
       throw new HttpServiceError('MLflow Run response is malformed', 'integrity-error', false)
     }
-    return response.run as MlflowRun
+    const run = response.run as MlflowRun
+    if (typeof run.info?.run_id !== 'string' || run.info.run_id !== runId) {
+      throw new HttpServiceError('MLflow Run response identity does not match the requested Run', 'integrity-error', false)
+    }
+    return run
   }
 
   async metricHistory(runId: string, key: string, signal?: AbortSignal): Promise<readonly { key: string; value: number; step?: number }[]> {
@@ -163,23 +175,44 @@ export class MlflowService {
     throw new HttpServiceError('MLflow Artifact pagination exceeded the configured page limit', 'integrity-error', false)
   }
 
-  async verifyArtifact(input: {
+  async getArtifact(input: {
     readonly runId: string
     readonly path: string
-    readonly expectedDigest?: string
     readonly signal?: AbortSignal
-  }): Promise<{ runId: string; path: string; size: number; digest: string; verified: boolean }> {
-    if (input.path.split('/').includes('..') || input.path.startsWith('/')) throw new TypeError('Artifact path must be relative')
+  }): Promise<MlflowArtifact> {
+    if (input.path.includes('\\') || input.path.startsWith('/')
+      || input.path.split('/').some(segment => segment === '' || segment === '.' || segment === '..')) {
+      throw new TypeError('Artifact path must be a safe relative path')
+    }
     const encodedPath = input.path.split('/').map(encodeURIComponent).join('/')
     const query = new URLSearchParams({ run_id: input.runId })
     const bytes = await requestBytes(
       `${this.baseUrl}/api/2.0/mlflow-artifacts/artifacts/${encodedPath}?${query}`,
       { ...this.options(input.signal), maxResponseBytes: this.maxArtifactBytes },
     )
-    const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`
-    const verified = input.expectedDigest === undefined || input.expectedDigest === digest
-    if (!verified) throw new HttpServiceError('MLflow Artifact digest does not match expected evidence', 'integrity-error', false)
-    return { runId: input.runId, path: input.path, size: bytes.byteLength, digest, verified }
+    return {
+      runId: input.runId,
+      path: input.path,
+      size: bytes.byteLength,
+      digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+      bytes,
+    }
+  }
+
+  async verifyArtifact(input: {
+    readonly runId: string
+    readonly path: string
+    readonly expectedDigest?: string
+    readonly signal?: AbortSignal
+  }): Promise<{ runId: string; path: string; size: number; digest: string; verified: boolean }> {
+    if (input.expectedDigest !== undefined && !/^sha256:[a-f0-9]{64}$/.test(input.expectedDigest)) {
+      throw new TypeError('expectedDigest must be a lowercase SHA-256 digest')
+    }
+    const artifact = await this.getArtifact(input)
+    if (input.expectedDigest !== undefined && input.expectedDigest !== artifact.digest) {
+      throw new HttpServiceError('MLflow Artifact digest does not match expected evidence', 'integrity-error', false)
+    }
+    return { runId: artifact.runId, path: artifact.path, size: artifact.size, digest: artifact.digest, verified: true }
   }
 
 

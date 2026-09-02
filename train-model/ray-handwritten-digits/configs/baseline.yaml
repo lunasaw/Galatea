@@ -1,0 +1,65 @@
+project_name: ray-handwritten-digits
+
+run:
+  role: trial
+  name_prefix: ray-handwritten-digits
+  seed: 42
+  log_model: false
+
+data:
+  root: /data/ai/chenzhangyue/code/data/handwritten-digits-kaggle/images
+  cache_dir: ${REPO_ROOT}/platform-data/ray-handwritten-digits/manifests
+  source_uri: kaggle://olafkrastovski/handwritten-digits-0-9
+  expected_images_per_class: null
+  expected_valid_images: null
+  train_fraction: 0.80
+  validation_fraction: 0.10
+  test_fraction: 0.10
+  image_height: 32
+  image_width: 32
+  preprocessing_version: kaggle-digits-grayscale-inverted-spatial-v2
+
+model:
+  family: digit_cnn
+  dense_units: 128
+  dropout: 0.15
+  augmentation: true
+  pretrained_weights: null
+
+training:
+  epochs: 15
+  per_worker_batch_size: 64
+  mixed_precision: bf16
+  learning_rate: 0.001
+  optimizer: adam
+  early_stopping_patience: 4
+  objective_metric: val_accuracy
+  objective_mode: max
+
+ray:
+  address: auto
+  num_workers: 1
+  use_gpu: true
+  cpus_per_worker: 2
+  data_num_blocks: 4
+  data_decode_workers: 2
+  data_decode_batch_size: 64
+  data_prefetch_batches: 2
+  data_cache_decoded: true
+  memory_per_worker_gb: 4
+  placement_strategy: PACK
+  max_failures: 1
+  storage_path: ${REPO_ROOT}/platform-data/ray-results-handwritten-digits
+  record_task_timeline: false
+  evaluation_cpus: 2
+  evaluation_gpus: 1
+  evaluation_memory_gb: 4
+
+mlflow:
+  tracking_uri: http://127.0.0.1:5000
+  experiment_name: ray-handwritten-digits
+  require_remote_artifacts: true
+
+evaluation:
+  evaluate_test: false
+  minimum_test_accuracy: 0.90

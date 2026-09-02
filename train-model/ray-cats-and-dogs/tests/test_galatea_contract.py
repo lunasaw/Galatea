@@ -43,15 +43,32 @@ class GalateaContractTest(unittest.TestCase):
             self.spec["objective"],
         )
         self.assertEqual(
-            ["python", "scripts/train.py", "--config", "{config}", "--check-config"],
+            [
+                "/data/conda/envs/attend-ray-py312/bin/python",
+                "scripts/train.py",
+                "--config",
+                "{config}",
+                "--check-config",
+            ],
             self.spec["entrypoints"]["checkConfig"],
         )
         self.assertEqual(
-            ["python", "scripts/train.py", "--config", "{config}", "--plan"],
+            [
+                "/data/conda/envs/attend-ray-py312/bin/python",
+                "scripts/train.py",
+                "--config",
+                "{config}",
+                "--plan",
+            ],
             self.spec["entrypoints"]["plan"],
         )
         self.assertEqual(
-            ["python", "scripts/train.py", "--config", "{config}"],
+            [
+                "/data/conda/envs/attend-ray-py312/bin/python",
+                "scripts/train.py",
+                "--config",
+                "{config}",
+            ],
             self.spec["entrypoints"]["train"],
         )
         self.assertFalse(self.spec["capabilities"]["pauseResume"])

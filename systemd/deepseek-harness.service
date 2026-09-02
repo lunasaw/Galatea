@@ -14,7 +14,7 @@ Environment="DSH_HOME=/root/.dsh"
 Environment="DSH_AGENTS_HOME=/data/ai/chenzhangyue/code/galatea/.agents"
 Environment="GALATEA_RELEASE_ROOT=/data/ai/chenzhangyue/code/galatea/platform-data/ray-cats-and-dogs-job"
 Environment="PATH=/usr/local/bin:/usr/bin:/bin"
-ExecStart=/usr/local/bin/node /data/ai/chenzhangyue/code/deepseek-harness/apps/cli/lib/bin.js web --no-open --host 127.0.0.1 --port 9080 --trusted-host 172.25.40.127:10991 --trusted-host 127.0.0.1:10991 --trusted-host localhost:10991
+ExecStart=/usr/local/bin/node /data/ai/chenzhangyue/code/deepseek-harness/apps/cli/lib/bin.js web --no-open --host 127.0.0.1 --port 9091 --trusted-host 10.19.20.26:9090 --trusted-host 172.25.40.127:10991 --trusted-host 127.0.0.1:10991 --trusted-host localhost:10991
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s

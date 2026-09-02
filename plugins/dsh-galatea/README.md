@@ -1,19 +1,19 @@
 # dsh-galatea
 
 `dsh-galatea` 是 Galatea 面向 DeepSeek Harness 的唯一 Agent 扩展。它把训练项目契约、Ray Jobs、
-MLflow Tracking/Artifact/Registry 和阶段审批组合成类型化 Tool；不实现 Agent Loop、Session、
-Workflow、Skill Registry、权限系统或客户端。
+MLflow Tracking/Artifact/Registry 和一次性 Harness 审批组合成类型化 Tool；不实现 Agent Loop、
+Session、Workflow、Skill Registry、权限系统或客户端。
 
 ## 能力边界
 
-插件注册 13 个 Tool：
+插件注册 12 个 Tool：
 
 | 领域 | Tool |
 | --- | --- |
 | 项目与配置 | `galatea_inspect_project`、`galatea_patch_config`、`galatea_plan_run` |
 | Ray Job | `galatea_submit_job`、`galatea_observe_job`、`galatea_stop_job`、`galatea_pause_job`、`galatea_resume_job` |
 | Run 与证据 | `galatea_compare_runs`、`galatea_build_stage_evidence`、`galatea_verify_candidate` |
-| 审批与推广 | `galatea_request_stage_approval`、`galatea_promote_model` |
+| 审批与推广 | 提交、恢复和推广 Tool 内部请求 `allowed-once`；`galatea_promote_model` 执行推广 |
 
 项目入口来自 `galatea.project.yaml` 的固定 argv，模型不能提交任意 Shell。MLflow 只通过
 Tracking、Artifact 和 Registry HTTP API 访问；插件不读取 `mlflow.db`、MinIO 服务端目录或
@@ -80,16 +80,18 @@ export GALATEA_MLFLOW_TOKEN_ENV=MLFLOW_API_TOKEN
   `GALATEA_SUBMISSION_ID` 和 `GALATEA_PAUSE_REASON` 接收上下文，并向 stdout 输出唯一的
   `{runId,path,digest}` JSON。插件通过 MLflow Artifact API 校验摘要后才停止原 Job。
 - `resumeEntrypoint` 必须包含且只包含一个完整的 `{config}` 参数。恢复 Tool 将原 Job、Run、
-  Artifact 和 Attempt 关系注入 Ray Runtime Environment/metadata，重算 readiness 证据并要求
-  当前 Harness Session 的精确审批，然后提交新的确定性 Submission ID；不原地继续旧 Job。
-- 提交和推广前由 Tool 重算 Evidence Digest，并从当前 Harness Session 重放审批。
-- Champion 提交还必须绑定一个通过 training-optimization 审批的 Trial Run；插件不会接受只有
-  readiness 审批、没有候选选择证据的 Champion。
-- 缺审批、驳回、要求修改、取消、过期或 Digest 变化全部 fail closed。
+  Artifact 和 Attempt 关系注入 Ray Runtime Environment/metadata，重算 readiness 证据并在当前
+  Tool 调用中请求一次性审批，然后提交新的确定性 Submission ID；不原地继续旧 Job。
+- 提交和推广前由 Tool 重算 Evidence Digest，并在同一次 Tool 调用中请求 `allowed-once`。
+- Champion 提交还必须绑定一个经过一次性审批的 training-optimization Trial Run；插件不会接受
+  只有 readiness 审批、没有候选选择证据的 Champion。
+- 拒绝、取消、无审批应答者或当前调用未获 `allowed-once` 全部 fail closed。
 - 推广使用幂等键创建或复用 Model Version；相同键指向不同证据时返回 `conflict`。
 
-阶段审批由 Harness `ApprovalService` 持久化。插件的 answerer 只通过 `userQuestions.ask()` 收集
-决定、审批人、意见和有效期，不保存审批副本。
+高风险动作通过 Harness 现有 `ApprovalService.request()` 请求一次性 `allowed-once` 决定。实际
+回答由部署已经配置的 Harness UI、ACP 或其他普通审批 answerer 负责；插件不注册审批 answerer，
+不保存审批副本，也不新增 Session 事件。一次性授权只覆盖当前 Tool 调用；重试、证据变化或
+下一阶段必须重新请求审批。
 
 ## 开发和验证
 

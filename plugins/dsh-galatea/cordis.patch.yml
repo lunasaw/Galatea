@@ -4,7 +4,7 @@
 - insert:
     - id: dsh-galatea
       name: dsh-galatea
-      inject: [tools, approval, userQuestions]
+      inject: [tools, approval]
       config:
         projectRoot: !!js process.env.GALATEA_PROJECT_ROOT ?? '/data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs'
         manifestPath: !!js process.env.GALATEA_MANIFEST_PATH ?? 'galatea.project.yaml'

@@ -30,7 +30,8 @@ dsh --profile web --dump-config
 ```
 
 `dsh plugin` 把包安装到指定 Profile，并依据包内 `dsh.bundle.patch` 激活 bundle。安装后的
-Profile 只增加 Tool 和审批 answerer，不增加第二个 Agent Runtime 或独立服务进程。
+Profile 只增加 Tool，不增加审批 answerer、第二个 Agent Runtime 或独立服务进程。审批由 Harness
+Profile 已配置的普通 UI、ACP 或其他 answerer 处理。
 
 ## 3. 配置来源
 
@@ -67,14 +68,13 @@ cd /data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs
 
 1. 调用 `galatea_inspect_project` 检查声明。
 2. 调用 `galatea_plan_run` 生成 readiness Evidence Digest。
-3. 调用 `galatea_request_stage_approval`，由 Harness Session 记录决定。
-4. 调用 `galatea_submit_job`；Tool 会重算计划并验证同一 Digest 的未过期审批。
-5. 用 `galatea_observe_job`、`galatea_compare_runs` 和 `galatea_build_stage_evidence` 观察 Trial，
+3. 调用 `galatea_submit_job`；Tool 重算计划，并对当前 Evidence Digest 请求一次性审批。
+4. 用 `galatea_observe_job`、`galatea_compare_runs` 和 `galatea_build_stage_evidence` 观察 Trial，
    形成候选 Run 的 training-optimization Evidence Digest。
-6. 对候选 Evidence 发起阶段审批；提交 `role=champion` 时必须同时提供该候选 Run，插件会重新
-   读取并校验 Evidence，缺少或变更审批都会阻断 Champion Job。
-7. Champion 完成后调用 `galatea_verify_candidate`，验证最终报告、模型和质量门禁。
-8. 对最终验证证据审批后，才能显式调用 `galatea_promote_model`。
+5. 提交 `role=champion` 时必须同时提供候选 Run；插件重新读取候选 Evidence，并在当前调用中
+   分别请求 readiness 与候选 training-optimization 的一次性审批。
+6. Champion 完成后调用 `galatea_verify_candidate`，验证最终报告、模型和质量门禁。
+7. 显式调用 `galatea_promote_model`；Tool 重算最终验证证据并请求一次性推广审批。
 
 安装插件或请求分析不会自动启动昂贵训练，也不会自动修改 Registry Alias。提交和推广必须由
 明确 Tool 调用触发，并满足各自审批门禁。
@@ -84,13 +84,13 @@ cd /data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs
 | 现象 | 处理 |
 | --- | --- |
 | 插件启动时报 Token 环境变量未设置 | 注入实际 Token，或移除对应 `GALATEA_*_TOKEN_ENV` |
-| `approval-required` | 对当前重新计算的 Evidence Digest 发起审批；不要复用旧 Digest |
+| `approval-required` | 重试实际状态变更 Tool，让它为当前 Evidence Digest 重新请求一次性审批 |
 | `conflict` | 检查 Ray Submission ID 或推广幂等键是否已绑定另一身份 |
 | `unsupported` 暂停/恢复 | 项目没有声明并验证跨 Job Checkpoint 恢复，保留原 Job 证据后新建 Attempt |
 | Artifact `not-found`/`integrity-error` | 通过 MLflow Artifact API 检查 Run 和声明路径，不读取 MinIO 服务端目录 |
 | Ray 请求超时 | 先按 Submission ID 查询 Ray 事实源，再决定是否重试 |
 
-卸载或 HMR 替换插件 fiber 会移除全部 13 个 Tool 和阶段审批 listener；Harness Session、Ray Job、
+卸载或 HMR 替换插件 fiber 会移除全部 12 个 Tool；Harness Session、Ray Job、
 MLflow Run 与 Artifact 不由插件 fiber 删除。
 
 声明 `pauseResume: true` 的项目必须提供固定 argv 的 `checkpointEntrypoint` 和
@@ -105,8 +105,8 @@ MLflow Run 与 Artifact 不由插件 fiber 删除。
 - `GALATEA_RESUME_ATTEMPT`
 
 插件先用 MLflow Artifact API 校验 Checkpoint，再为“原 Job + Checkpoint + 配置 + Release”生成
-新的 readiness Evidence Digest。只有该 Digest 在当前 Harness Session 中存在有效审批，才提交
-新的 Ray Job。当前 `ray-cats-and-dogs` 未声明这项能力，因此仍安全返回 `unsupported`。
+新的 readiness Evidence Digest。只有恢复 Tool 的当前审批请求返回 `allowed-once`，才提交新的
+Ray Job。当前 `ray-cats-and-dogs` 未声明这项能力，因此仍安全返回 `unsupported`。
 
 ## 7. 验收
 

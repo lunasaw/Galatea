@@ -20,7 +20,7 @@ export interface StageEvidenceIdentity {
 }
 
 export interface ApprovalReference {
-  readonly valid: boolean
+  readonly valid: true
   readonly stage: LifecycleStage
   readonly artifactId: string
   readonly evidenceDigest: string
@@ -40,7 +40,7 @@ export function authorizeTransition(input: {
     if (input.evidence.qualityGatesPassed !== true) reasons.push('required quality gates have not passed')
   }
   if (input.to !== 'readiness') {
-    if (input.approval === undefined || !input.approval.valid) reasons.push('a valid stage approval is required')
+    if (input.approval === undefined) reasons.push('one-time approval is required for the current action')
     else {
       if (input.approval.stage !== input.evidence.stage) reasons.push('approval stage does not match current evidence')
       if (input.approval.artifactId !== input.evidence.artifactId) reasons.push('approval artifact id does not match current evidence')

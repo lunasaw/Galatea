@@ -1,14 +1,12 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
-import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import GalateaPlugin from '../src/index.ts'
 import { GALATEA_TOOL_NAMES } from '../src/tools/index.ts'
 
@@ -85,19 +83,8 @@ async function harness() {
   await ctx.plugin(SystemPrompt, {})
   await ctx.plugin(ToolRuntime, { mode: 'native' })
   await ctx.plugin(SessionStore)
-  await ctx.plugin(AgentRegistry)
   await ctx.plugin(ApprovalService, { policy: 'ask' })
-  await ctx.plugin(UserQuestionService)
   return ctx
-}
-
-function liveAgent(ctx: Context, id: string): Agent {
-  const sessionId = SessionId(id)
-  const session = ctx.sessions.create(sessionId)
-  session.append('turn/start', { turn: 1 })
-  const agent = { id: sessionId, session, ctx } as unknown as Agent
-  ctx.agents.enter(agent, undefined)
-  return agent
 }
 
 describe('dsh-galatea Cordis plugin', () => {
@@ -109,72 +96,5 @@ describe('dsh-galatea Cordis plugin', () => {
 
     await fiber.dispose()
     expect(GALATEA_TOOL_NAMES.every(name => ctx.tools.get(name) === undefined)).toBe(true)
-  })
-
-  it('answers stage approval through userQuestions with the live agent and signal', async () => {
-    const ctx = await harness()
-    await ctx.plugin(GalateaPlugin, await projectConfig())
-    const agent = liveAgent(ctx, 'galatea-approval')
-    const signal = new AbortController().signal
-    const ask = vi.fn(async request => ({
-      answers: [
-        { id: 'decision', selected: ['Approve'] },
-        { id: 'approver', selected: [], custom: 'reviewer@example.com' },
-        { id: 'comment', selected: [], custom: 'Evidence reviewed.' },
-        { id: 'validity', selected: ['24 hours'] },
-      ],
-    }))
-    ctx.userQuestions.registerProvider({ ask })
-
-    const decision = await ctx.approval.requestStage({
-      agent,
-      stage: 'final-validation',
-      artifactId: 'candidate-7',
-      evidenceDigest: 'sha256:abc',
-      summary: 'All required quality gates passed.',
-      signal,
-    })
-
-    expect(decision).toMatchObject({
-      outcome: 'approved',
-      approver: 'reviewer@example.com',
-      comment: 'Evidence reviewed.',
-    })
-    expect(ask).toHaveBeenCalledOnce()
-    expect(ask.mock.calls[0]?.[0].agent).toBe(agent)
-    expect(ask.mock.calls[0]?.[0].signal).toBe(signal)
-    expect(ask.mock.calls[0]?.[0].questions).toHaveLength(4)
-  })
-
-  it('fails closed for absent providers, cancelled requests, and incomplete reviewer identity', async () => {
-    const ctx = await harness()
-    await ctx.plugin(GalateaPlugin, await projectConfig())
-    const agent = liveAgent(ctx, 'galatea-fail-closed')
-    const request = {
-      agent,
-      stage: 'readiness',
-      artifactId: 'ready-1',
-      evidenceDigest: 'sha256:ready',
-      summary: 'Readiness evidence.',
-    }
-
-    await expect(ctx.approval.requestStage(request)).resolves.toMatchObject({ outcome: 'unavailable' })
-
-    ctx.userQuestions.registerProvider({
-      async ask() {
-        return {
-          answers: [
-            { id: 'decision', selected: ['Approve'] },
-            { id: 'comment', selected: [], custom: 'Missing approver.' },
-            { id: 'validity', selected: ['1 hour'] },
-          ],
-        }
-      },
-    })
-    await expect(ctx.approval.requestStage(request)).resolves.toMatchObject({ outcome: 'unavailable' })
-    await expect(ctx.approval.requestStage({
-      ...request,
-      signal: AbortSignal.abort(),
-    })).resolves.toMatchObject({ outcome: 'cancelled' })
   })
 })

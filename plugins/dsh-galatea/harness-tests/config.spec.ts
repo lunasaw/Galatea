@@ -14,7 +14,7 @@ describe('dsh-galatea bundle overlay', () => {
         {
           id: 'dsh-galatea',
           name: 'dsh-galatea',
-          inject: ['tools', 'approval', 'userQuestions'],
+          inject: ['tools', 'approval'],
           config: {
             projectRoot: {
               __jsExpr: "process.env.GALATEA_PROJECT_ROOT ?? '/data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs'",

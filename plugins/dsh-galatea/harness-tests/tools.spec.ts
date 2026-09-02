@@ -78,24 +78,22 @@ function controller() {
   }
 }
 
-function context(valid = true) {
+function context() {
   const requested: unknown[] = []
   return {
     requested,
     approval: {
-      async requestStage(input: unknown) {
+      async request(input: unknown) {
         requested.push(input)
-        return { outcome: 'approved', approver: 'reviewer', comment: 'ok', decidedAt: 1, expiresAt: 2 }
+        return 'allowed-once'
       },
     },
-    approvalFromSession: () => valid
-      ? { valid: true as const, decision: { outcome: 'approved' as const, expiresAt: 2 } }
-      : { valid: false as const, reason: 'not-found' as const },
   }
 }
 
 const signal = new AbortController().signal
 const agent = { session: { events: [] } } as never
+const callId = 'call-galatea-1'
 
 describe('dsh-galatea Harness tools', () => {
   it('defines the complete bounded surface through Harness defineTool', () => {
@@ -103,7 +101,6 @@ describe('dsh-galatea Harness tools', () => {
     const tools = createGalateaTools({
       controller: controller() as never,
       approval: ctx.approval as never,
-      approvalFromSession: ctx.approvalFromSession as never,
     })
     expect(tools.map(tool => tool.name)).toEqual(GALATEA_TOOL_NAMES)
     expect(new Set(tools.map(tool => tool.name)).size).toBe(tools.length)
@@ -114,52 +111,74 @@ describe('dsh-galatea Harness tools', () => {
     const tools = createGalateaTools({
       controller: controller() as never,
       approval: ctx.approval as never,
-      approvalFromSession: ctx.approvalFromSession as never,
     })
     await tools.find(tool => tool.name === 'galatea_compare_runs')!.execute({
       referenceRunId: 'trial-1',
     }, { signal, agent } as never)
   })
 
-  it('derives state-changing approval from Session replay', async () => {
+  it('requests one-time approval before each state-changing action', async () => {
     const ctx = context()
     const tools = createGalateaTools({
       controller: controller() as never,
       approval: ctx.approval as never,
-      approvalFromSession: ctx.approvalFromSession as never,
     })
     await tools.find(tool => tool.name === 'galatea_submit_job')!.execute({
       configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
-    }, { signal, agent } as never)
+    }, { signal, agent, callId } as never)
     await tools.find(tool => tool.name === 'galatea_submit_job')!.execute({
       configPath: 'configs/champion.yaml',
       releaseManifestPath: 'release/release.json',
       role: 'champion',
       attempt: 'champion-1',
       candidateRunId: 'trial-2',
-    }, { signal, agent } as never)
+    }, { signal, agent, callId } as never)
     await tools.find(tool => tool.name === 'galatea_promote_model')!.execute({
       runId: 'champion-1', alias: 'champion', idempotencyKey: 'promote-1',
-    }, { signal, agent } as never)
+    }, { signal, agent, callId } as never)
     await tools.find(tool => tool.name === 'galatea_resume_job')!.execute({
       originalSubmissionId: 'job-1',
       configPath: 'configs/trial.yaml',
       releaseManifestPath: 'release/release.json',
       checkpoint: { runId: 'trial-1', path: 'checkpoints/state.json', digest: 'sha256:checkpoint' },
       attempt: 'resume-1',
-    }, { signal, agent } as never)
+    }, { signal, agent, callId } as never)
+    const requests = ctx.requested as {
+      agent?: unknown
+      toolName?: string
+      callId?: string
+      reason?: string
+      signal?: AbortSignal
+    }[]
+    expect(requests.map(request => request.toolName)).toEqual([
+      'galatea_submit_job',
+      'galatea_submit_job',
+      'galatea_submit_job',
+      'galatea_promote_model',
+      'galatea_resume_job',
+    ])
+    for (const request of requests) {
+      expect(request.agent).toBe(agent)
+      expect(request.callId).toBe(callId)
+      expect(request.signal).toBe(signal)
+      expect(request.reason).toMatch(/Evidence digest: sha256:/)
+    }
   })
 
-  it('fails closed without a matching Session approval', async () => {
-    const ctx = context(false)
-    const tools = createGalateaTools({
-      controller: controller() as never,
-      approval: ctx.approval as never,
-      approvalFromSession: ctx.approvalFromSession as never,
-    })
-    const result = await tools.find(tool => tool.name === 'galatea_submit_job')!.execute({
-      configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
-    }, { signal, agent } as never) as { ok: boolean; error?: { category?: string } }
-    expect(result).toMatchObject({ ok: false, error: { category: 'approval-required' } })
+  it('fails closed for every non-grant outcome and approval errors', async () => {
+    for (const outcome of ['rejected', 'cancelled', 'unavailable', 'error'] as const) {
+      const ctx = context()
+      ctx.approval.request = outcome === 'error'
+        ? async () => { throw new Error('answerer failed') }
+        : async () => outcome
+      const tools = createGalateaTools({
+        controller: controller() as never,
+        approval: ctx.approval as never,
+      })
+      const result = await tools.find(tool => tool.name === 'galatea_submit_job')!.execute({
+        configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
+      }, { signal, agent, callId } as never) as { ok: boolean; error?: { category?: string } }
+      expect(result, outcome).toMatchObject({ ok: false, error: { category: 'approval-required' } })
+    }
   })
 })

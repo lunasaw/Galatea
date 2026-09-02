@@ -1,13 +1,9 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool, type JsonValue as HarnessJsonValue, type ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type {
-  StageApprovalDecision,
-  StageApprovalRequest,
-  StageApprovalValidation,
-} from '@deepseek-ai/dsh-user-approval'
+import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import type { JsonValue, ToolResult } from '../contracts/index.ts'
-import { failure, redactSecrets, success } from '../contracts/index.ts'
-import type { ApprovalReference, ExecutionRole, LifecycleStage } from '../policies/lifecycle.ts'
+import { failure, redactSecrets } from '../contracts/index.ts'
+import type { ApprovalReference, ExecutionRole } from '../policies/lifecycle.ts'
 import type { GalateaController, StageEvidence } from './controller.ts'
 
 export const GALATEA_TOOL_NAMES = [
@@ -21,7 +17,6 @@ export const GALATEA_TOOL_NAMES = [
   'galatea_resume_job',
   'galatea_compare_runs',
   'galatea_build_stage_evidence',
-  'galatea_request_stage_approval',
   'galatea_verify_candidate',
   'galatea_promote_model',
 ] as const
@@ -29,12 +24,8 @@ export const GALATEA_TOOL_NAMES = [
 export interface GalateaToolContext {
   readonly controller: GalateaController
   readonly approval: {
-    requestStage(request: StageApprovalRequest): Promise<StageApprovalDecision>
+    request(request: ApprovalRequest): Promise<ApprovalOutcome>
   }
-  readonly approvalFromSession: (
-    agent: Agent,
-    subject: { readonly stage: string; readonly artifactId: string; readonly evidenceDigest: string },
-  ) => StageApprovalValidation
 }
 
 const output = {
@@ -50,40 +41,64 @@ function requireAgent(agent: Agent | undefined): ToolResult<never> | undefined {
   if (agent !== undefined) return undefined
   return failure({
     category: 'approval-required',
-    message: 'a live Harness Agent is required to validate durable stage approval',
+    message: 'a live Harness Agent is required to request approval',
     retryable: false,
     stateChanged: false,
   })
 }
 
-function approvalReference(
-  context: GalateaToolContext,
-  agent: Agent,
-  evidence: StageEvidence,
-): ApprovalReference | undefined {
-  const validation = context.approvalFromSession(agent, {
+function approvalReference(evidence: StageEvidence): ApprovalReference {
+  return {
+    valid: true,
     stage: evidence.stage,
     artifactId: evidence.artifactId,
     evidenceDigest: evidence.digest,
-  })
-  return validation.valid
-    ? {
-      valid: true,
-      stage: evidence.stage,
-      artifactId: evidence.artifactId,
-      evidenceDigest: evidence.digest,
-    }
-    : undefined
+  }
 }
 
-function missingApproval(evidence: StageEvidence): HarnessJsonValue {
-  return safeResult(failure({
+function approvalFailure(outcome: ApprovalOutcome, evidence: StageEvidence): ToolResult<never> {
+  const reason = outcome === 'cancelled'
+    ? 'approval was cancelled'
+    : outcome === 'unavailable'
+      ? 'no approval answerer is available'
+      : 'approval was rejected'
+  return failure({
     category: 'approval-required',
-    message: `no valid unexpired approval matches ${evidence.stage} evidence ${evidence.digest}`,
+    message: `${reason} for ${evidence.stage} evidence ${evidence.digest}`,
     retryable: false,
     stateChanged: false,
-    nextAction: 'Request approval for the current evidence digest.',
-  }))
+    nextAction: 'Retry the operation to request a new one-time approval for the current evidence.',
+  })
+}
+
+async function requestApproval(
+  context: GalateaToolContext,
+  agent: Agent,
+  evidence: StageEvidence,
+  toolName: string,
+  action: string,
+  callId: ApprovalRequest['callId'],
+  signal: AbortSignal | undefined,
+): Promise<ApprovalReference | ToolResult<never>> {
+  const request: ApprovalRequest = {
+    agent,
+    toolName,
+    ...(callId === undefined ? {} : { callId }),
+    reason: [
+      `One-time approval is required before ${action}.`,
+      `Stage: ${evidence.stage}`,
+      `Artifact: ${evidence.artifactId}`,
+      `Evidence digest: ${evidence.digest}`,
+    ].join('\n'),
+    ...(signal === undefined ? {} : { signal }),
+  }
+  let outcome: ApprovalOutcome
+  try {
+    outcome = await context.approval.request(request)
+  } catch {
+    outcome = 'unavailable'
+  }
+  return outcome === 'allowed-once' ? approvalReference(evidence) : approvalFailure(outcome, evidence)
 }
 
 /** Build the bounded model-facing surface over one stateless Controller. */
@@ -134,7 +149,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
   }))
   tools.push(defineTool({
     name: 'galatea_submit_job',
-    description: 'Submit the fixed declared training entrypoint after readiness approval; Champion additionally requires approved training-optimization evidence.',
+    description: 'Submit the fixed declared training entrypoint after one-time readiness approval; Champion also requires one-time approval of the selected training-optimization evidence.',
     parameters: {
       configPath,
       releaseManifestPath,
@@ -151,8 +166,17 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       if (agentFailure !== undefined) return safeResult(agentFailure)
       const planned = await context.controller.planRun({ ...args, role: args.role as ExecutionRole, signal: exec.signal })
       if (!planned.ok) return safeResult(planned)
-      const approval = approvalReference(context, exec.agent!, planned.data.evidence)
-      if (approval === undefined) return missingApproval(planned.data.evidence)
+      const requested = await requestApproval(
+        context,
+        exec.agent!,
+        planned.data.evidence,
+        'galatea_submit_job',
+        'submit a Ray Job',
+        exec.callId,
+        exec.signal,
+      )
+      if (!('valid' in requested)) return safeResult(requested)
+      const approval = requested
       let candidateApproval: ApprovalReference | undefined
       if (args.role === 'champion') {
         if (args.candidateRunId === undefined) {
@@ -170,8 +194,17 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
           signal: exec.signal,
         })
         if (!candidate.ok) return safeResult(candidate)
-        candidateApproval = approvalReference(context, exec.agent!, candidate.data.evidence)
-        if (candidateApproval === undefined) return missingApproval(candidate.data.evidence)
+        const candidateRequested = await requestApproval(
+          context,
+          exec.agent!,
+          candidate.data.evidence,
+          'galatea_submit_job',
+          'submit a Champion Ray Job from the selected Trial',
+          exec.callId,
+          exec.signal,
+        )
+        if (!('valid' in candidateRequested)) return safeResult(candidateRequested)
+        candidateApproval = candidateRequested
       } else if (args.candidateRunId !== undefined) {
         return safeResult(failure({
           category: 'invalid-input',
@@ -236,8 +269,17 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       if (agentFailure !== undefined) return safeResult(agentFailure)
       const planned = await context.controller.planResume({ ...args, signal: exec.signal })
       if (!planned.ok) return safeResult(planned)
-      const approval = approvalReference(context, exec.agent!, planned.data.evidence)
-      if (approval === undefined) return missingApproval(planned.data.evidence)
+      const requested = await requestApproval(
+        context,
+        exec.agent!,
+        planned.data.evidence,
+        'galatea_resume_job',
+        'resume a Ray Job',
+        exec.callId,
+        exec.signal,
+      )
+      if (!('valid' in requested)) return safeResult(requested)
+      const approval = requested
       return safeResult(await context.controller.resumeJob({
         ...args,
         approval,
@@ -263,28 +305,6 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     async execute(args, exec) { return safeResult(await context.controller.buildStageEvidence({ ...args, signal: exec.signal })) },
   }))
   tools.push(defineTool({
-    name: 'galatea_request_stage_approval',
-    description: 'Ask the human to approve, reject, or request changes for one exact evidence digest and persist the decision in the Harness Session.',
-    parameters: {
-      stage: { type: 'string', enum: ['readiness', 'training-optimization', 'final-validation', 'promotion'], required: true },
-      artifactId: { type: 'string', required: true },
-      evidenceDigest: { type: 'string', required: true },
-      summary: { type: 'string', required: true },
-    }, output,
-    isConcurrencySafe: () => false,
-    async execute(args, exec) {
-      const agentFailure = requireAgent(exec.agent)
-      if (agentFailure !== undefined) return safeResult(agentFailure)
-      const decision = await context.approval.requestStage({ ...args, agent: exec.agent!, signal: exec.signal })
-      return safeResult(success({
-        stage: args.stage as LifecycleStage,
-        artifactId: args.artifactId,
-        evidenceDigest: args.evidenceDigest,
-        decision: decision as unknown as JsonValue,
-      }, `Stage approval resolved as ${decision.outcome}.`))
-    },
-  }))
-  tools.push(defineTool({
     name: 'galatea_verify_candidate',
     description: 'Re-read a champion Run and declared Artifacts, evaluate quality gates, and build final-validation evidence.',
     parameters: { runId: { type: 'string', required: true } }, output,
@@ -292,7 +312,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
   }))
   tools.push(defineTool({
     name: 'galatea_promote_model',
-    description: 'Create or reuse a model version and set an alias only when current final-validation evidence has matching Session approval.',
+    description: 'Create or reuse a model version and set an alias only after one-time approval of the current final-validation evidence.',
     parameters: {
       runId: { type: 'string', required: true },
       alias: { type: 'string', required: true },
@@ -304,8 +324,17 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       if (agentFailure !== undefined) return safeResult(agentFailure)
       const verified = await context.controller.verifyCandidate({ runId: args.runId, signal: exec.signal })
       if (!verified.ok) return safeResult(verified)
-      const approval = approvalReference(context, exec.agent!, verified.data.evidence)
-      if (approval === undefined) return missingApproval(verified.data.evidence)
+      const requested = await requestApproval(
+        context,
+        exec.agent!,
+        verified.data.evidence,
+        'galatea_promote_model',
+        'promote the model',
+        exec.callId,
+        exec.signal,
+      )
+      if (!('valid' in requested)) return safeResult(requested)
+      const approval = requested
       return safeResult(await context.controller.promoteModel({ ...args, approval, signal: exec.signal }))
     },
   }))

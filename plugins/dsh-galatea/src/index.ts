@@ -1,7 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
 import schema from '@deepseek-ai/schemastery'
-import { findStageApproval, type StageApprovalDecision } from '@deepseek-ai/dsh-user-approval'
-import { answerStageApproval } from './approval/answerer.ts'
 import { loadProjectManifest, resolveProjectPath } from './policies/project.ts'
 import { MlflowService } from './services/mlflow.ts'
 import { ProjectProcessService } from './services/project-process.ts'
@@ -10,7 +8,7 @@ import { GalateaController } from './tools/controller.ts'
 import { createGalateaTools } from './tools/index.ts'
 
 export const name = 'dsh-galatea'
-export const inject = ['tools', 'approval', 'userQuestions']
+export const inject = ['tools', 'approval']
 
 export interface Config {
   readonly projectRoot: string
@@ -108,19 +106,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   for (const tool of createGalateaTools({
     controller,
     approval: ctx.approval,
-    approvalFromSession: (agent, subject) => findStageApproval(agent.session.events, subject),
   })) {
     ctx.tools.register(tool)
   }
-
-  ctx.on('approval/stage-request', async request => answerStageApproval({
-    request,
-    ask: ({ questions }) => ctx.userQuestions.ask({
-      questions,
-      agent: request.agent,
-      ...(request.signal === undefined ? {} : { signal: request.signal }),
-    }),
-  }) as Promise<StageApprovalDecision>)
 }
 
 export default { name, inject, Config, apply }

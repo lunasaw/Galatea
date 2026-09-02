@@ -1,12 +1,12 @@
-# DeepSeek Harness 与 Galatea 训推平台目标架构
+# DeepSeek Harness 与 Galatea 训推平台架构及实施记录
 
-> 状态：**目标架构已冻结，实施待迁移**；迁移方式：直接替换，不保留双 Agent Runtime、
-> 兼容层或回退入口。
+> 状态：**已于 2026-09-01 按冻结架构完成直接替换**；仓库仅保留 DeepSeek Harness 与
+> `dsh-galatea`，不包含双 Agent Runtime、兼容层或回退入口。
 > 范围：多项目、多模型、多框架的训练、评估、Artifact 验证与模型治理
 
-本文定义 DeepSeek Harness 与 Galatea 的最终职责边界，以及从当前 `agent/` 直接迁移到
-`plugins/dsh-galatea/` 的实施方案。文中的插件结构和能力均为待迁移目标，不代表仓库已经完成
-实现。
+本文定义 DeepSeek Harness 与 Galatea 的最终职责边界，并记录从旧 Python Agent Runtime 直接
+迁移到 `plugins/dsh-galatea/` 的实施结果。下述插件结构、能力和验收条件均已落实；部署步骤见
+[`dsh-galatea-operations.md`](dsh-galatea-operations.md)。
 
 本文不描述某个具体模型、框架、数据集、指标或训练项目的实现。训练项目仍遵守仓库级
 [`AGENTS.md`](../AGENTS.md) 和各自的 README、配置与测试约定。
@@ -21,7 +21,7 @@
 - **MLflow** 负责实验追踪、Artifact 访问和模型治理；
 - **MinIO** 负责数据、Checkpoint、模型和其他 Artifact 的持久化。
 
-Galatea 不再实现第二套 Agent Runtime。当前 `agent/` 目录整体删除，不保留：
+Galatea 不再实现第二套 Agent Runtime。旧 `agent/` 目录已整体删除，未保留：
 
 - Claude Agent SDK；
 - `GalateaRuntime`、`GalateaAgentClient` 或其他 Agent Client；
@@ -98,11 +98,11 @@ DeepSeek Harness 已公开的 Cordis 插件、Tool、Policy Hook、Approval 和 
 - 把 Notebook Kernel 当作正式训练执行环境；
 - 通过读取 `mlflow.db`、MinIO 服务端目录或 Ray 临时目录完成集成；
 - 自动修改生产模型 Alias；
-- 为当前不可用的 `agent/` 提供兼容期。
+- 为已删除的旧 Agent Runtime 提供兼容期。
 
 ## 3. `dsh-galatea` 插件结构
 
-目标目录为：
+当前目录为：
 
 ```text
 plugins/
@@ -114,7 +114,7 @@ plugins/
     │   ├── policies/
     │   ├── services/
     │   └── index.ts
-    ├── skills/
+    ├── harness-tests/
     └── tests/
 ```
 
@@ -124,10 +124,10 @@ plugins/
 
 ### 3.1 Tools
 
-`src/tools/` 是模型可调用的类型化能力入口。目标能力按领域分组，不把内部 Service 方法逐个
+`src/tools/` 是模型可调用的类型化能力入口。已实现能力按领域分组，不把内部 Service 方法逐个
 暴露给模型。
 
-| Tool 组 | 目标能力 | 状态影响 |
+| Tool 组 | 已实现能力 | 状态影响 |
 | --- | --- | --- |
 | 项目检查 | 发现项目、检查项目契约、解析项目能力和配置入口 | 只读 |
 | 数据检查 | 校验数据来源、Manifest、Digest、切分和预处理身份 | 只读或生成检查报告 |
@@ -342,12 +342,19 @@ Ray Job 没有跨工作负载的通用原地暂停语义。插件只在训练项
 
 请求恢复
   → 校验 Checkpoint、配置和代码兼容性
+  → 对恢复 readiness 证据执行 Harness Session 审批
   → 基于 Checkpoint 提交新的 Ray Job
   → 记录新旧 Job 与 Run 的恢复关系
 ```
 
 未声明或不能验证 Checkpoint 恢复能力的项目必须返回结构化 `unsupported`，不能把进程停止
 伪装成安全暂停，也不能声称原 Job 被原地继续。
+
+项目通过固定 argv 的 `checkpointEntrypoint` 和 `resumeEntrypoint` 声明能力。Checkpoint 入口输出
+`{runId,path,digest}`，插件只在 MLflow Artifact API 按 Digest 回读成功后停止原 Job。恢复入口
+必须包含一个完整 `{config}` 参数；原 Job、Checkpoint 和 Attempt 关系通过 Ray Runtime
+Environment 与 metadata 传递，不拼接模型提供的 Shell。恢复提交和普通提交一样受 readiness
+Evidence Digest 审批约束。
 
 ### 7.3 停止和失败
 
@@ -394,8 +401,9 @@ Checkpoint、模型、预测、报告和恢复元数据通过 MLflow Artifact AP
 
 ## 9. Skill 最小化与验证
 
-现有 `.codex/skills/` 中的内容不是默认迁移资产，只是待审计候选。第一次直接替换允许
-`plugins/dsh-galatea/skills/` 为空。
+现有 `.codex/skills/` 中的内容不是 Runtime 迁移资产。首版审计结论是零内置 Skill：
+`dsh-galatea` 依靠类型化 Tool、Policy 和 Schema 完成确定性平台操作，仓库级 Skills 继续只为
+开发代理提供工作流说明。
 
 ### 9.1 Skill 准入条件
 
@@ -421,14 +429,14 @@ Checkpoint、模型、预测、报告和恢复元数据通过 MLflow Artifact AP
 
 无法证明价值的 Skill 删除，不以“可能有用”为理由进入插件。
 
-### 9.3 当前候选的初步处理
+### 9.3 候选审计结果
 
-| 当前 Skill | 待迁移处理 |
+| 仓库 Skill | 审计结论 |
 | --- | --- |
-| `model-project-structure` | 优先转为项目检查 Policy/Tool；只评估是否仍有少量推理指引需要保留 |
-| `mlflow-optimize-models` | 作为诊断型 Skill 候选，必须通过兼容 Run 分析场景验证 |
-| `ray` | 属于通用参考资料，不默认进入 Galatea 插件 |
-| `searching-mlflow-docs` | 属于文档检索能力，不等同于训推平台操作能力，不默认迁移 |
+| `model-project-structure` | 项目边界已落入声明、Policy 和契约测试；不进入插件 Runtime |
+| `mlflow-optimize-models` | 保留为开发代理的诊断工作流；不进入插件 Runtime |
+| `ray` | 保留为通用参考资料；不进入插件 Runtime |
+| `searching-mlflow-docs` | 保留为文档检索能力；不进入插件 Runtime |
 
 ## 10. 错误、重试与恢复
 
@@ -445,14 +453,14 @@ ID 和推荐的下一步动作。自然语言错误不能成为 Harness 判断�
 - 失败 Run、部分 Artifact 和恢复关系必须保留审计证据；
 - 任何失败都不得隐式触发模型推广。
 
-## 11. 直接替换实施方案
+## 11. 直接替换实施记录
 
 这是一次直接替换，不建立旧 Agent Runtime 与新插件的并行运行期。
 
 ```text
 实现并验证 plugins/dsh-galatea
         +
-删除 agent/ 和全部旧入口
+删除旧 Agent Runtime 和全部旧入口
         +
 更新依赖、文档与测试
         ↓
@@ -461,7 +469,7 @@ ID 和推荐的下一步动作。自然语言错误不能成为 Harness 判断�
 
 ### 11.1 删除与重写映射
 
-| 当前内容 | 处理 |
+| 旧内容 | 已完成处理 |
 | --- | --- |
 | `agent/core/`、`agent/runtime.py`、`agent/client.py` | 删除 |
 | `agent/agents/` | 删除 |
@@ -480,11 +488,11 @@ ID 和推荐的下一步动作。自然语言错误不能成为 Harness 判断�
 | 质量门禁 | 重写为无状态 Policy |
 | 训练生命周期规则 | 重写为阶段前置条件，不迁移状态机 |
 
-`agent/services/` 当前只有声明而没有可复用实现，不能因为命名匹配就视为已完成迁移。
+旧 `agent/services/` 只有声明而没有可复用实现，因此未原样迁移。
 
-### 11.2 实施顺序
+### 11.2 已执行的实施顺序
 
-一次替换变更内部按以下顺序完成，但不对外提供双栈模式：
+替换按以下顺序完成，期间未对外提供双栈模式：
 
 1. 建立 `plugins/dsh-galatea/` 包、Cordis 注册入口和测试骨架；
 2. 定义结构化结果、平台 ID、错误分类、幂等和审批证据类型；
@@ -492,11 +500,11 @@ ID 和推荐的下一步动作。自然语言错误不能成为 Harness 判断�
 4. 实现项目检查、生命周期、Run 可比性和质量门禁 Policies；
 5. 注册最小 Tool 集并接入 DeepSeek Harness Profile；
 6. 评估候选 Skills，允许评估结果为零；
-7. 完成端到端验收后删除整个 `agent/` 及其依赖、入口和引用；
+7. 完成端到端验收后删除整个旧 Agent Runtime 及其依赖、入口和引用；
 8. 更新仓库 README、运维文档和测试命令，使其只描述新架构。
 
-不建立 Python 到 TypeScript 的旧 Runtime Adapter。项目专用 Python 行为通过参数化入口执行，
-使用结构化输入输出，不导入 `agent/`。
+未建立 Python 到 TypeScript 的旧 Runtime Adapter。项目专用 Python 行为通过参数化入口执行，
+使用结构化输入输出，不导入旧 Runtime。
 
 ## 12. 测试与验收
 

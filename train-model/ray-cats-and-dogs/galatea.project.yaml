@@ -1,0 +1,94 @@
+apiVersion: galatea/v1
+kind: TrainingProject
+metadata:
+  name: ray-cats-and-dogs
+spec:
+  task: image-classification
+  objective:
+    metric: val_accuracy
+    direction: max
+  compatibility:
+    - task
+    - datasetDigest
+    - splitDigest
+    - preprocessingVersion
+    - metricDefinition
+    - evaluationProtocol
+    - role
+  capabilities:
+    pauseResume: false
+  configRoot: configs
+  entrypoints:
+    checkConfig:
+      - python
+      - scripts/train.py
+      - --config
+      - "{config}"
+      - --check-config
+    plan:
+      - python
+      - scripts/train.py
+      - --config
+      - "{config}"
+      - --plan
+    train:
+      - python
+      - scripts/train.py
+      - --config
+      - "{config}"
+  mlflow:
+    experimentName: ray-cats-and-dogs
+    trackingUriEnv: MLFLOW_TRACKING_URI
+    registeredModelName: ray-cats-and-dogs
+  runEvidence:
+    compatibility:
+      task:
+        source: constant
+        value: image-classification
+      datasetDigest:
+        source: param
+        key: data.content_sha256
+      splitDigest:
+        source: param
+        key: data.split_sha256
+      preprocessingVersion:
+        source: param
+        key: data.preprocessing_version
+      metricDefinition:
+        source: constant
+        value: accuracy-per-example-v1
+      evaluationProtocol:
+        source: constant
+        value: deterministic-manifest-holdout-v1
+      role:
+        source: tag
+        key: run.role
+    requiredTags:
+      run.outcome: succeeded
+      artifact.roundtrip_verified: "true"
+    stageArtifacts:
+      training-optimization:
+        - reports/model-selection.json
+      final-validation:
+        - reports/final-test-evaluation.json
+        - model/MLmodel
+    modelSource:
+      artifactPath: model
+      uriTag: model.uri
+  qualityGates:
+    - name: final test accuracy
+      source: metric
+      key: test_accuracy
+      operator: gte
+      threshold: 0.80
+      required: true
+    - name: final evaluation report
+      source: evidence
+      key: reports/final-test-evaluation.json
+      operator: exists
+      required: true
+    - name: MLflow model descriptor
+      source: evidence
+      key: model/MLmodel
+      operator: exists
+      required: true

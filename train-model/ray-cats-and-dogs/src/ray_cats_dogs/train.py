@@ -282,7 +282,11 @@ def _log_evaluation(
     return quality_passed
 
 
-def _log_mlflow_model(checkpoint: Any, config: ProjectConfig) -> str:
+def _log_mlflow_model(
+    checkpoint: Any,
+    config: ProjectConfig,
+    run_id: str,
+) -> str:
     import mlflow.pytorch
     import numpy as np
     import torch
@@ -331,7 +335,18 @@ def _log_mlflow_model(checkpoint: Any, config: ProjectConfig) -> str:
         )
         if not (Path(downloaded_model) / "MLmodel").is_file():
             raise RuntimeError("MLflow Logged Model is missing its MLmodel descriptor")
-    return model_info.model_uri
+        mlflow.log_artifacts(downloaded_model, artifact_path="model")
+    with tempfile.TemporaryDirectory(
+        prefix="ray-cats-dogs-run-model-check-"
+    ) as verification_directory:
+        downloaded_descriptor = mlflow.artifacts.download_artifacts(
+            run_id=run_id,
+            artifact_path="model/MLmodel",
+            dst_path=verification_directory,
+        )
+        if not Path(downloaded_descriptor).is_file():
+            raise RuntimeError("MLflow Run Artifact is missing model/MLmodel")
+    return f"runs:/{run_id}/model"
 
 
 @mlflow.trace(name="ray_cats_dogs_training", span_type=SpanType.WORKFLOW)
@@ -505,7 +520,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                 model_uri = None
                 if config.run.log_model:
                     phase = "model-logging"
-                    model_uri = _log_mlflow_model(result.checkpoint, config)
+                    model_uri = _log_mlflow_model(result.checkpoint, config, run_id)
                     mlflow.set_tag("model.uri", model_uri)
 
                 if config.ray.record_task_timeline:

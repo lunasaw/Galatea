@@ -1,0 +1,21 @@
+# Galatea training-governance tools for a DeepSeek Harness profile.
+# Later profile or home patches may replace this row's complete config.
+
+- insert:
+    - id: dsh-galatea
+      name: dsh-galatea
+      inject: [tools, approval, userQuestions]
+      config:
+        projectRoot: !!js process.env.GALATEA_PROJECT_ROOT ?? '/data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs'
+        manifestPath: !!js process.env.GALATEA_MANIFEST_PATH ?? 'galatea.project.yaml'
+        releaseRoot: !!js process.env.GALATEA_RELEASE_ROOT ?? '/tmp/ray-cats-and-dogs-job'
+        rayBaseUrl: !!js process.env.GALATEA_RAY_BASE_URL ?? 'http://127.0.0.1:8265'
+        rayTokenEnv: !!js process.env.GALATEA_RAY_TOKEN_ENV
+        mlflowBaseUrl: !!js process.env.GALATEA_MLFLOW_BASE_URL ?? 'http://127.0.0.1:5000'
+        mlflowTokenEnv: !!js process.env.GALATEA_MLFLOW_TOKEN_ENV
+        requestTimeoutMs: 30000
+        projectProcessTimeoutMs: 60000
+        maxResponseBytes: 2000000
+        maxArtifactBytes: 50000000
+        maxLogChars: 100000
+        maxProcessOutputBytes: 1000000

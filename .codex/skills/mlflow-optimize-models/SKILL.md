@@ -22,6 +22,22 @@ repository. Identify:
 
 Never silently use a test or holdout metric as the optimization objective.
 
+## Route execution by scope
+
+Choose the execution backend from the requested task scope rather than applying a universal Ray-only rule:
+
+- Keep read-only analysis, configuration checks, bounded quick checks, and low-risk exploratory experiments local
+  when they are expected to finish quickly and do not produce formal evidence.
+- Prefer the project's declared Ray Job path for formal Trial/Champion runs, long-running or resource-intensive
+  training, distributed work, and any result intended for durable MLflow, model, or competition evidence.
+- For a project integrated with Galatea, use `galatea_plan_run` followed by `galatea_submit_job` for formal Ray
+  execution. Otherwise use the project's documented immutable-release and Ray submission entrypoints.
+- Before either execution path, validate the project structure, fixed entrypoint, dependencies, configuration,
+  release/runtime environment, dataset identity, and split contract. A mismatch is a blocking failure: repair it
+  first and never bypass it with a different command.
+- A local run may inform development, but it must not be reported as a governed Ray Run, durable final evidence,
+  or a replacement for a required formal submission.
+
 ## Use API-only evidence
 
 Treat the Tracking Server as the only MLflow metadata boundary. Query Experiments,

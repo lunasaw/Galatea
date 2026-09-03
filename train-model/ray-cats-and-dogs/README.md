@@ -4,6 +4,12 @@
 可审计、可由 Ray Job 提交的正式 PyTorch CUDA 13 训练项目。它复用确定性数据切分、
 MLflow 数据血缘和测试集门禁思想，并把配置、实现、入口与测试分开。
 
+本页说明本项目的具体命令和配置。跨项目的 Ray Jobs、Ray Train、Ray Data、Runtime
+Environment、资源和恢复规则以
+[`doc/train-guide/ray-training-guide.md`](../../doc/train-guide/ray-training-guide.md) 为准；MLflow
+所有权和 Artifact 契约见
+[`mlflow-training-integration-spec.md`](../../doc/train-guide/mlflow-training-integration-spec.md)。
+
 当前阶段使用 Ray Train 做单 Worker 或多 Worker 数据并行训练。MLflow 的权威写入者始终
 只有 Driver/Train Controller：Worker 只做计算、向 Ray 上报指标和 Checkpoint，不创建、
 结束或直接写入 MLflow Run。
@@ -36,6 +42,7 @@ scripts/train.py
 ```text
 train-model/ray-cats-and-dogs/
 ├── README.md
+├── galatea.project.yaml   # dsh-galatea 项目能力、证据和质量门禁声明
 ├── conda.yaml
 ├── pyproject.toml
 ├── configs/
@@ -43,6 +50,10 @@ train-model/ray-cats-and-dogs/
 │   ├── smoke.yaml          # 1 Epoch 链路检查，不读取测试集
 │   ├── distributed.yaml    # 2 Worker Trial
 │   └── champion.yaml       # 干净重训并执行一次最终测试
+├── job/
+│   ├── ci.py               # 构建、发布并默认执行 CD 配置检查
+│   ├── cd.py               # 提交已发布的不可变 Runtime Environment
+│   └── README.md            # MinIO Release、凭据和排错说明
 ├── scripts/train.py        # 正式参数化入口
 ├── notebooks/
 │   └── smoke-run-guide.ipynb  # 配置、计划、提交与结果查看
@@ -120,6 +131,10 @@ GPU 会让调度器错误地把多个 DDP Rank 放到不存在或重复的设备
 export CATS_DOGS_DATASET_SOURCE_URI=\
 s3://training-data/datasets/raw/microsoft-cats-vs-dogs/2026-07-30/PetImages
 ```
+
+`CATS_DOGS_DATASET_SOURCE_URI` 只记录经过核对的来源血缘；当前数据加载仍读取 `data.root/PetImages`
+的本地路径，不会因为设置该变量而切换成 S3 Datasource。多节点训练必须让所有解码节点以相同绝对
+路径只读挂载同一快照，或先实现并验证真正的远程 Datasource。
 
 ## 3. 先做不训练的检查
 
@@ -225,6 +240,10 @@ Checkpoint URI。`configs/*.yaml` 默认将 Ray 执行态保存在
 `ray.storage_path` 改成集群已配置凭据的共享 URI，例如 S3；训练客户端不应读取 MLflow
 服务端的 MinIO 文件系统。
 
+`ray.max_failures` 只恢复同一次 `trainer.fit()` 内失败的 Worker 组。当前项目没有 Driver、Head 或
+整 Job 失败后的自动跨 Job 续训入口；这种失败必须保留原 Job、Run 和 Checkpoint 证据，评估后用新
+Submission ID 和新 MLflow Attempt 重提，不能用 `--force` 冒充断点恢复。
+
 `ray.record_task_timeline: true` 默认让 Driver 在任务收尾时通过 Ray State API 导出当前
 Ray Job 的 Dashboard 时间线，而不是导出可能混入其他 Job 的集群级 Timeline。Trace 保存为
 当前 MLflow Run 下的 `ray/task-timeline.json`，元数据保存为
@@ -246,7 +265,9 @@ python train-model/ray-cats-and-dogs/scripts/train.py \
 
 只有 `role: champion` 可以设置 `evaluate_test: true` 和 `log_model: true`。Champion 会读取
 验证集最佳 Checkpoint，对固定测试集评估一次，记录 Accuracy、Precision、Recall、F1、
-ROC AUC、预测摘要和质量门禁，并生成 MLflow Logged Model。未通过门禁的 Run 仍完整保留，
+ROC AUC、预测摘要和质量门禁，并生成 MLflow Logged Model。模型会在 Logged Model 回读后
+再次发布为 Run 下的 `model/` Artifact，并通过 Artifact API 回读 `model/MLmodel`；这样
+[`dsh-galatea`](../../plugins/dsh-galatea/) 可以只依赖 Run ID 和正式 API 重算推广证据。未通过门禁的 Run 仍完整保留，
 但不会注册、设置或修改任何生产模型 Alias；发布必须另行人工审查和显式执行。
 
 这套边界表示“验证集最佳的已观察配置”，不表示有限参数试验已经找到全局最优模型。
@@ -275,7 +296,12 @@ ROC AUC、预测摘要和质量门禁，并生成 MLflow Logged Model。未通�
 ```
 
 测试覆盖配置继承与越权测试集保护、确定性 Manifest、坏图隔离、模型输入输出，以及 Ray
-Controller 只把 Rank 0 指标写入既有 MLflow Run 的所有权规则。
+Controller 只把 Rank 0 指标写入既有 MLflow Run 的所有权规则。`test_galatea_contract.py`
+还验证项目声明与入口、MLflow Param/Tag、阶段 Artifact 和 Run-scoped 模型 URI 一致。
+
+项目声明的主目标是 `val_accuracy`/`max`，并显式声明当前 `pauseResume: false`。通过 Harness
+操作本项目时，先按 [`dsh-galatea` 运维手册](../../doc/dsh-galatea-operations.md) 发布不可变
+`release.json`，再由插件计划、审批和提交；插件不会替项目构建 Release。
 
 ## 9. Runtime Env 排错
 

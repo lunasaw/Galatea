@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,6 +11,15 @@ from typing import Any, Iterator, Mapping
 
 
 RAY_JOB_CONFIG_ENV = "RAY_JOB_CONFIG_JSON_ENV_VAR"
+GALATEA_PROVENANCE_KEYS = (
+    "galatea.execution.identity",
+    "galatea.project",
+    "galatea.release.id",
+    "galatea.submission.id",
+    "galatea.readiness.digest",
+    "galatea.execution.mode",
+    "galatea.promotable",
+)
 RUNTIME_ENV_EXCLUDES = [
     ".git/**",
     ".ipynb_checkpoints/**",
@@ -34,6 +44,52 @@ def build_runtime_env(project_root: Path) -> dict[str, Any]:
         "working_dir": str(root),
         "py_modules": [str(package_root)],
         "excludes": list(RUNTIME_ENV_EXCLUDES),
+    }
+
+
+def execution_provenance(
+    project_name: str,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """从 Ray Job 元数据解析治理来源，本地执行始终标为不可提升。"""
+
+    environment = os.environ if environ is None else environ
+    raw_config = environment.get(RAY_JOB_CONFIG_ENV)
+    if not raw_config:
+        return {
+            "galatea.execution.mode": "local-dev",
+            "galatea.promotable": "false",
+            "galatea.project": project_name,
+        }
+    try:
+        config = json.loads(raw_config)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise RuntimeError("Ray Job 配置不是有效 JSON，无法验证 Galatea 来源") from error
+    metadata = config.get("metadata")
+    if not isinstance(metadata, dict):
+        return {
+            "galatea.execution.mode": "ray-job-unmanaged",
+            "galatea.promotable": "false",
+            "galatea.project": project_name,
+        }
+    values = {
+        key: value
+        for key in GALATEA_PROVENANCE_KEYS
+        if isinstance((value := metadata.get(key)), str) and value
+    }
+    governed = (
+        len(values) == len(GALATEA_PROVENANCE_KEYS)
+        and values["galatea.execution.mode"] == "governed-ray-job"
+        and values["galatea.promotable"] == "true"
+        and values["galatea.project"] == project_name
+    )
+    if governed:
+        return values
+    return {
+        **values,
+        "galatea.execution.mode": "ray-job-unmanaged",
+        "galatea.promotable": "false",
+        "galatea.project": project_name,
     }
 
 

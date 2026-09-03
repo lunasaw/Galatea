@@ -141,6 +141,7 @@ def idempotency_key(
     config: ProjectConfig,
     dataset: PreparedDataset,
     source_digest: str,
+    integrity_digest_value: str,
 ) -> str:
     payload = "|".join(
         (
@@ -148,6 +149,7 @@ def idempotency_key(
             dataset.content_digest,
             dataset.split_digest,
             source_digest,
+            integrity_digest_value,
             config.config_digest,
             str(config.run.seed),
             config.run.role,
@@ -202,15 +204,47 @@ def _split_digest(frame: Any) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
+def _integrity_artifact(report_id: str, role: str, status: str, payload: dict[str, Any]) -> tuple[str, str]:
+    envelope = {
+        "schema_version": "galatea/integrity/v1",
+        "report_id": report_id,
+        "role": role,
+        "status": status,
+        "payload": payload,
+    }
+    content_digest = hashlib.sha256(
+        json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    complete = {**envelope, "content_digest": content_digest}
+    serialized = json.dumps(complete, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    artifact_digest = f"sha256:{hashlib.sha256(serialized.encode('utf-8')).hexdigest()}"
+    return serialized, artifact_digest
+
+
 def log_run_inputs(
     config: ProjectConfig,
     dataset: PreparedDataset,
     code: dict[str, str],
     ray_job_id: str,
     identity_key: str,
+    integrity: dict[str, Any] | None = None,
 ) -> None:
     parameters: dict[str, Any] = {}
     _flatten("", config.as_dict(), parameters)
+    integrity_artifacts: dict[str, tuple[str, str, str]] = {}
+    if integrity:
+        preprocessing_status = str(integrity["preprocessing"]["parity"]["status"])
+        migration_status = str(integrity["migration"]["contamination"]["status"])
+        preprocessing_text, preprocessing_artifact_digest = _integrity_artifact(
+            "preprocessing", config.run.role, preprocessing_status, integrity["preprocessing"]
+        )
+        migration_text, migration_artifact_digest = _integrity_artifact(
+            "migration", config.run.role, migration_status, integrity["migration"]["contamination"]
+        )
+        integrity_artifacts = {
+            "preprocessing": (preprocessing_text, preprocessing_artifact_digest, preprocessing_status),
+            "migration": (migration_text, migration_artifact_digest, migration_status),
+        }
     parameters.update(
         {
             "data.dataset_version": dataset.dataset_version,
@@ -220,9 +254,19 @@ def log_run_inputs(
             "code.git_commit": code["git_commit"],
             "ray.job_id": ray_job_id,
             "run.idempotency_key": identity_key,
+            "integrity.digest": integrity["integrity_digest"] if integrity else "null",
+            "integrity.preprocessing_artifact_digest": integrity_artifacts.get("preprocessing", ("", "null", "unknown"))[1],
+            "integrity.migration_artifact_digest": integrity_artifacts.get("migration", ("", "null", "unknown"))[1],
         }
     )
     mlflow.log_params(parameters)
+    if integrity:
+        mlflow.set_tags({
+            "integrity.preprocessing.status": integrity_artifacts["preprocessing"][2],
+            "integrity.migration.status": integrity_artifacts["migration"][2],
+        })
+        mlflow.log_text(integrity_artifacts["preprocessing"][0], "reports/preprocessing-parity.json")
+        mlflow.log_text(integrity_artifacts["migration"][0], "reports/migration-contamination.json")
     mlflow.log_dict(config.as_dict(), "config/resolved-config.json")
     mlflow.log_dict(dataset.profile, "data/dataset-profile.json")
     mlflow.log_artifact(str(dataset.manifest_path), artifact_path="data")

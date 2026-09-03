@@ -113,12 +113,34 @@ for the project. The Skill must remain reusable across frameworks and experiment
 ## Ray and Notebook Execution
 
 - Use notebooks for exploration, visualization, single-batch checks, and short smoke tests.
-- Submit formal, distributed, or long-running work through a parameterized Ray Job, Ray Train entry point,
-  or another recoverable script-based workflow.
+- Choose execution by scope: bounded quick checks and low-risk exploratory experiments may run locally;
+  formal, distributed, long-running, or resource-intensive work should prefer a parameterized Ray Job,
+  Ray Train entry point, or another recoverable script-based workflow.
+- If project structure, fixed entrypoint, dependencies, release, data identity, or split contract is invalid,
+  block execution and repair the contract; do not bypass the failure with a local command. Local results must
+  not be represented as governed Ray or final-validation evidence.
 - Declare CPU, GPU, memory, and placement requirements rather than assuming all local resources are free.
 - Preserve Run IDs and checkpoint locations in job metadata so failed jobs can be diagnosed or resumed.
 - Seed randomized work and document any operation that cannot be made deterministic.
 - Never overwrite a source notebook with executed smoke-test output; write it to a temporary directory.
+
+## Agent SDK and Capability Alignment
+
+- Implement Agent features against source-level SDK abstractions and Claude Code-compatible behavior where
+  available. Do not invent behavior from prompts when the SDK or upstream source already defines a tool,
+  permission, event, hook, or capability model.
+- Support Skill capabilities as first-class runtime capabilities: discover, load, route, and execute Skills
+  through the repository or configured Skill interfaces rather than hard-coding project-specific prompt text.
+- Model allowlists and permission grants through the SDK permission layer. A denied or unknown action should
+  be able to request approval from the console or user-facing permission flow, and users should be able to
+  grant scoped access directly when the runtime supports it.
+- Keep permission requests structured and reusable, including command/tool identity, scope, reason,
+  persistence choice, and denial handling. Avoid one-off natural-language prompts for each new action.
+- Before implementing Agent behavior, inspect the existing SDK and relevant Claude Code source-level patterns,
+  then align naming, state transitions, callbacks, and error handling with those abstractions. If parity is
+  impossible, document the gap and the local compatibility boundary.
+- Treat prompts as policy or presentation, not as the primary implementation mechanism for capabilities,
+  allowlists, or permissions.
 
 ## Coding and Documentation Style
 

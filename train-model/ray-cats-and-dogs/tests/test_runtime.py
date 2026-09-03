@@ -18,6 +18,7 @@ from ray_cats_dogs.runtime import (  # noqa: E402
     RAY_JOB_CONFIG_ENV,
     build_runtime_env,
     controller_pickle_by_value,
+    execution_provenance,
     ray_init_runtime_env,
     worker_runtime_env,
 )
@@ -45,6 +46,43 @@ class RuntimeEnvTest(unittest.TestCase):
         self.assertEqual(
             build_runtime_env(PROJECT_ROOT),
             ray_init_runtime_env(PROJECT_ROOT, {}),
+        )
+
+    def test_execution_provenance_fails_local_and_unmanaged_runs_closed(self) -> None:
+        self.assertEqual(
+            {
+                "galatea.execution.mode": "local-dev",
+                "galatea.promotable": "false",
+                "galatea.project": "demo-project",
+            },
+            execution_provenance("demo-project", {}),
+        )
+        self.assertEqual(
+            "false",
+            execution_provenance(
+                "demo-project",
+                {RAY_JOB_CONFIG_ENV: '{"metadata":{"galatea.promotable":"true"}}'},
+            )["galatea.promotable"],
+        )
+
+    def test_execution_provenance_accepts_complete_governed_metadata(self) -> None:
+        metadata = {
+            "galatea.execution.identity": "identity",
+            "galatea.project": "demo-project",
+            "galatea.release.id": "release",
+            "galatea.submission.id": "submission",
+            "galatea.readiness.digest": "readiness",
+            "galatea.execution.mode": "governed-ray-job",
+            "galatea.promotable": "true",
+        }
+        import json
+
+        self.assertEqual(
+            metadata,
+            execution_provenance(
+                "demo-project",
+                {RAY_JOB_CONFIG_ENV: json.dumps({"metadata": metadata})},
+            ),
         )
 
     def test_uploaded_runtime_env_is_forwarded_to_workers(self) -> None:

@@ -1,0 +1,23 @@
+extends: baseline.yaml
+
+run:
+  role: champion
+  name_prefix: ray-kaggle-house-prices-champion
+  seed: 42
+  log_model: true
+
+models:
+  selected_parameters_path: ${REPO_ROOT}/platform-data/ray-kaggle-house-prices/outputs/selected-model-parameters-f9b8ab4dba03.json
+
+tuning:
+  enabled: false
+  trials_per_family: 1
+  timeout_seconds_per_family: 0
+
+evaluation:
+  evaluate_holdout: true
+  maximum_holdout_rmsle: 0.14
+
+submission:
+  generate: true
+  filename: submission.csv

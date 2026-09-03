@@ -1,0 +1,42 @@
+# Galatea training-governance tools for a DeepSeek Harness profile.
+# Later profile or home patches may replace this row's complete config.
+# This deployment is browser-only: suppress Host desktop actions because the
+# Harness process has no DISPLAY/WAYLAND target for xdg-open.
+
+- id: session-controller
+  config:
+    nativeOpen: false
+
+- id: settings-controller
+  config:
+    nativeOpen: false
+
+- insert:
+    - id: dsh-galatea
+      name: dsh-galatea
+      inject: [tools, approval, sessionProjections, systemPrompt]
+      config:
+        projects:
+          - id: ray-cats-and-dogs
+            projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs'
+            manifestPath: galatea.project.yaml
+            releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-cats-and-dogs-release'
+          - id: ray-handwritten-digits
+            projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-handwritten-digits'
+            manifestPath: galatea.project.yaml
+            releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-handwritten-digits-release'
+          - id: ray-kaggle-house-prices
+            projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-kaggle-house-prices'
+            manifestPath: galatea.project.yaml
+            releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-kaggle-house-prices-release'
+        defaultProject: ray-cats-and-dogs
+        rayBaseUrl: !!js process.env.GALATEA_RAY_BASE_URL ?? 'http://127.0.0.1:8265'
+        rayTokenEnv: !!js process.env.GALATEA_RAY_TOKEN_ENV
+        mlflowBaseUrl: !!js process.env.GALATEA_MLFLOW_BASE_URL ?? 'http://127.0.0.1:5000'
+        mlflowTokenEnv: !!js process.env.GALATEA_MLFLOW_TOKEN_ENV
+        requestTimeoutMs: 30000
+        projectProcessTimeoutMs: 60000
+        maxResponseBytes: 2000000
+        maxArtifactBytes: 50000000
+        maxLogChars: 100000
+        maxProcessOutputBytes: 1000000

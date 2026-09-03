@@ -1,0 +1,10 @@
+extends: optimized-ohe.yaml
+
+run:
+  name_prefix: ray-kaggle-house-prices-optimized-ohe-outliers
+
+training:
+  remove_submission_outliers: true
+
+submission:
+  filename: optimized-ohe-outliers-submission.csv

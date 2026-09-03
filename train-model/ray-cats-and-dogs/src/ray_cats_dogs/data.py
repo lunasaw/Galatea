@@ -105,10 +105,62 @@ def _validated_class_records(
 
     shuffled = list(valid)
     random.Random(seed + label).shuffle(shuffled)
-    split_names = _split_names(len(shuffled), config)
-    for record, split_name in zip(shuffled, split_names, strict=True):
-        record["split"] = split_name
     return shuffled, invalid, len(candidates)
+
+
+def _assign_grouped_splits(
+    records: list[dict[str, Any]], config: DatasetSettings, seed: int
+) -> None:
+    """Assign identical content to one split while preserving class proportions."""
+
+    target_counts: dict[tuple[str, int], int] = {}
+    by_class: dict[int, list[dict[str, Any]]] = {}
+    for record in records:
+        by_class.setdefault(int(record["label"]), []).append(record)
+    for label, class_records in by_class.items():
+        split_names = _split_names(len(class_records), config)
+        for split_name in ("training", "validation", "test"):
+            target_counts[(split_name, label)] = split_names.count(split_name)
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        groups.setdefault(str(record["sha256"]), []).append(record)
+    ordered_groups = list(groups.values())
+    random.Random(seed).shuffle(ordered_groups)
+    ordered_groups.sort(key=len, reverse=True)
+    current: dict[tuple[str, int], int] = {}
+    split_order = ("training", "validation", "test")
+    for group in ordered_groups:
+        class_sizes: dict[int, int] = {}
+        for record in group:
+            label = int(record["label"])
+            class_sizes[label] = class_sizes.get(label, 0) + 1
+
+        def score(split_name: str) -> tuple[int, int, int]:
+            overflow = sum(
+                max(
+                    0,
+                    current.get((split_name, label), 0)
+                    + count
+                    - target_counts[(split_name, label)],
+                )
+                for label, count in class_sizes.items()
+            )
+            remaining_capacity = sum(
+                max(
+                    0,
+                    target_counts[(split_name, label)]
+                    - current.get((split_name, label), 0),
+                )
+                for label in class_sizes
+            )
+            return overflow, -remaining_capacity, split_order.index(split_name)
+
+        selected = min(split_order, key=score)
+        for record in group:
+            record["split"] = selected
+            key = (selected, int(record["label"]))
+            current[key] = current.get(key, 0) + 1
 
 
 def _digest_manifest(manifest: pd.DataFrame) -> tuple[str, str]:
@@ -169,6 +221,7 @@ def prepare_dataset(config: DatasetSettings, seed: int) -> PreparedDataset:
             f"Expected {config.expected_images_per_class} source images per class; {details}"
         )
 
+    _assign_grouped_splits(all_records, config, seed)
     manifest = pd.DataFrame(all_records).sort_values(
         ["relative_path", "split"]
     ).reset_index(drop=True)

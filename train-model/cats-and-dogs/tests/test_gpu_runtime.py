@@ -1,9 +1,13 @@
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import cats_dogs_torch_pipeline as pipeline
 

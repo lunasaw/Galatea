@@ -1,0 +1,51 @@
+extends: optimized.yaml
+
+run:
+  name_prefix: ray-kaggle-house-prices-optimized-ohe
+
+models:
+  enabled: [ridge, elastic_net, gradient_boosting, xgboost, lightgbm, catboost]
+  blend_l2: 0.02
+  parameters:
+    ridge:
+      alpha: 15.0
+    elastic_net:
+      alpha: 0.00035
+      l1_ratio: 0.90
+      max_iter: 30000
+      tol: 0.00001
+    gradient_boosting:
+      n_estimators: 3000
+      learning_rate: 0.025
+      max_depth: 3
+      min_samples_leaf: 10
+      max_features: sqrt
+      loss: huber
+    xgboost:
+      n_estimators: 3000
+      learning_rate: 0.018
+      max_depth: 3
+      min_child_weight: 2
+      subsample: 0.85
+      colsample_bytree: 0.80
+      reg_alpha: 0.0001
+      reg_lambda: 3.0
+    lightgbm:
+      n_estimators: 1800
+      learning_rate: 0.018
+      num_leaves: 12
+      max_depth: 5
+      min_child_samples: 15
+      subsample: 0.85
+      colsample_bytree: 0.80
+      reg_alpha: 0.0001
+      reg_lambda: 1.0
+    catboost:
+      iterations: 2500
+      learning_rate: 0.035
+      depth: 5
+      l2_leaf_reg: 4.0
+      random_strength: 0.8
+
+submission:
+  filename: optimized-ohe-submission-v2.csv

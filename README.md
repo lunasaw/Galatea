@@ -10,6 +10,10 @@ Ray Train 及其他能够接入 MLflow 的训练项目，覆盖分类、回归�
 
 README 分为两层：先沿着四张图理解平台如何运转，再进入可检索的部署与运维手册。
 
+DeepSeek Harness 是仓库唯一的 Agent Runtime；[`dsh-galatea`](plugins/dsh-galatea/) 通过 Cordis
+Tool、Harness Session 审批和项目声明安全地操作 Ray/MLflow。插件不复制 Agent Loop、Workflow、
+Session 或权限系统，架构见 [`doc/agent-galatea.md`](doc/agent-galatea.md)。
+
 ## 图解导览
 
 ### 1. 平台不是单一模型，而是一台训练装置
@@ -296,24 +300,31 @@ python .codex/skills/mlflow-optimize-models/scripts/analyze_experiment.py \
 ```text
 train/
 ├── .codex/skills/                 # 工程级 Codex Skills
+├── plugins/dsh-galatea/           # DeepSeek Harness 训推平台插件
 ├── train-model/                   # 多个训练项目和模型工作负载
-│   └── cats-and-dogs/             # 当前 TensorFlow/Keras 示例
-├── tests/                         # 平台示例和调优逻辑测试
+│   ├── cats-and-dogs/             # TensorFlow/Keras 示例
+│   └── ray-cats-and-dogs/         # Ray Train/PyTorch 治理示例
+├── tests/                         # 仓库级和跨项目契约测试
 ├── doc/                           # 部署、运维和端到端实施手册
 ├── systemd/                       # JupyterLab、MLflow、MinIO Unit
 ├── platform-data/                 # 数据库、对象和运行状态（Git 忽略）
 ├── AGENTS.md                      # 仓库开发约定
-├── CLAUDE.md                      # Claude Code 使用说明
 └── README.md
 ```
 
 ### 验证
 
-运行调优器单元测试：
+运行仓库级及两个示例项目测试：
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python -m unittest \
-  tests/test_cats_dogs_tuner.py
+/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+  -s tests -p 'test_*.py'
+
+/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+  -s train-model/cats-and-dogs/tests -p 'test_*.py'
+
+/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+  -s train-model/ray-cats-and-dogs/tests -p 'test_*.py'
 ```
 
 Notebook Smoke Test 必须把 `EPOCHS` 设为 `1`、把 `RUN_AUTO_TUNING` 设为 `False`，并把
@@ -333,7 +344,10 @@ jupyter nbconvert --execute --to notebook \
 - [Ray 安装、启动与任务提交](doc/ray-start.md)
 - [code-server 代理配置](doc/code-server-proxy.md)
 - [数据到训练到模型的端到端实施手册](doc/train-guide/data-to-training-to-model-imp-guide.md)
+- [Ray 训练接入与运行规范](doc/train-guide/ray-training-guide.md)
 - [MLflow 训练指标手册](doc/train-guide/mlflow-training-integration-spec.md)
+- [DeepSeek Harness 与 Galatea 架构](doc/agent-galatea.md)
+- [dsh-galatea 部署与运维](doc/dsh-galatea-operations.md)
 - [仓库开发规范](AGENTS.md)
 
 ### 安全与持久化

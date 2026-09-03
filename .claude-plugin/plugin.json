@@ -1,0 +1,6 @@
+{
+  "name": "galatea-skills",
+  "description": "Galatea repository Skills bridged from .codex/skills",
+  "version": "0.1.0",
+  "skills": "./.codex/skills"
+}

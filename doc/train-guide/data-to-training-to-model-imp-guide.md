@@ -5,7 +5,12 @@
 > 目标读者：算法工程师、平台工程师、运维工程师  
 > 默认任务：通用 PyTorch 监督训练
 
-当前已验证的软件版本：Python 3.12.12、PyTorch 2.10.0+cu130、Ray 2.53.0、MLflow 3.14.0、JupyterLab 4.6.2、MinIO `RELEASE.2025-09-07T16-13-09Z`。JupyterLab、MLflow 和 MinIO 由 systemd 管理；Ray 2.53.0 已安装，但 Head 需要在提交训练前启动。
+当前已验证的软件版本：Python 3.12.12、PyTorch 2.11.0+cu130、Ray 2.53.0、MLflow 3.14.0、JupyterLab 4.6.2、MinIO `RELEASE.2025-09-07T16-13-09Z`。JupyterLab、MLflow 和 MinIO 由 systemd 管理；正式提交前必须确认 Ray Head 已启动。
+
+> 本文描述端到端实施顺序。Ray Jobs、Ray Train、Ray Data、Runtime Environment、资源、恢复和
+> 排错的权威要求见 [`ray-training-guide.md`](ray-training-guide.md)；MLflow 所有权和 Artifact 规范见
+> [`mlflow-training-integration-spec.md`](mlflow-training-integration-spec.md)。本文中的通用步骤不得覆盖
+> 两份专项规范。
 
 ---
 
@@ -24,7 +29,8 @@ Ray Job 调度
   ↓
 PyTorch 训练
   ├── 指标 → MLflow
-  ├── Checkpoint → 本地磁盘 / MinIO
+  ├── 运行中 Checkpoint → Ray 共享存储
+  ├── 最终 Checkpoint / 模型 → MLflow Artifact → MinIO
   └── 日志 → Ray
   ↓
 模型评测
@@ -402,49 +408,41 @@ data:
 
 ### 7.1 使用Ray并行处理
 
-适合放进Ray的任务：
+适合放进 Ray Data 的任务：
 
 - 图片解码和缩放。
 - 文本清洗、分词。
 - 音视频抽帧。
 - 特征计算。
 - Embedding生成。
-- 大量小文件转换为Parquet。
+- 大量小文件转换为 Parquet。
 
-示例：
+优先使用批量、流式转换，不要为每个样本创建一个 Remote Task 后把全部结果一次性拉回 Driver：
 
 ```python
-import ray
-
-ray.init(address="auto")
-
-
-@ray.remote(num_cpus=2)
-def preprocess_sample(sample):
-    result = decode_and_transform(sample["uri"])
-    return {
-        "sample_id": sample["sample_id"],
-        "features": result,
-        "label": sample["label"],
-        "split": sample["split"],
-    }
+import ray.data
+from ray.data import TaskPoolStrategy
 
 
-result_refs = [
-    preprocess_sample.remote(sample)
-    for sample in manifest_records
-]
-
-processed_records = ray.get(result_refs)
+dataset = ray.data.from_items(manifest_records, override_num_blocks=64)
+processed = dataset.map_batches(
+    decode_and_transform_batch,
+    batch_size=64,
+    batch_format="pandas",
+    num_cpus=1,
+    compute=TaskPoolStrategy(size=16),
+)
 ```
 
 注意：
 
-- 预处理任务通常声明CPU，不要无意占用GPU。
-- 大数据不要一次性`ray.get()`全部拉回Driver。
-- 数据量大时优先使用Ray Data流式处理。
-- 处理结果写入MinIO的版本目录。
-- 训练和验证必须使用相同的预处理定义。
+- 先固定 Manifest、数据内容摘要和 Split，再构造 Ray Dataset。
+- 预处理任务通常声明 CPU，不要无意占用 GPU。
+- Block 数、转换并发和 Batch Size 分别配置，不把三者混为 Worker 数。
+- 只缓存确定性预处理结果；随机训练增强在 Epoch 或 Batch 中执行。
+- 大数据使用 Ray Data 流式迭代，不调用 `take_all()` 或一次性收集到 Driver。
+- 处理结果写入 MinIO 的不可变版本目录，训练和评测复用同一预处理版本。
+- 本地文件路径不会由 Ray 自动分发；多节点必须共享同一只读挂载，或实现远程 Datasource。
 
 ### 7.2 预处理产物
 
@@ -591,196 +589,54 @@ output:
 
 ## 9. 第五步：训练代码接入Ray和MLflow
 
-### 9.1 训练入口
+### 9.1 训练入口与所有权
 
-`scripts/train.py`：
+正式入口应由 Driver 创建唯一的 MLflow Run，并用框架 Trainer 创建 Worker。不要让一个普通
+`@ray.remote` 训练函数同时拥有 GPU、MLflow Run 和本地 Checkpoint；这种结构无法清晰扩展到多
+Worker，也会混淆 Job 重试、Worker 恢复和实验 Attempt。
+
+参考结构：
 
 ```python
-import argparse
-import os
-from pathlib import Path
-
-import mlflow
-import mlflow.pytorch
-import ray
-import torch
-import yaml
-
-from src.data import build_dataloaders
-from src.model import build_model
-from src.train_loop import evaluate, train_one_epoch
-
-
-def load_config(path):
-    with open(path, "r", encoding="utf-8") as file:
-        return yaml.safe_load(file)
-
-
-@ray.remote(max_retries=1)
-def run_training(config, config_path):
-    mlflow.set_tracking_uri(config["mlflow"]["tracking_uri"])
-    mlflow.set_experiment(config["project"]["experiment_name"])
-
-    run_tags = {
-        "dataset_version": config["data"]["dataset_version"],
-        "training_type": "supervised",
-        "executor": "ray",
-    }
-
-    with mlflow.start_run(tags=run_tags) as run:
-        mlflow.log_params({
-            "architecture": config["model"]["architecture"],
-            "epochs": config["training"]["epochs"],
-            "batch_size": config["training"]["batch_size"],
-            "learning_rate": config["training"]["learning_rate"],
-            "seed": config["training"]["seed"],
-            "dataset_version": config["data"]["dataset_version"],
-        })
-
-        mlflow.log_artifact(config_path, artifact_path="config")
-
-        torch.manual_seed(config["training"]["seed"])
-
-        train_loader, val_loader = build_dataloaders(config)
-        model = build_model(config).cuda()
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=config["training"]["learning_rate"],
-        )
-
-        best_val_loss = float("inf")
-        checkpoint_root = (
-            Path(config["output"]["checkpoint_dir"])
-            / run.info.run_id
-        )
-        checkpoint_root.mkdir(parents=True, exist_ok=True)
-
-        for epoch in range(config["training"]["epochs"]):
-            train_metrics = train_one_epoch(
-                model,
-                train_loader,
-                optimizer,
-                config,
-            )
-            val_metrics = evaluate(
-                model,
-                val_loader,
-                config,
-            )
-
-            metrics = {
-                "train_loss": train_metrics["loss"],
-                "val_loss": val_metrics["loss"],
-                "val_accuracy": val_metrics["accuracy"],
-            }
-            mlflow.log_metrics(metrics, step=epoch)
-
-    checkpoint = {
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "config": config,
-                "mlflow_run_id": run.info.run_id,
-            }
-
-            latest_path = checkpoint_root / "latest.pt"
-            torch.save(checkpoint, latest_path)
-
-            checkpoint_interval = config["training"]["checkpoint_every_epochs"]
-            if (epoch + 1) % checkpoint_interval == 0:
-                # MLflow Server proxies this upload to the local MinIO bucket.
-                mlflow.log_artifact(
-                    str(latest_path),
-                    artifact_path=f"recovery/epoch-{epoch + 1:04d}",
-                )
-
-            if val_metrics["loss"] < best_val_loss:
-                best_val_loss = val_metrics["loss"]
-                best_path = checkpoint_root / "best.pt"
-                torch.save(checkpoint, best_path)
-
-        mlflow.log_artifact(
-            str(checkpoint_root / "best.pt"),
-            artifact_path="checkpoints",
-        )
-
-        mlflow.pytorch.log_model(
-            model,
-            artifact_path="model",
-        )
-
-        return {
-            "run_id": run.info.run_id,
-            "best_val_loss": best_val_loss,
-            "local_checkpoint": str(checkpoint_root / "best.pt"),
-        }
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
-    args = parser.parse_args()
-
-    config = load_config(args.config)
-
-    os.environ.setdefault(
-        "MLFLOW_TRACKING_URI",
-        config["mlflow"]["tracking_uri"],
+with mlflow.start_run() as active_run:
+    trainer = TorchTrainer(
+        train_loop_per_worker=train_loop_per_worker,
+        train_loop_config={"mlflow_run_id": active_run.info.run_id, ...},
+        scaling_config=ScalingConfig(
+            num_workers=config.ray.num_workers,
+            use_gpu=config.ray.use_gpu,
+            resources_per_worker={
+                "CPU": config.ray.cpus_per_worker,
+                "memory": config.ray.memory_per_worker_bytes,
+            },
+            placement_strategy=config.ray.placement_strategy,
+        ),
+        datasets={"training": training, "validation": validation},
+        run_config=RunConfig(
+            storage_path=config.ray.storage_path,
+            failure_config=FailureConfig(
+                max_failures=config.ray.max_failures,
+            ),
+            callbacks=[mlflow_callback],
+        ),
     )
-
-    ray.init(address="auto")
-    training_ref = run_training.options(
-        num_cpus=config["resources"]["num_cpus"],
-        num_gpus=config["resources"]["num_gpus"],
-    ).remote(config, args.config)
-
-    result = ray.get(training_ref)
-    print(result)
-
-
-if __name__ == "__main__":
-    main()
+    result = trainer.fit()
 ```
+
+完整、可运行的实现见
+[`ray-cats-and-dogs/src/ray_cats_dogs/train.py`](../../train-model/ray-cats-and-dogs/src/ray_cats_dogs/train.py)
+和 [`worker.py`](../../train-model/ray-cats-and-dogs/src/ray_cats_dogs/worker.py)。
 
 ### 9.2 关键规则
 
-#### 必须声明GPU
-
-```python
-training_ref = run_training.options(
-    num_cpus=config["resources"]["num_cpus"],
-    num_gpus=1,
-).remote(config, config_path)
-```
-
-如果直接调用`model.cuda()`但没有声明`num_gpus=1`，Ray无法知道任务占用了GPU。
-
-#### 不返回整个模型
-
-Ray任务只返回：
-
-- MLflow Run ID。
-- 最终指标。
-- Checkpoint路径。
-- 模型版本。
-
-不要通过Ray Object Store返回几十GB模型。
-
-#### 指标不要每个Batch都上报
-
-推荐：
-
-- 每个Epoch上报一次。
-- 或每50至500个Step上报一次。
-
-#### 多GPU只让Rank 0写MLflow
-
-未来扩展到多GPU时：
-
-```python
-if world_rank == 0:
-    mlflow.log_metrics(metrics, step=epoch)
-```
+- Driver 创建、结束 MLflow Run，并记录输入、Artifact、最终评测和结果状态。
+- Worker 只训练、全局归约并调用 `ray.train.report()`，不直接调用 MLflow API。
+- 每个 Worker 显式请求 CPU、GPU 和内存；GPU 训练不能只调用 `model.cuda()` 而不声明资源。
+- 多 Worker 的选模指标必须先全局归约，不能使用 Rank 0 本地分片指标。
+- 每个 Epoch 或固定 Step 间隔上报一次；不要每个 Batch 都写 Tracking Server。
+- 只让 Rank 0 附带 Checkpoint，但所有 Worker 必须按相同节奏调用 `train.report()`。
+- Driver 只返回 Run ID、指标、Checkpoint URI 和模型 URI，不通过 Object Store 返回完整模型。
+- 最终测试、Logged Model 和 Registry 操作必须与普通 Trial 分离。
 
 ---
 
@@ -801,42 +657,46 @@ if world_rank == 0:
 
 ### 10.2 Smoke Test
 
-第一次提交只使用：
+第一次提交先运行 `--check-config`，确认 Runtime Environment 可以启动 Driver 且项目包可以导入；
+随后再提交只使用 1 个 Epoch 和受控样本规模的 Smoke 配置：
 
-- 100至1000条样本。
-- 1个Epoch。
-- 较小Batch Size。
+- 不访问测试集。
+- 创建独立 MLflow Run 和可恢复 Ray Checkpoint。
+- 资源和数据规模足以验证真实链路，但保持预算可控。
 
 ```bash
-export RAY_ADDRESS=http://127.0.0.1:8265
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
-set -a
-source /etc/minio/training-data-s3.env
-set +a
-
 ray job submit \
-  --address=http://127.0.0.1:8265 \
-  --working-dir /data/ai/chenzhangyue/code/galatea \
-  -- python scripts/train.py --config configs/train-dev.yaml
+  --address http://127.0.0.1:8265 \
+  --runtime-env-json='{"working_dir":"train-model/ray-cats-and-dogs","py_modules":["train-model/ray-cats-and-dogs/src/ray_cats_dogs"],"excludes":["notebooks/**","tests/**"]}' \
+  -- python scripts/train.py --config configs/smoke.yaml --check-config
 ```
 
-Smoke Test通过标准：
+Runtime Package 下载凭据由 Ray Head/Worker 在启动前继承，不在提交终端中 `source` MinIO 环境文件，
+也不放入 `runtime_env.env_vars`。配置检查成功后，移除 `--check-config` 才会执行 Smoke。
 
-- Ray Job成功结束。
-- GPU被正确占用和释放。
-- MLflow出现新的Run。
+Smoke Test 通过标准：
+
+- Ray Job 成功结束。
+- GPU 被正确占用和释放。
+- MLflow 出现新的 Run，且能够通过 Ray Submission ID 关联。
 - 参数和指标完整。
-- 本地Checkpoint可以加载。
-- Artifact能够通过MLflow Server上传到MinIO。
+- Ray Checkpoint 可以恢复，最终 Checkpoint 可以从 MLflow Artifact API 下载。
+- Artifact 能够通过 MLflow Server 上传到 MinIO 并完成回读校验。
 
 ### 10.3 正式训练
 
+正式发布优先使用项目提供的不可变 Release 流程。参考项目的真实发布命令为：
+
 ```bash
-ray job submit \
-  --address=http://127.0.0.1:8265 \
-  --working-dir /data/ai/chenzhangyue/code/galatea \
-  -- python scripts/train.py --config configs/train-prod.yaml
+cd /data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs
+
+/data/conda/envs/attend-ray-py312/bin/python job/ci.py \
+  --mode train \
+  --config configs/baseline.yaml
 ```
+
+其他项目即使没有相同的 CI 脚本，也必须保存不可变代码身份、Entrypoint、Runtime Environment、唯一
+Submission ID 和发布结果。完整提交规范见 [`ray-training-guide.md`](ray-training-guide.md)。
 
 提交前确认 Head 已启动并且 8265 仅对本机或受控内网开放：
 
@@ -854,13 +714,13 @@ ray job list --address=http://127.0.0.1:8265
 查看日志：
 
 ```bash
-ray job logs <Ray-Job-ID> --address=http://127.0.0.1:8265
+ray job logs --address=http://127.0.0.1:8265 '<submission-id>'
 ```
 
 停止任务：
 
 ```bash
-ray job stop <Ray-Job-ID> --address=http://127.0.0.1:8265
+ray job stop --address=http://127.0.0.1:8265 '<submission-id>'
 ```
 
 ---
@@ -922,89 +782,62 @@ MLflow Run ID
 
 ### 12.1 Checkpoint内容
 
-至少保存：
+Ray Train Worker 的 Checkpoint 至少保存：
 
 ```python
 checkpoint = {
     "epoch": epoch,
-    "model_state_dict": model.state_dict(),
+    "model_state_dict": unwrapped_model.state_dict(),
     "optimizer_state_dict": optimizer.state_dict(),
     "scheduler_state_dict": scheduler.state_dict(),
-    "config": config,
+    "best_epoch": best_epoch,
+    "best_metric": best_metric,
+    "no_improvement": no_improvement,
+    "model_config": model_config,
+    "training_config": training_config,
     "mlflow_run_id": run_id,
-    "dataset_version": dataset_version,
+    "idempotency_key": idempotency_key,
+    "seed": seed,
 }
 ```
+
+只有 Rank 0 附带 Checkpoint，但所有 Worker 必须在同一次 Epoch Report 中调用
+`ray.train.report()`。如果同步 Worker 的 Report 次数不一致，训练可能挂起或失败。
 
 ### 12.2 保存策略
 
 ```text
-每个Epoch：
-  保存本地 latest.pt
+每个 Epoch：
+  Rank 0 生成当前模型、Optimizer 和训练状态
+  所有 Worker 上报全局指标
+  Ray Train 按 CheckpointConfig 保留运行中恢复点
 
-指标变好：
-  保存本地 best.pt
+验证指标变好：
+  更新最佳模型和选择元数据
 
-每隔N个Epoch：
-  上传可恢复Checkpoint到MinIO
-
-训练结束：
-  上传best模型、final模型和配置
+训练成功后：
+  Driver 把选定 Checkpoint 写入 MLflow Artifact
+  Driver 通过 Artifact API 下载并校验内容摘要
 ```
+
+Ray Checkpoint 与 MLflow Artifact 不能互相替代：前者服务于同一次 `trainer.fit()` 的 Worker 组恢复，
+后者服务于 Run 结束后的审计、下载和复现。
 
 ### 12.3 恢复训练
 
-如果本地Checkpoint已经丢失，先从MLflow Artifact下载：
-
-```python
-import os
-import mlflow
-
-existing_run_id = os.environ["RESUME_RUN_ID"]
-
-checkpoint_path = mlflow.artifacts.download_artifacts(
-    run_id=existing_run_id,
-    artifact_path="recovery/epoch-0002/latest.pt",
-    dst_path="/data/ai/chenzhangyue/code/galatea/checkpoints/recovered",
-)
-```
-
-再恢复模型和Optimizer状态：
-
-```python
-checkpoint = torch.load(
-    checkpoint_path,
-    map_location="cuda",
-)
-
-model.load_state_dict(checkpoint["model_state_dict"])
-optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-
-start_epoch = checkpoint["epoch"] + 1
-```
-
-恢复时必须验证：
+`FailureConfig(max_failures=N)` 只允许 Ray Train 在一次 `trainer.fit()` 内从最近 Checkpoint 重启
+Worker 组。恢复时必须验证：
 
 - 数据版本没有变化。
 - 模型结构没有变化。
-- Optimizer配置兼容。
-- Checkpoint文件校验通过。
-- 原MLflow Run ID可查询。
+- Optimizer 和 Scheduler 配置兼容。
+- Checkpoint 文件校验通过且对所有参与节点可访问。
+- Epoch、Early Stopping 和随机状态满足项目的连续性要求。
+- 原 MLflow Run ID 和幂等身份一致。
 
-可以继续写原Run：
-
-```python
-with mlflow.start_run(run_id=existing_run_id):
-    ...
-```
-
-也可以创建新Run，并增加标签：
-
-```python
-mlflow.set_tag("resumed_from_run_id", existing_run_id)
-```
-
-推荐第二种，恢复关系更清晰。
+Driver、Ray Head、整台机器或整个 Job 失败不属于 Worker 组恢复。跨 Job 恢复必须有单独、显式的入口
+和测试；当前 `ray-cats-and-dogs` 参考实现没有自动跨 Job 续训。重新提交时保留旧 Job 和 Run，使用
+新的 Submission ID 和 MLflow Attempt，并记录恢复来源，不能覆盖原记录。
 
 ---
 
@@ -1166,10 +999,12 @@ mlflow.pytorch.log_model(
 | 数据格式损坏 | 隔离坏样本并重新生成数据版本 |
 | GPU显存不足 | 降低Batch Size、启用混合精度或梯度累积 |
 | 主内存不足 | 降低DataLoader Worker和预取数量 |
-| Ray任务失败 | 查看Ray日志，修复后创建新Run |
+| Ray Data Task 失败 | 查看失败 Attempt；只对幂等 Task 使用受控重试 |
+| Ray Train Worker 组失败 | 在 `max_failures` 预算内从同一次 `fit()` 的最近 Checkpoint 恢复 |
+| Runtime Environment 失败 | 修复节点侧代码包权限或依赖，使用新的 Submission ID 重提 |
 | MLflow暂时不可用 | 不应继续不可追踪的正式训练 |
-| MinIO上传失败 | 保留本地Checkpoint并重试上传 |
-| Ray Head重启 | 从远程Checkpoint恢复训练 |
+| MinIO上传或回读失败 | Run 标记失败；保留 Ray Checkpoint 和错误证据，不降级为未校验成功 |
+| Driver 或 Ray Head 失败 | 当前参考项目不会自动跨 Job 续训；评估后创建新 Job 和 MLflow Attempt |
 | 指标异常 | 标记Run失败，不注册模型 |
 
 正式训练入口必须捕获异常并记录：
@@ -1308,7 +1143,7 @@ GPU正式训练：并发固定为1
 → Ray Job
 → PyTorch训练
 → MLflow参数和指标
-→ 本地Checkpoint
+→ Ray Checkpoint
 ```
 
 ### 第2天：接入本地MinIO
@@ -1334,9 +1169,9 @@ GPU正式训练：并发固定为1
 ### 第4天：验证恢复与回滚
 
 ```text
-中断训练
-→ MinIO Checkpoint恢复
-→ 继续训练
+模拟 Worker 组失败
+→ Ray 共享 Checkpoint恢复同一次 fit
+→ 验证 Epoch 和 Optimizer 连续
 → champion切换
 → 回滚上一版本
 ```
@@ -1352,13 +1187,15 @@ GPU正式训练：并发固定为1
 → 提交Ray Job
 → 独占一张GPU训练
 → MLflow可查看参数和曲线
-→ MinIO可找到Checkpoint和模型
+→ MLflow Artifact API可回读Checkpoint和模型
 → 测试集评测通过
 → 模型注册为candidate
 → 审批后切换champion
-→ 能恢复训练并回滚模型
+→ 能恢复Worker组并回滚模型
 ```
 
 最终应做到：
 
-> 任意一个生产模型，都可以从模型版本反查MLflow Run、训练配置、代码版本和数据版本，并可以使用本地 MinIO 中的 Checkpoint 重新恢复或复现。
+> 任意一个生产模型，都可以从模型版本反查 MLflow Run、训练配置、代码版本和数据版本；运行中
+> Worker 组可以从 Ray 共享 Checkpoint 恢复，最终 Checkpoint 和模型可以通过 MLflow Artifact API
+> 下载和复现。

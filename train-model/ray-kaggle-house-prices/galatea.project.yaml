@@ -1,0 +1,154 @@
+apiVersion: galatea/v1
+kind: TrainingProject
+metadata:
+  name: ray-kaggle-house-prices
+spec:
+  task: tabular-regression
+  executionBackend: ray
+  packageName: ray_kaggle_house_prices
+  objective:
+    metric: val_rmsle
+    direction: min
+  compatibility:
+    - task
+    - datasetDigest
+    - splitDigest
+    - preprocessingVersion
+    - metricDefinition
+    - evaluationProtocol
+    - role
+  capabilities:
+    pauseResume: false
+  configRoot: configs
+  entrypoints:
+    checkConfig:
+      - /data/conda/envs/attend-ray-py312/bin/python
+      - scripts/train.py
+      - --config
+      - "{config}"
+      - --check-config
+    plan:
+      - /data/conda/envs/attend-ray-py312/bin/python
+      - scripts/train.py
+      - --config
+      - "{config}"
+      - --plan
+    train:
+      - /data/conda/envs/attend-ray-py312/bin/python
+      - scripts/train.py
+      - --config
+      - "{config}"
+  mlflow:
+    experimentName: ray-kaggle-house-prices
+    trackingUriEnv: MLFLOW_TRACKING_URI
+    registeredModelName: ray-kaggle-house-prices
+  runEvidence:
+    compatibility:
+      task:
+        source: constant
+        value: tabular-regression
+      datasetDigest:
+        source: param
+        key: data.content_sha256
+      splitDigest:
+        source: param
+        key: data.split_sha256
+      preprocessingVersion:
+        source: param
+        key: data.preprocessing_version
+      metricDefinition:
+        source: constant
+        value: rmsle-log1p-saleprice-v1
+      evaluationProtocol:
+        source: constant
+        value: deterministic-development-oof-internal-holdout-v1
+      role:
+        source: tag
+        key: run.role
+    requiredTags:
+      run.outcome: succeeded
+      artifact.roundtrip_verified: "true"
+    stageArtifacts:
+      training-optimization:
+        - reports/model-selection.json
+      final-validation:
+        - reports/final-test-evaluation.json
+        - model/MLmodel
+    modelSource:
+      artifactPath: model
+      uriTag: model.uri
+  integrity:
+    planOutputPath: integrity
+    reports:
+      preprocessing:
+        artifactPath: reports/preprocessing-parity.json
+        roles: [smoke, trial, champion]
+        statusPath: status
+        digestPath: content_digest
+        statusSource: { source: tag, key: integrity.preprocessing.status }
+        digestSource: { source: param, key: integrity.preprocessing_artifact_digest }
+      migration:
+        artifactPath: reports/migration-contamination.json
+        roles: [smoke, trial, champion]
+        statusPath: status
+        digestPath: content_digest
+        statusSource: { source: tag, key: integrity.migration.status }
+        digestSource: { source: param, key: integrity.migration_artifact_digest }
+    preprocessing:
+      contexts:
+        - { id: fit, roles: [smoke, trial, champion], outputPath: preprocessing.context_identity_tuples.fit }
+        - { id: validation, roles: [smoke, trial, champion], outputPath: preprocessing.context_identity_tuples.validation }
+        - { id: internal_holdout, roles: [champion], outputPath: preprocessing.context_identity_tuples.internal_holdout }
+        - { id: inference, roles: [champion], outputPath: preprocessing.context_identity_tuples.inference }
+      comparisons:
+        - id: fit-validation
+          roles: [smoke, trial, champion]
+          checkPath: preprocessing.parity
+          leftContext: fit
+          rightContext: validation
+          fields: [base_preprocessing_identity_sha256]
+          required: true
+        - id: fit-internal-holdout
+          roles: [champion]
+          checkPath: preprocessing.parity
+          leftContext: fit
+          rightContext: internal_holdout
+          fields: [base_preprocessing_identity_sha256]
+          required: true
+        - id: fit-inference
+          roles: [champion]
+          checkPath: preprocessing.parity
+          leftContext: fit
+          rightContext: inference
+          fields: [base_preprocessing_identity_sha256]
+          required: true
+    migration:
+      enabled: true
+      lineage:
+        roles: [smoke, trial, champion]
+        outputPath: migration.lineage
+        allowed: [native-clean, reviewed-migrated]
+        required: true
+      contaminationChecks:
+        - { id: source-scan, roles: [smoke, trial, champion], checkPath: migration.contamination.foreign_source_scan, required: true }
+        - { id: split-boundaries, roles: [smoke, trial, champion], checkPath: migration.contamination.split_boundaries, required: true }
+        - { id: fitted-state, roles: [smoke, trial, champion], checkPath: migration.contamination.fitted_state_leakage, required: true }
+        - { id: target-leakage, roles: [smoke, trial, champion], checkPath: migration.contamination.target_leakage, required: true }
+        - { id: contamination-status, roles: [smoke, trial, champion], checkPath: migration.contamination.status, required: true }
+  qualityGates:
+    - name: final internal holdout RMSLE
+      source: metric
+      key: holdout_rmsle
+      operator: lte
+      threshold: 0.14
+      required: true
+    - name: final holdout evaluation report
+      source: evidence
+      key: reports/final-holdout-evaluation.json
+      operator: exists
+      required: true
+    - name: MLflow model descriptor
+      source: evidence
+      key: model/MLmodel
+      operator: exists
+      required: true

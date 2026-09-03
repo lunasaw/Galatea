@@ -1,0 +1,66 @@
+extends: baseline.yaml
+
+run:
+  role: trial
+  name_prefix: ray-kaggle-house-prices-legacy-v2-full
+  seed: 42
+  log_model: false
+
+data:
+  holdout_fraction: 0.0
+
+models:
+  enabled: [elastic_net, gradient_boosting, xgboost, lightgbm, catboost]
+  blend_l2: 0.005
+  selected_parameters_path: null
+  parameters:
+    elastic_net:
+      alpha: 0.0016200847984939313
+      l1_ratio: 0.08308308381462905
+      max_iter: 30000
+      tol: 0.00001
+    gradient_boosting:
+      learning_rate: 0.03857212750807704
+      loss: squared_error
+      max_depth: 4
+      max_features: sqrt
+      min_samples_leaf: 10
+      n_estimators: 2500
+    lightgbm:
+      colsample_bytree: 0.7982265149250642
+      learning_rate: 0.0499726383429002
+      max_depth: -1
+      min_child_samples: 9
+      n_estimators: 500
+      num_leaves: 18
+      reg_alpha: 0.0007260537981236328
+      reg_lambda: 0.06073760381801926
+      subsample: 0.9074713387040118
+    xgboost:
+      colsample_bytree: 0.6663905258441896
+      learning_rate: 0.013062836668404602
+      max_depth: 3
+      min_child_weight: 1
+      n_estimators: 2500
+      reg_alpha: 0.0001677471061959512
+      reg_lambda: 0.7674112116586292
+      subsample: 0.9452037709508322
+    catboost:
+      depth: 5
+      iterations: 2000
+      l2_leaf_reg: 1.00097184295859
+      learning_rate: 0.04153240110649694
+      random_strength: 1.486998436125084
+
+tuning:
+  enabled: false
+  trials_per_family: 1
+  timeout_seconds_per_family: 0
+
+evaluation:
+  evaluate_holdout: false
+  maximum_holdout_rmsle: 0.14
+
+submission:
+  generate: false
+  filename: legacy-v2-full-submission.csv

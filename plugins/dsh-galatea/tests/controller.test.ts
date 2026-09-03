@@ -17,6 +17,8 @@ const manifest: TrainingProjectManifest = {
   metadata: { name: 'demo-project' },
   spec: {
     task: 'image-classification',
+    executionBackend: 'ray',
+    packageName: 'demo_project',
     objective: { metric: 'val_accuracy', direction: 'max' },
     compatibility: [
       'task', 'datasetDigest', 'splitDigest', 'preprocessingVersion',
@@ -174,7 +176,16 @@ async function fixture(options: {
 } = {}) {
   const projectRoot = await mkdtemp(join(tmpdir(), 'galatea-controller-'))
   await mkdir(join(projectRoot, 'configs'))
+  await mkdir(join(projectRoot, 'src', 'demo_project'), { recursive: true })
+  await mkdir(join(projectRoot, 'scripts'))
+  await mkdir(join(projectRoot, 'tests'))
   await mkdir(join(projectRoot, 'releases', 'release-1'), { recursive: true })
+  await writeFile(join(projectRoot, 'README.md'), '# demo\n')
+  await writeFile(join(projectRoot, 'conda.yaml'), 'name: demo\n')
+  await writeFile(join(projectRoot, 'src', 'demo_project', '__init__.py'), '')
+  await writeFile(join(projectRoot, 'scripts', 'train.py'), '')
+  await writeFile(join(projectRoot, 'tests', 'test_project.py'), '')
+  await writeFile(join(projectRoot, 'galatea.project.yaml'), 'test fixture manifest\n')
   await writeFile(join(projectRoot, 'configs', 'trial.yaml'), 'run:\n  role: trial\nevaluation:\n  evaluate_test: false\n')
   await writeFile(join(projectRoot, 'configs', 'champion.yaml'), 'run:\n  role: champion\nevaluation:\n  evaluate_test: true\n')
   await writeFile(join(projectRoot, 'releases', 'release-1', 'release.json'), JSON.stringify({
@@ -235,9 +246,10 @@ async function fixture(options: {
           signal: null,
           stderr: '',
           stdout: JSON.stringify({
-            config: { run: { role }, evaluation: { evaluate_test: role === 'champion' } },
+            config: { run: { role }, evaluation: { evaluate_test: role === 'champion' }, ray: { num_workers: 1 } },
             config_digest: `${role}-config`,
             objective: { metric: 'val_accuracy', mode: 'max', uses_test_holdout: false },
+            requested_resources: { training_workers: 1 },
             dataset: { content_sha256: 'data-1', split_sha256: 'split-1' },
             code: { source_sha256: 'code-1' },
             idempotency_key: `${role}-identity`,

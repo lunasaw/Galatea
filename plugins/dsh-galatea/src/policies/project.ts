@@ -1,5 +1,5 @@
-import { readFile, realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { readFile, readdir, realpath, stat } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 import { parse } from 'yaml'
 
 export type ObjectiveDirection = 'max' | 'min'
@@ -115,6 +115,9 @@ export interface TrainingProjectManifest {
   readonly metadata: { readonly name: string }
   readonly spec: {
     readonly task: string
+    /** Formal training is intentionally restricted to the Ray Jobs backend. */
+    readonly executionBackend: 'ray'
+    readonly packageName: string
     readonly objective: { readonly metric: string; readonly direction: ObjectiveDirection }
     readonly compatibility: readonly string[]
     readonly capabilities: {
@@ -136,6 +139,88 @@ export interface TrainingProjectManifest {
     readonly runEvidence: RunEvidenceDeclaration
     readonly qualityGates: readonly QualityGateDeclaration[]
     readonly integrity?: ProjectIntegrityDeclaration
+  }
+}
+
+export interface ProjectStructureReport {
+  readonly [key: string]: import('../contracts/index.ts').JsonValue
+  readonly projectRoot: string
+  readonly projectDirectory: string
+  readonly packageName: string
+  readonly executionBackend: 'ray'
+  readonly requiredPaths: string[]
+}
+
+const REQUIRED_PROJECT_FILES = ['README.md'] as const
+const REQUIRED_PROJECT_DIRECTORIES = ['configs', 'src', 'tests', 'scripts'] as const
+
+async function isDirectory(path: string): Promise<boolean> {
+  try { return (await stat(path)).isDirectory() } catch { return false }
+}
+
+async function isFile(path: string): Promise<boolean> {
+  try { return (await stat(path)).isFile() } catch { return false }
+}
+
+/**
+ * Check the repository-owned workload layout before a project can be planned.
+ * This is deliberately filesystem based; a prompt or a manifest alone cannot
+ * prevent an agent from reusing an unrelated workload directory.
+ */
+export async function validateProjectStructure(
+  projectRoot: string,
+  manifest: TrainingProjectManifest,
+  manifestPath = 'galatea.project.yaml',
+): Promise<ProjectStructureReport> {
+  const root = await realpath(projectRoot)
+  const projectDirectory = basename(root)
+  const parentDirectory = basename(dirname(root))
+  if (parentDirectory === 'train-model' && projectDirectory !== manifest.metadata.name) {
+    throw new TypeError(`project directory ${projectDirectory} must match manifest metadata.name ${manifest.metadata.name}`)
+  }
+  const missing: string[] = []
+  if (!(await isFile(resolve(root, manifestPath)))) missing.push(manifestPath)
+  for (const file of REQUIRED_PROJECT_FILES) if (!(await isFile(resolve(root, file)))) missing.push(file)
+  for (const directory of REQUIRED_PROJECT_DIRECTORIES) if (!(await isDirectory(resolve(root, directory)))) missing.push(`${directory}/`)
+  const configRoot = resolve(root, manifest.spec.configRoot)
+  if (!(await isDirectory(configRoot))) missing.push(`${manifest.spec.configRoot}/`)
+  let configs: string[] = []
+  try { configs = (await readdir(configRoot)).filter(name => name.endsWith('.yaml') || name.endsWith('.yml')) } catch { /* reported above */ }
+  if (configs.length === 0) missing.push(`${manifest.spec.configRoot}/*.yaml`)
+  const packageRoot = resolve(root, 'src')
+  let packages: string[] = []
+  try {
+    packages = (await readdir(packageRoot, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory() && /^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.name))
+      .map(entry => entry.name)
+  } catch { /* reported above */ }
+  const validPackages = []
+  for (const packageName of packages) {
+    if (await isFile(resolve(packageRoot, packageName, '__init__.py'))) validPackages.push(packageName)
+  }
+  if (validPackages.length === 0) missing.push('src/<python-package>/__init__.py')
+  if (validPackages.length > 1) {
+    throw new TypeError(`src must contain exactly one top-level Python package; found ${validPackages.join(', ')}`)
+  }
+  const expectedPackage = manifest.spec.packageName
+  if (validPackages.length > 0 && !validPackages.includes(expectedPackage)) {
+    throw new TypeError(`src package must match project directory ${projectDirectory} (expected ${expectedPackage})`)
+  }
+  const train = manifest.spec.entrypoints.train
+  const scriptArgument = train.find((argument, index) => index > 0 && argument.startsWith('scripts/'))
+  if (scriptArgument === undefined || !(await isFile(resolve(root, scriptArgument)))) {
+    missing.push('scripts/<formal-training-entrypoint>')
+  }
+  if (!(await isFile(resolve(root, 'conda.yaml'))) && !(await isFile(resolve(root, 'pyproject.toml')))) {
+    missing.push('conda.yaml or pyproject.toml')
+  }
+  if (missing.length > 0) throw new TypeError(`project structure is incomplete: missing ${missing.join(', ')}`)
+  return {
+    projectRoot: root,
+    projectDirectory,
+    packageName: expectedPackage,
+    executionBackend: 'ray',
+    requiredPaths: [manifestPath, ...REQUIRED_PROJECT_FILES, ...REQUIRED_PROJECT_DIRECTORIES.map(value => `${value}/`)],
   }
 }
 
@@ -556,6 +641,10 @@ export function validateProjectManifest(value: unknown): TrainingProjectManifest
   for (const field of REQUIRED_COMPATIBILITY) {
     if (!compatibility.includes(field)) throw new TypeError(`spec.compatibility must include ${field}`)
   }
+  const executionBackend = text(spec['executionBackend'], 'spec.executionBackend')
+  if (executionBackend !== 'ray') throw new TypeError('spec.executionBackend must be ray')
+  const packageName = text(spec['packageName'], 'spec.packageName')
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(packageName)) throw new TypeError('spec.packageName must be a Python package name')
   const capabilities = record(spec['capabilities'], 'spec.capabilities')
   const pauseResume = boolean(capabilities['pauseResume'], 'spec.capabilities.pauseResume')
   const checkpointEntrypoint = optionalArgvTemplate(
@@ -586,6 +675,8 @@ export function validateProjectManifest(value: unknown): TrainingProjectManifest
     metadata: { name: text(metadata['name'], 'metadata.name') },
     spec: {
       task: text(spec['task'], 'spec.task'),
+      executionBackend,
+      packageName,
       objective: { metric: text(objective['metric'], 'spec.objective.metric'), direction },
       compatibility,
       capabilities: {

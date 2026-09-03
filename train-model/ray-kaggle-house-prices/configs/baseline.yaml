@@ -1,0 +1,100 @@
+project_name: ray-kaggle-house-prices
+
+run:
+  role: trial
+  name_prefix: ray-kaggle-house-prices
+  seed: 42
+  log_model: false
+
+data:
+  train_csv: /data/ai/chenzhangyue/code/data/house-prices/train.csv
+  test_csv: /data/ai/chenzhangyue/code/data/house-prices/test.csv
+  sample_submission_csv: /data/ai/chenzhangyue/code/data/house-prices/sample_submission.csv
+  cache_dir: ${REPO_ROOT}/platform-data/ray-kaggle-house-prices/manifests
+  output_dir: ${REPO_ROOT}/platform-data/ray-kaggle-house-prices/outputs
+  source_uri: kaggle://competitions/house-prices-advanced-regression-techniques
+  expected_train_rows: 1460
+  expected_test_rows: 1459
+  id_column: Id
+  target_column: SalePrice
+  preprocessing_version: house-prices-engineered-semantic-missing-ordinal-log1p-v2
+  schema_version: kaggle-house-prices-schema-v1
+  holdout_fraction: 0.20
+
+validation:
+  folds: 5
+  tuning_folds: 3
+  stratification_bins: 10
+
+models:
+  enabled: [elastic_net, gradient_boosting, xgboost, lightgbm, catboost]
+  blend_l2: 0.005
+  selected_parameters_path: null
+  parameters:
+    elastic_net:
+      alpha: 0.0005
+      l1_ratio: 0.5
+      max_iter: 10000
+    gradient_boosting:
+      n_estimators: 2500
+      learning_rate: 0.03
+      max_depth: 4
+      min_samples_leaf: 10
+      max_features: sqrt
+      loss: huber
+    xgboost:
+      n_estimators: 2500
+      learning_rate: 0.02
+      max_depth: 3
+      min_child_weight: 1
+      subsample: 0.80
+      colsample_bytree: 0.80
+      reg_alpha: 0.0001
+      reg_lambda: 1.0
+    lightgbm:
+      n_estimators: 2500
+      learning_rate: 0.015
+      num_leaves: 20
+      max_depth: -1
+      min_child_samples: 12
+      subsample: 0.80
+      colsample_bytree: 0.80
+      reg_alpha: 0.0001
+      reg_lambda: 0.10
+    catboost:
+      iterations: 2500
+      learning_rate: 0.03
+      depth: 5
+      l2_leaf_reg: 5.0
+      random_strength: 0.5
+
+
+tuning:
+  enabled: true
+  trials_per_family: 12
+  timeout_seconds_per_family: 900
+
+training:
+  objective_metric: val_rmsle
+  objective_mode: min
+  n_jobs: 8
+  remove_submission_outliers: false
+
+ray:
+  address: auto
+  cpus: 8
+  memory_gb: 8
+  storage_path: ${REPO_ROOT}/platform-data/ray-kaggle-house-prices/ray-results
+
+mlflow:
+  tracking_uri: http://127.0.0.1:5000
+  experiment_name: ray-kaggle-house-prices
+  require_remote_artifacts: true
+
+evaluation:
+  evaluate_holdout: false
+  maximum_holdout_rmsle: 0.14
+
+submission:
+  generate: false
+  filename: submission.csv

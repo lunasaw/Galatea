@@ -24,7 +24,15 @@ async function projectConfig() {
   const projectRoot = join(root, 'project')
   const releaseRoot = join(root, 'releases')
   await mkdir(join(projectRoot, 'configs'), { recursive: true })
+  await mkdir(join(projectRoot, 'src', 'harness_test'), { recursive: true })
+  await mkdir(join(projectRoot, 'scripts'), { recursive: true })
+  await mkdir(join(projectRoot, 'tests'), { recursive: true })
   await mkdir(releaseRoot, { recursive: true })
+  await writeFile(join(projectRoot, 'README.md'), '# harness test\n')
+  await writeFile(join(projectRoot, 'conda.yaml'), 'name: harness-test\n')
+  await writeFile(join(projectRoot, 'src', 'harness_test', '__init__.py'), '')
+  await writeFile(join(projectRoot, 'scripts', 'train.py'), '')
+  await writeFile(join(projectRoot, 'tests', 'test_project.py'), '')
   await writeFile(join(projectRoot, 'configs', 'baseline.yaml'), 'run:\n  role: trial\n')
   await writeFile(join(projectRoot, 'galatea.project.yaml'), `
 apiVersion: galatea/v1
@@ -33,6 +41,8 @@ metadata:
   name: harness-test
 spec:
   task: image-classification
+  executionBackend: ray
+  packageName: harness_test
   objective: { metric: val_accuracy, direction: max }
   compatibility:
     - task
@@ -91,6 +101,12 @@ async function harness() {
 }
 
 describe('dsh-galatea Cordis plugin', () => {
+  it('classifies known shell bypasses as governance violations', () => {
+    expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'python scripts/train.py --config configs/baseline.yaml' })).toMatch(/formal training/)
+    expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'ray job submit -- python scripts/train.py' })).toMatch(/direct Ray/)
+    expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'python scripts/train.py --plan' })).toBeUndefined()
+  })
+
   it('survives the real Loader export path, registers every tool, and disposes them', async () => {
     expect('default' in GalateaPlugin).toBe(false)
     const loader = Object.create(Loader.prototype) as Loader

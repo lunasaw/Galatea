@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import {
   loadProjectManifest,
   resolveProjectPath,
+  validateProjectStructure,
   validateProjectManifest,
 } from '../src/policies/project.ts'
 
@@ -15,6 +16,8 @@ const validManifest = {
   metadata: { name: 'demo-project' },
   spec: {
     task: 'image-classification',
+    executionBackend: 'ray',
+    packageName: 'demo_project',
     objective: { metric: 'val_accuracy', direction: 'max' },
     compatibility: [
       'task', 'datasetDigest', 'splitDigest', 'preprocessingVersion',
@@ -61,6 +64,40 @@ test('validates a framework-neutral project declaration', () => {
   assert.equal(manifest.spec.objective.direction, 'max')
   assert.equal(manifest.spec.capabilities.pauseResume, false)
   assert.deepEqual(manifest.spec.runEvidence.compatibility.role, { source: 'tag', key: 'run.role' })
+})
+
+test('requires an explicit Ray execution backend', () => {
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: { ...validManifest.spec, executionBackend: undefined },
+  }), /executionBackend/)
+  assert.throws(() => validateProjectManifest({
+    ...validManifest,
+    spec: { ...validManifest.spec, executionBackend: 'local' },
+  }), /executionBackend must be ray/)
+})
+
+test('rejects incomplete or cross-purpose workload roots', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'galatea-structure-'))
+  await mkdir(join(root, 'configs'))
+  await mkdir(join(root, 'src', 'demo_project'), { recursive: true })
+  await mkdir(join(root, 'tests'))
+  await mkdir(join(root, 'scripts'))
+  await writeFile(join(root, 'README.md'), '# demo\n')
+  await writeFile(join(root, 'galatea.project.yaml'), 'placeholder\n')
+  await writeFile(join(root, 'conda.yaml'), 'name: demo\n')
+  await writeFile(join(root, 'src', 'demo_project', '__init__.py'), '')
+  await writeFile(join(root, 'configs', 'baseline.yaml'), 'run: {}\n')
+  await writeFile(join(root, 'tests', 'test_project.py'), '')
+  await writeFile(join(root, 'scripts', 'train.py'), '')
+  const report = await validateProjectStructure(root, validateProjectManifest(validManifest))
+  assert.equal(report.packageName, 'demo_project')
+  await mkdir(join(root, 'src', 'wrong_package'), { recursive: true })
+  await writeFile(join(root, 'src', 'wrong_package', '__init__.py'), '')
+  await assert.rejects(
+    () => validateProjectStructure(root, { ...validateProjectManifest(validManifest), metadata: { name: 'other-project' } }),
+    /exactly one top-level Python package/,
+  )
 })
 
 test('accepts old manifests with unknown optional integrity', () => {
@@ -288,6 +325,8 @@ test('loads YAML and confines resolved paths to the project root, including syml
     '  name: demo-project',
     'spec:',
     '  task: image-classification',
+    '  executionBackend: ray',
+    '  packageName: demo_project',
     '  objective: {metric: val_accuracy, direction: max}',
     '  compatibility: [task, datasetDigest, splitDigest, preprocessingVersion, metricDefinition, evaluationProtocol, role]',
     '  capabilities: {pauseResume: false}',

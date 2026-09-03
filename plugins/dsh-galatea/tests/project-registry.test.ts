@@ -17,6 +17,8 @@ const manifest = {
   metadata: { name: 'digits' },
   spec: {
     task: 'image-classification',
+    executionBackend: 'ray',
+    packageName: 'digits',
     objective: { metric: 'val_accuracy', direction: 'max' },
     compatibility: [
       'task', 'datasetDigest', 'splitDigest', 'preprocessingVersion',
@@ -56,7 +58,16 @@ async function projectFiles(): Promise<{ projectRoot: string; releaseRoot: strin
   const projectRoot = join(parent, 'project')
   const releaseRoot = join(parent, 'release')
   await mkdir(join(projectRoot, 'configs'), { recursive: true })
+  await mkdir(join(projectRoot, 'src', 'digits'), { recursive: true })
+  await mkdir(join(projectRoot, 'tests'), { recursive: true })
+  await mkdir(join(projectRoot, 'scripts'), { recursive: true })
   await mkdir(releaseRoot)
+  await writeFile(join(projectRoot, 'README.md'), '# digits\n')
+  await writeFile(join(projectRoot, 'conda.yaml'), 'name: digits\n')
+  await writeFile(join(projectRoot, 'src', 'digits', '__init__.py'), '')
+  await writeFile(join(projectRoot, 'scripts', 'train.py'), '')
+  await writeFile(join(projectRoot, 'tests', 'test_project.py'), '')
+  await writeFile(join(projectRoot, 'configs', 'baseline.yaml'), 'run:\n  role: trial\n')
   await writeFile(join(projectRoot, 'galatea.project.yaml'), JSON.stringify(manifest), 'utf8')
   return { projectRoot, releaseRoot }
 }

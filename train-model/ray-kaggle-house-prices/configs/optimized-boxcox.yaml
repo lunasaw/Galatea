@@ -1,0 +1,19 @@
+extends: optimized-ohe.yaml
+
+# 该文件保留为已回滚实验记录；当前实现不启用 Box-Cox。
+run:
+  name_prefix: ray-kaggle-house-prices-optimized-boxcox-rollback
+  seed: 42
+  log_model: false
+
+data:
+  holdout_fraction: 0.0
+
+models:
+  enabled: [ridge, elastic_net, gradient_boosting, xgboost, lightgbm, catboost]
+  blend_l2: 0.02
+  selected_parameters_path: null
+
+submission:
+  generate: false
+  filename: optimized-boxcox-submission.csv

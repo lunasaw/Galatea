@@ -20,6 +20,14 @@ Session、Workflow、Skill Registry、权限系统或客户端。
 Tracking、Artifact 和 Registry HTTP API 访问；插件不读取 `mlflow.db`、MinIO 服务端目录或
 Ray 临时目录。首版 `skills/` 为空，确定性规则都在 Tool、Policy 和 Schema 中。
 
+正式训练还有三道不可由提示词绕过的硬门禁：注册项目必须是 `train-model/<project-name>/` 下的
+完整 workload（`README.md`、`configs/`、`src/<matching-python-package>/`、`scripts/`、
+`tests/` 和 `conda.yaml`/`pyproject.toml`）；清单必须声明 `executionBackend: ray`；当前 Session
+必须先成功调用 `galatea_plan_run`，随后才能以相同项目、配置、Release、角色和 attempt 调用
+`galatea_submit_job`。提交前插件会重算 readiness digest，若工作区或计划已变化则拒绝提交。
+短时、低风险检查和探索实验可以本地运行，但不能形成 Galatea 正式证据；正式 Trial/Champion、长时或
+资源密集训练优先使用 Ray Job。直接运行本地命令不得绕过失败的结构、依赖、数据、切分或 release 预检。
+
 ## 安装到 Harness Profile
 
 在插件目录构建，然后通过 Harness 的 Profile 插件命令安装当前 checkout：
@@ -38,12 +46,14 @@ dsh plugin --profile web add .
 dsh --profile web --dump-config
 ```
 
-默认 bundle 提供管理员配置的受信项目注册表，共两个项目：
+默认 bundle 提供管理员配置的受信项目注册表，共三个项目：
 
 - `ray-cats-and-dogs`（默认选择），Release 根为
   `/data/ai/chenzhangyue/code/galatea/platform-data/ray-cats-and-dogs-release`；
 - `ray-handwritten-digits`，Release 根为
-  `/data/ai/chenzhangyue/code/galatea/platform-data/ray-handwritten-digits-release`。
+  `/data/ai/chenzhangyue/code/galatea/platform-data/ray-handwritten-digits-release`；
+- `ray-kaggle-house-prices`，Release 根为
+  `/data/ai/chenzhangyue/code/galatea/platform-data/ray-kaggle-house-prices-release`。
 
 `galatea_list_projects` 只列出该注册表；`galatea_select_project` 只接受其中的 ID。成功的选择由
 Harness 标准 `tool/call`、`tool/result` 或 `tool/code-dispatch` Session 事件记录，并经
@@ -104,9 +114,12 @@ Release。源码、执行脚本、打包配置或会改变数据/切分身份的
 - 带 `operationStatus` 的生命周期/证据结果分别报告 `statuses.execution`、`quality`、
   `governance`，以及独立的 `integrity.preprocessingParity` 和 `migrationContamination`；Ray Job
   `SUCCEEDED` 只表示执行成功，不代表质量通过、完整性已证明或已获推广批准。
-- `galatea_plan_run` 以项目 `--plan` 的结构化输出验证声明的预处理上下文一致性、迁移来源和
-  污染检查。清单未声明完整性、必需字段/检查缺失、状态未知或失败、角色适用检查误报
-  `not-applicable` 时，readiness fail closed，不生成可提交计划；非阻断 backlog 只作为 advisory。
+- `galatea_plan_run` 以项目 `--plan` 的结构化输出验证声明的项目结构、预处理上下文一致性、迁移来源和
+  污染检查。项目目录、固定入口、依赖、release、必需字段或检查缺失，或者状态未知/失败时，readiness
+  fail closed，不生成可提交计划；这类结构或完整性问题不是 advisory。非阻断 backlog 才作为 advisory。
+- 短时、低风险的本地检查或探索实验可以直接运行项目的参数化入口，但不能把结果当作 governed Ray
+  Run 或最终证据。正式 Trial/Champion、长时或资源密集训练优先使用 `galatea_plan_run` →
+  `galatea_submit_job` 的 Ray Job 流程。
 - Trial 只能使用训练集和验证集；Champion 才能执行最终测试。
 - Run 比较要求任务、数据、切分、预处理、指标定义、评估协议和角色全部兼容。
 - 相同计划身份生成确定性的 Ray Submission ID；提交校验受治理 metadata，停止要求

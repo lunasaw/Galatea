@@ -4,6 +4,8 @@ metadata:
   name: ray-handwritten-digits
 spec:
   task: image-classification
+  executionBackend: ray
+  packageName: ray_handwritten_digits
   objective:
     metric: val_accuracy
     direction: max

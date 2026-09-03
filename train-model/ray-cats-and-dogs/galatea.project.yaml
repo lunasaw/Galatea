@@ -4,6 +4,8 @@ metadata:
   name: ray-cats-and-dogs
 spec:
   task: image-classification
+  executionBackend: ray
+  packageName: ray_cats_dogs
   objective:
     metric: val_accuracy
     direction: max

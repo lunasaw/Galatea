@@ -1,0 +1,24 @@
+extends: optimized-ohe.yaml
+
+run:
+  role: champion
+  name_prefix: ray-kaggle-house-prices-champion-optimized-ohe
+  seed: 42
+  log_model: true
+
+data:
+  holdout_fraction: 0.20
+
+models:
+  selected_parameters_path: ${REPO_ROOT}/platform-data/ray-kaggle-house-prices/outputs/selected-model-parameters-01306f083801.json
+
+tuning:
+  enabled: false
+
+evaluation:
+  evaluate_holdout: true
+  maximum_holdout_rmsle: 0.14
+
+submission:
+  generate: true
+  filename: optimized-ohe-submission.csv

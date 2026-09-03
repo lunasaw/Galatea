@@ -137,8 +137,8 @@ plugins/
 | Run 与证据 | `galatea_compare_runs`、`galatea_build_stage_evidence`、`galatea_verify_candidate` | 只读并重新验证 MLflow/Artifact 事实 |
 | 模型推广 | `galatea_promote_model` | 经当前证据审批后创建/复用版本并更新 Alias |
 
-当前 bundle 由管理员直接配置 `ray-cats-and-dogs` 和 `ray-handwritten-digits` 两个受信项目，默认
-前者。`galatea_select_project` 只能选择注册 ID；成功调用由 Harness 标准 `tool/call`、
+当前 bundle 由管理员直接配置 `ray-cats-and-dogs`、`ray-handwritten-digits` 和
+`ray-kaggle-house-prices` 三个受信项目，默认前者。`galatea_select_project` 只能选择注册 ID；成功调用由 Harness 标准 `tool/call`、
 `tool/result` 或 `tool/code-dispatch` Session 事件记录，并经 `galateaProjectSelection`
 projection/replay 派生该 Session 的当前项目，未选择时回落到 `defaultProject`。选择不是进程级
 单例，也不能让模型注入新的路径。注册表在启动时要求绝对的项目/Release 根目录，
@@ -192,6 +192,14 @@ allowlist。默认名单是 `PATH`、`HOME`、`LANG`、`LC_ALL`、`PYTHONPATH`�
 `CONDA_PREFIX`、`CONDA_DEFAULT_ENV`、`MLFLOW_TRACKING_URI`、`RAY_ADDRESS`、
 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`；`projectProcessInheritedEnv` 会替换整份名单。
 操作所需的 Galatea 上下文另行显式注入，Token/Secret 不因存在于 Harness 环境就自动传入子进程。
+
+项目注册时还会执行结构硬校验：项目必须位于 `train-model/<project-name>/`，清单中的
+`metadata.name`、`spec.packageName` 和 `src/<package>/` 必须一致，并具备 `README.md`、
+`configs/*.yaml`、`src/`、`scripts/`、`tests/` 及环境文件。清单必须声明
+`spec.executionBackend: ray`，计划必须返回非空 Ray 配置和资源声明。当前 Session 必须先成功
+`galatea_plan_run`，再以相同项目/配置/Release/角色/attempt 提交；readiness digest 变化会阻断提交。
+插件还在 Harness `tools/pre-execute` 边界拒绝直接 `scripts/train.py` 正式训练和 `ray job submit`，
+但通用 Shell 工具的最终可用性仍由宿主权限预设控制。
 
 正式模型和 Checkpoint 验证使用 MLflow Artifact API；`dsh-galatea` 当前不实现直接 MinIO
 客户端。若平台中的其他组件需要直接访问 MinIO，必须在插件边界外使用独立配置的最小权限客户端，

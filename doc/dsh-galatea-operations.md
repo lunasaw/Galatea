@@ -37,12 +37,13 @@ Profile 已配置的普通 UI、ACP 或其他 answerer 处理。
 
 bundle 默认配置见 [`cordis.patch.yml`](../plugins/dsh-galatea/cordis.patch.yml)。项目不是由模型或
 Tool 路径参数发现，而是由管理员在插件配置的 `projects` 注册表中逐项授权。
-当前 bundle 配置两个项目：
+当前 bundle 配置三个项目：
 
 | 项目 ID | `projectRoot` | `releaseRoot` |
 | --- | --- | --- |
 | `ray-cats-and-dogs`（默认） | `/data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs` | `/data/ai/chenzhangyue/code/galatea/platform-data/ray-cats-and-dogs-release` |
 | `ray-handwritten-digits` | `/data/ai/chenzhangyue/code/galatea/train-model/ray-handwritten-digits` | `/data/ai/chenzhangyue/code/galatea/platform-data/ray-handwritten-digits-release` |
+| `ray-kaggle-house-prices` | `/data/ai/chenzhangyue/code/galatea/train-model/ray-kaggle-house-prices` | `/data/ai/chenzhangyue/code/galatea/platform-data/ray-kaggle-house-prices-release` |
 
 生产部署由管理员修改 Profile/bundle 并重新加载插件，例如：
 

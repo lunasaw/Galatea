@@ -16,6 +16,7 @@ import {
 import { evaluatePlanIntegrity, deriveIntegrityAdvisories, type PlanIntegrityEvaluation } from '../policies/integrity.ts'
 import {
   resolveProjectPath,
+  validateProjectStructure,
   type IntegrityReportDeclaration,
   type IntegrityRole,
   type RunEvidenceSource,
@@ -103,6 +104,7 @@ export type StageEvidenceOutput = {
 export interface GalateaControllerOptions {
   readonly projectRoot: string
   readonly releaseRoot: string
+  readonly manifestPath?: string
   readonly manifest: TrainingProjectManifest
   readonly process: ProcessClient
   readonly ray: RayClient
@@ -325,6 +327,7 @@ function normalizeError(error: unknown, stateChanged = false): ToolResult<never>
 export class GalateaController {
   readonly projectRoot: string
   readonly releaseRoot: string
+  readonly manifestPath: string
   readonly manifest: TrainingProjectManifest
   private readonly process: ProcessClient
   private readonly ray: RayClient
@@ -333,6 +336,7 @@ export class GalateaController {
   constructor(options: GalateaControllerOptions) {
     this.projectRoot = options.projectRoot
     this.releaseRoot = options.releaseRoot
+    this.manifestPath = options.manifestPath ?? 'galatea.project.yaml'
     this.manifest = options.manifest
     this.process = options.process
     this.ray = options.ray
@@ -411,7 +415,7 @@ export class GalateaController {
 
   async inspectProject(input: { readonly approvalPolicy?: string; readonly signal?: AbortSignal } = {}): Promise<ToolResult<Record<string, JsonValue>>> {
     try {
-      await resolveProjectPath(this.projectRoot, this.manifest.spec.configRoot)
+      const structure = await validateProjectStructure(this.projectRoot, this.manifest, this.manifestPath)
       const [experiment, ray] = await Promise.all([
         this.mlflow.getExperimentByName(this.manifest.spec.mlflow.experimentName, input.signal),
         this.ray.version === undefined
@@ -425,6 +429,8 @@ export class GalateaController {
           releaseManifestPath: 'relative to releaseRoot',
         },
         task: this.manifest.spec.task,
+        executionBackend: this.manifest.spec.executionBackend,
+        structure,
         objective: this.manifest.spec.objective,
         pauseResume: this.manifest.spec.capabilities.pauseResume,
         experimentName: this.manifest.spec.mlflow.experimentName,
@@ -511,6 +517,7 @@ export class GalateaController {
   }): Promise<ToolResult<RunPlan>> {
     try {
       nonEmpty(input.attempt, 'attempt')
+      const structure = await validateProjectStructure(this.projectRoot, this.manifest, this.manifestPath)
       const configPath = await this.configPath(input.configPath)
       const release = await this.release(input.releaseManifestPath)
       const checkArgv = this.manifest.spec.entrypoints.checkConfig.map(argument => argument === '{config}' ? configPath : argument)
@@ -524,6 +531,10 @@ export class GalateaController {
       const run = object(config['run'], 'project plan config.run')
       if (run['role'] !== input.role) throw new Error(`requested role ${input.role} does not match resolved config role ${String(run['role'])}`)
       const evaluation = object(config['evaluation'], 'project plan config.evaluation')
+      const rayConfig = object(config['ray'], 'project plan config.ray')
+      if (Object.keys(rayConfig).length === 0) throw new Error('project plan must declare Ray configuration')
+      const requestedResources = object(plan['requested_resources'], 'project plan requested_resources')
+      if (Object.keys(requestedResources).length === 0) throw new Error('project plan must declare requested Ray resources')
       if (evaluation['evaluate_test'] === true) {
         const access = authorizeDatasetAccess(input.role, 'test')
         if (!access.allowed) throw new Error(access.reason)
@@ -576,9 +587,11 @@ export class GalateaController {
           objective: plan['objective'] ?? null,
           dataset: plan['dataset'] ?? null,
           code: plan['code'] ?? null,
-          requestedResources: plan['requested_resources'] ?? null,
+          requestedResources,
           tracking: plan['tracking'] ?? null,
           willTrain: plan['will_train'] ?? null,
+          executionBackend: this.manifest.spec.executionBackend,
+          projectStructure: structure,
         },
         integrity,
         advisories: deriveIntegrityAdvisories(integrity),

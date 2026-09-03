@@ -35,6 +35,15 @@ export interface GalateaToolContext {
   }
 }
 
+interface ReadinessRecord {
+  readonly project: string
+  readonly role: ExecutionRole
+  readonly configPath: string
+  readonly releaseManifestPath: string
+  readonly attempt: string
+  readonly evidenceDigest: string
+}
+
 const output = {
   schema: { type: 'json' as const },
   render: (_args: unknown, value: HarnessJsonValue) => [{ type: 'text' as const, text: JSON.stringify(value) }],
@@ -118,6 +127,11 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
   const releaseManifestPath = { type: 'string', required: true, description: 'Path below the configured immutable release root.' } as const
   const submissionId = { type: 'string', required: true } as const
   const tools: ToolDefinition[] = []
+  const readinessBySession = new WeakMap<object, ReadinessRecord>()
+  const sessionKey = (agent: Agent | undefined): object | undefined => {
+    const session = agent?.session
+    return session !== undefined && typeof session === 'object' ? session : undefined
+  }
 
   tools.push(defineTool({
     name: 'galatea_list_projects',
@@ -185,7 +199,22 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     description: 'Run the declared read-only preflight and build readiness evidence without starting training.',
     parameters: { configPath, releaseManifestPath, role, attempt: { type: 'string', required: true } }, output,
     async execute(args, exec) {
-      return safeResult(await (await controller(exec.agent)).planRun({ ...args, role: args.role as ExecutionRole, signal: exec.signal }))
+      const selectedController = await controller(exec.agent)
+      const result = await selectedController.planRun({ ...args, role: args.role as ExecutionRole, signal: exec.signal })
+      if (result.ok) {
+        const session = sessionKey(exec.agent)
+        if (session !== undefined) {
+          readinessBySession.set(session, {
+            project: selectedController.manifest?.metadata?.name ?? 'unknown',
+            role: args.role as ExecutionRole,
+            configPath: args.configPath,
+            releaseManifestPath: args.releaseManifestPath,
+            attempt: args.attempt,
+            evidenceDigest: result.data.evidence.digest,
+          })
+        }
+      }
+      return safeResult(result)
     },
   }))
   tools.push(defineTool({
@@ -206,8 +235,33 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       const agentFailure = requireAgent(exec.agent)
       if (agentFailure !== undefined) return safeResult(agentFailure)
       const selectedController = await controller(exec.agent)
+      const session = sessionKey(exec.agent)
+      const readiness = session === undefined ? undefined : readinessBySession.get(session)
+      if (readiness === undefined
+        || readiness.project !== (selectedController.manifest?.metadata?.name ?? 'unknown')
+        || readiness.role !== args.role
+        || readiness.configPath !== args.configPath
+        || readiness.releaseManifestPath !== args.releaseManifestPath
+        || readiness.attempt !== args.attempt) {
+        return safeResult(failure({
+          category: 'precondition-failed',
+          message: 'galatea_plan_run must succeed for the same project, config, release manifest, role, and attempt before galatea_submit_job',
+          retryable: false,
+          stateChanged: false,
+          nextAction: 'Call galatea_plan_run first, review its readiness evidence, then submit the unchanged plan.',
+        }))
+      }
       const planned = await selectedController.planRun({ ...args, role: args.role as ExecutionRole, signal: exec.signal })
       if (!planned.ok) return safeResult(planned)
+      if (planned.data.evidence.digest !== readiness.evidenceDigest) {
+        return safeResult(failure({
+          category: 'conflict',
+          message: 'readiness evidence changed since galatea_plan_run; submit requires a fresh explicit plan',
+          retryable: false,
+          stateChanged: false,
+          nextAction: 'Call galatea_plan_run again and review the new readiness evidence.',
+        }))
+      }
       const requested = await requestApproval(
         context,
         exec.agent!,

@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ToolExecution, PreToolDecision } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import schema from '@deepseek-ai/schemastery'
@@ -22,6 +23,24 @@ import { createGalateaTools } from './tools/index.ts'
 
 export const name = 'dsh-galatea'
 export const inject = ['tools', 'approval', 'sessionProjections', 'systemPrompt']
+
+/** Return a deterministic denial reason for shell attempts that bypass Ray governance. */
+export function trainingCommandViolation(toolName: string, argumentsValue: unknown): string | undefined {
+  if (!['bash', 'pwsh', 'terminal-bash', 'terminal-pwsh'].includes(toolName)) return undefined
+  if (argumentsValue === null || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) return undefined
+  const command = (argumentsValue as Record<string, unknown>)['command']
+  if (typeof command !== 'string') return undefined
+  if (/\bray\s+(?:job|jobs)\s+submit\b/i.test(command)
+    || /(?:^|[\s/])job\/(?:cd|submit)\.py\b[^;&|]*\b(?:--mode\s+)?train\b/i.test(command)
+    || /\bpython(?:3(?:\.\d+)?)?\s+-m\s+ray_[A-Za-z0-9_.]+(?:\.train|\.job_release)\b/i.test(command)) {
+    return 'direct Ray Jobs submission is disabled; use galatea_plan_run then galatea_submit_job'
+  }
+  const trainingSegments = command.split(/&&|\|\||[;|]/).filter(segment => /scripts[\\/]train\.py\b/i.test(segment))
+  if (trainingSegments.some(segment => !/--(?:check-config|plan)\b/i.test(segment))) {
+    return 'formal training scripts may not run through a shell; use galatea_plan_run then galatea_submit_job'
+  }
+  return undefined
+}
 
 export interface ProjectConfig {
   readonly id: string
@@ -191,12 +210,25 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   const controller = await registry.getController(defaultProject)
 
+  // The Harness tool pipeline is the last executable boundary available to a
+  // plugin. Deny the known bypasses here so the prompt is backed by an
+  // enforceable policy even when the model chooses a generic shell tool.
+  ctx.on('tools/pre-execute', (exec: ToolExecution, next: () => Promise<PreToolDecision>) => {
+    const reason = trainingCommandViolation(exec.name, exec.arguments)
+    return reason === undefined ? next() : Promise.resolve({ kind: 'deny', reason } as const)
+  }, { prepend: true })
+
   ctx.systemPrompt.section({
     name: 'tool:galatea',
     order: ctx.systemPrompt.getSectionOrder('TOOL_CORDIS') + 1,
     text: [
       '## Galatea training execution',
       'Start by listing and selecting the administrator-configured project, then inspect it before planning.',
+      'A new algorithm, dataset, or task is a new workload: use a separate train-model/<project-name> root with its own README.md, configs/, src/<matching-python-package>/, scripts/, tests/, environment file, and galatea.project.yaml. Never repurpose another project (especially ray-cats-and-dogs) for a different workload.',
+      'The project registry is administrator-owned. If no registered project matches the requested workload, stop before editing or training and ask the administrator to provision/register a new project; do not use a near match as a substitute.',
+      'Choose execution by task scope: bounded quick checks and low-risk exploratory experiments may run locally; formal Trial/Champion runs, long-running or resource-intensive training, and any run intended for durable MLflow/Kaggle evidence must use the declared Ray Job path. A local result must never be presented as a governed Ray result or as final evidence.',
+      'For a declared Ray project, use galatea_plan_run followed by galatea_submit_job for formal execution. Before any training starts, validate the project structure, fixed entrypoint, config, dependencies, release manifest, data/split identity, and plan evidence; a mismatch is a blocking failure, not an advisory. Do not use an ad-hoc shell command to bypass a failed preflight.',
+      'Before submitting, confirm the selected project task, executionBackend, project structure, config, release manifest, and plan evidence. A governed result is incomplete without the Ray submission ID, MLflow Run ID, readiness/evidence digest, and artifact evidence.',
       'Paths are relative: configPath is below projectRoot and releaseManifestPath is below releaseRoot.',
       'Prioritize the requested training objective; record nonblocking platform improvements for later instead of interrupting training.',
       'Treat Ray execution, model quality, integrity evidence, and governance approval as independent states.',

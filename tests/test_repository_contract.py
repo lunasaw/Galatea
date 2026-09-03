@@ -22,6 +22,7 @@ class RepositoryContractTest(unittest.TestCase):
         projects = (
             REPOSITORY_ROOT / "train-model" / "ray-cats-and-dogs",
             REPOSITORY_ROOT / "train-model" / "ray-handwritten-digits",
+            REPOSITORY_ROOT / "train-model" / "ray-kaggle-house-prices",
         )
         for project in projects:
             self.assertTrue((project / "tests").is_dir(), project)
@@ -40,6 +41,7 @@ class RepositoryContractTest(unittest.TestCase):
             REPOSITORY_ROOT / "plugins" / "dsh-galatea" / "src",
             REPOSITORY_ROOT / "train-model" / "ray-cats-and-dogs" / "src",
             REPOSITORY_ROOT / "train-model" / "ray-handwritten-digits" / "src",
+            REPOSITORY_ROOT / "train-model" / "ray-kaggle-house-prices" / "src",
         )
         forbidden = ("shell: true", "execSync", "claude_agent_sdk")
         for root in source_roots:

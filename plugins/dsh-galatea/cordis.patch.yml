@@ -25,6 +25,10 @@
             projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-handwritten-digits'
             manifestPath: galatea.project.yaml
             releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-handwritten-digits-release'
+          - id: ray-kaggle-house-prices
+            projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-kaggle-house-prices'
+            manifestPath: galatea.project.yaml
+            releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-kaggle-house-prices-release'
         defaultProject: ray-cats-and-dogs
         rayBaseUrl: !!js process.env.GALATEA_RAY_BASE_URL ?? 'http://127.0.0.1:8265'
         rayTokenEnv: !!js process.env.GALATEA_RAY_TOKEN_ENV

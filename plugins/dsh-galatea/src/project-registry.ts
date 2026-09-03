@@ -4,6 +4,7 @@ import { parse } from 'yaml'
 import {
   loadProjectManifest,
   resolveProjectPath,
+  validateProjectStructure,
   type TrainingProjectManifest,
 } from './policies/project.ts'
 import {
@@ -219,6 +220,7 @@ export async function resolveProjectEntry(configured: ConfiguredProjectEntry): P
   const manifestPath = await resolveProjectPath(projectRoot, configuredManifestPath)
   if (!inside(projectRoot, manifestPath)) throw new Error(`manifestPath resolves outside projectRoot: ${configuredManifestPath}`)
   const manifest = await loadProjectManifest(manifestPath)
+  await validateProjectStructure(projectRoot, manifest, configuredManifestPath)
   return { ...configured, projectRoot, releaseRoot, manifestPath, manifest }
 }
 
@@ -270,6 +272,7 @@ export async function createProjectController<
   return new controllerConstructor({
     projectRoot: entry.projectRoot,
     releaseRoot: entry.releaseRoot,
+    manifestPath: entry.manifestPath,
     manifest: entry.manifest,
     ...services,
   })

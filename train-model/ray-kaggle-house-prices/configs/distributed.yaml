@@ -1,0 +1,17 @@
+extends: baseline.yaml
+
+run:
+  role: trial
+  name_prefix: ray-kaggle-house-prices-distributed
+  seed: 2026
+
+ray:
+  address: auto
+  cpus: 16
+  memory_gb: 16
+  storage_path: ${REPO_ROOT}/platform-data/ray-kaggle-house-prices/ray-results
+
+tuning:
+  enabled: true
+  trials_per_family: 20
+  timeout_seconds_per_family: 1800

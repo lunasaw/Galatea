@@ -27,6 +27,11 @@ describe('dsh-galatea bundle overlay', () => {
                 projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-handwritten-digits',
                 releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-handwritten-digits-release',
               },
+              {
+                id: 'ray-kaggle-house-prices',
+                projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-kaggle-house-prices',
+                releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-kaggle-house-prices-release',
+              },
             ],
             defaultProject: 'ray-cats-and-dogs',
             rayTokenEnv: { __jsExpr: 'process.env.GALATEA_RAY_TOKEN_ENV' },

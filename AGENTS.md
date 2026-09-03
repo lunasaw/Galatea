@@ -113,8 +113,12 @@ for the project. The Skill must remain reusable across frameworks and experiment
 ## Ray and Notebook Execution
 
 - Use notebooks for exploration, visualization, single-batch checks, and short smoke tests.
-- Submit formal, distributed, or long-running work through a parameterized Ray Job, Ray Train entry point,
-  or another recoverable script-based workflow.
+- Choose execution by scope: bounded quick checks and low-risk exploratory experiments may run locally;
+  formal, distributed, long-running, or resource-intensive work should prefer a parameterized Ray Job,
+  Ray Train entry point, or another recoverable script-based workflow.
+- If project structure, fixed entrypoint, dependencies, release, data identity, or split contract is invalid,
+  block execution and repair the contract; do not bypass the failure with a local command. Local results must
+  not be represented as governed Ray or final-validation evidence.
 - Declare CPU, GPU, memory, and placement requirements rather than assuming all local resources are free.
 - Preserve Run IDs and checkpoint locations in job metadata so failed jobs can be diagnosed or resumed.
 - Seed randomized work and document any operation that cannot be made deterministic.

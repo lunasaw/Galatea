@@ -117,16 +117,33 @@ describe('dsh-galatea Harness tools', () => {
     }, { signal, agent } as never)
   })
 
+  it('rejects a formal submission that bypasses the explicit readiness plan', async () => {
+    const ctx = context()
+    const tools = createGalateaTools({
+      controller: controller() as never,
+      approval: ctx.approval as never,
+    })
+    const result = await tools.find(tool => tool.name === 'galatea_submit_job')!.execute({
+      configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'without-plan',
+    }, { signal, agent, callId } as never) as { ok: boolean; error?: { category?: string; message?: string } }
+    expect(result).toMatchObject({ ok: false, error: { category: 'precondition-failed' } })
+    expect(result.error?.message).toMatch(/galatea_plan_run must succeed/)
+  })
+
   it('requests one-time approval before each state-changing action', async () => {
     const ctx = context()
     const tools = createGalateaTools({
       controller: controller() as never,
       approval: ctx.approval as never,
     })
-    await tools.find(tool => tool.name === 'galatea_submit_job')!.execute({
+    const plan = tools.find(tool => tool.name === 'galatea_plan_run')!
+    const submit = tools.find(tool => tool.name === 'galatea_submit_job')!
+    await plan.execute({ configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1' }, { signal, agent } as never)
+    await submit.execute({
       configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
     }, { signal, agent, callId } as never)
-    await tools.find(tool => tool.name === 'galatea_submit_job')!.execute({
+    await plan.execute({ configPath: 'configs/champion.yaml', releaseManifestPath: 'release/release.json', role: 'champion', attempt: 'champion-1' }, { signal, agent } as never)
+    await submit.execute({
       configPath: 'configs/champion.yaml',
       releaseManifestPath: 'release/release.json',
       role: 'champion',
@@ -175,6 +192,9 @@ describe('dsh-galatea Harness tools', () => {
         controller: controller() as never,
         approval: ctx.approval as never,
       })
+      await tools.find(tool => tool.name === 'galatea_plan_run')!.execute({
+        configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
+      }, { signal, agent } as never)
       const result = await tools.find(tool => tool.name === 'galatea_submit_job')!.execute({
         configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
       }, { signal, agent, callId } as never) as { ok: boolean; error?: { category?: string } }

@@ -81,7 +81,7 @@ DeepSeek Harness 已公开的 Cordis 插件、Tool、Policy Hook、Approval 和 
 | --- | --- | --- |
 | 推理、上下文和 Session | DeepSeek Harness | 不保存副本 |
 | Workflow、重试和 Sub-agent | DeepSeek Harness | 返回可供编排的结构化结果 |
-| 审批和权限 | DeepSeek Harness | 为当前高风险 Tool 提供证据摘要并请求一次性审批 |
+| 授权和权限 | DeepSeek Harness | 完全权限直接授权；其他权限为当前高风险 Tool 请求一次性审批 |
 | 训练领域规则 | `dsh-galatea` | 提供确定性 Policy 和验证结果 |
 | 项目与配置 | 训练项目 | 发现、修改并调用项目校验入口 |
 | Job 执行和资源状态 | Ray | 通过 Jobs API 提交、查询和停止；恢复仅在项目声明能力时可用，资源可满足性在提交后观察 |
@@ -222,7 +222,7 @@ DeepSeek Harness Workflow
   → Ray / MLflow / Artifact Service
   → 结构化证据
   → Harness Session 与阶段汇总
-  → 受治理操作发起一次性审批
+  → 受治理操作取得完全权限授权或发起一次性审批
 ```
 
 平台状态的事实源固定如下：
@@ -275,7 +275,8 @@ MLflow Run 并行的自有状态机。缓存丢失后，必须能够通过平台
 - MLflow Tracking URI、Experiment 身份和 Artifact 可达性；
 - Ray Jobs 服务可达性与版本，以及项目计划声明的请求资源；实际调度是否可满足需在提交后观察。
 
-阶段产物是“就绪证据包”。提交训练 Job 的当前 Tool 调用获得一次性审批后，才执行该次提交。
+阶段产物是“就绪证据包”。提交训练 Job 的当前 Tool 调用获得完全权限直接授权或一次性审批后，
+才执行该次提交。
 
 ### 5.2 训练优化阶段
 
@@ -296,7 +297,8 @@ DeepSeek Harness 在本阶段内驱动自主调试闭环：
 使用训练集和验证集进行优化、早停和候选选择。
 
 阶段产物至少包含候选配置、候选 Run、可比性证明、选择依据、失败尝试摘要和未解决风险。
-提交 Champion Job 的当前 Tool 调用必须同时获得 readiness 与所选候选证据的一次性审批。
+提交 Champion Job 的当前 Tool 调用必须同时获得 readiness 与所选候选证据授权；完全权限直接
+授权，其他权限分别请求一次性审批。
 
 ### 5.3 最终验证阶段
 
@@ -313,8 +315,8 @@ DeepSeek Harness 在本阶段内驱动自主调试闭环：
 - 预测、报告和环境证据完整；
 - 所有必需质量门禁通过。
 
-阶段产物是“可推广模型证据包”。推广 Tool 必须针对当前证据请求一次性审批，获准后才能执行
-该次模型推广动作。
+阶段产物是“可推广模型证据包”。推广 Tool 必须针对当前证据取得授权：完全权限直接授权，其他
+权限请求一次性审批；获准后才能执行该次模型推广动作。
 
 ### 5.4 模型推广阶段
 
@@ -322,16 +324,18 @@ DeepSeek Harness 在本阶段内驱动自主调试闭环：
 Run、Artifact、配置、数据或代码身份变化都会形成不同证据；即使证据未变，新 Tool 调用也不能
 复用先前授权。
 
-推广 Tool 在实际修改 Registry 前展示当前最终验证证据并请求一次性审批；获准后输出 Registry
+推广 Tool 在实际修改 Registry 前展示当前最终验证证据并按当前权限直接授权或请求一次性审批；
+获准后输出 Registry
 操作回执、最终 Alias/Version 状态和审计信息，由用户验收。驳回时 Tool fail closed，用户再决定
 是否启动新的纠正或回退流程。自动重试、Session 恢复、Sub-agent 或 Workflow 循环都必须重新
 请求审批，不能复用上一次 `allowed-once`。
 
-## 6. 一次性操作审批
+## 6. 受治理操作授权
 
-Galatea 使用 DeepSeek Harness 现有的普通 Tool 审批，不扩展 Harness 的审批词汇或 Session 事件。
-审批绑定当前 Tool 调用，并在原因中展示阶段、产物 ID 和 Evidence Digest；`allowed-once` 只允许
-该次操作，不产生可供后续 Tool 重放或复用的长期授权。
+Galatea 使用 DeepSeek Harness 现有权限 preset 和普通 Tool 审批，不扩展 Harness 的审批词汇或
+Session 事件。当前有效 preset 为 `danger-full-access`（“完全权限”）时，插件不发起审批，而是对
+当前阶段、产物 ID 和 Evidence Digest 生成 full-access 授权。其他权限的审批绑定当前 Tool 调用；
+`allowed-once` 只允许该次操作，不产生可供后续 Tool 重放或复用的长期授权。
 
 DeepSeek Harness 负责：
 
@@ -345,7 +349,8 @@ Galatea 插件负责：
 - 生成完整、结构化的阶段证据；
 - 为产物计算或收集不可变身份；
 - 在提交、恢复和推广等受治理 Tool 内重新计算当前证据，并把精确摘要交给 Harness；
-- 仅在当前请求返回 `allowed-once` 后执行该次状态变更。
+- 通过 Harness `permissionPresets.current(session)` 读取有效 preset；
+- 仅在完全权限生成证据绑定授权，或当前请求返回 `allowed-once` 后执行该次状态变更。
 
 审批原因至少展示阶段名称、产物 ID 和 Evidence Digest，并在适用时概括：
 
@@ -355,12 +360,14 @@ Galatea 插件负责：
 - Artifact Digest；
 - 主目标、优化方向和质量门禁结果。
 
-一次性审批不能提前申请并供后续操作消费。Tool 重试、Session 恢复、Sub-agent 交接、Evidence
-Digest 变化或进入下一阶段，都必须在实际状态变更调用中重新请求审批。
+一次性审批不能提前申请并供后续操作消费。非完全权限下，Tool 重试、Session 恢复、Sub-agent
+交接、Evidence Digest 变化或进入下一阶段，都必须在实际状态变更调用中重新请求审批；完全权限
+下则为每份当前证据重新生成 full-access 授权。
 
-当 Harness Session 的审批策略为 `never` 时，`galatea_inspect_project` 报告
-`promptsEnabled: false`；提交、恢复和推广不能取得 `allowed-once`，必须以
-`approval-required` fail closed。重复调用不能绕过禁用策略，需先在 Harness 层启用审批。
+当 Harness Session 的当前有效 preset 为 `danger-full-access` 时，即使审批策略为 `never`、
+`promptsEnabled: false`，提交、恢复和推广也通过 full-access 授权继续。若审批策略为 `never` 但
+preset 不是 `danger-full-access`，则不能取得 `allowed-once`，必须以 `approval-required` fail closed；
+重复调用不能绕过禁用策略，需切换到完全权限或在 Harness 层启用审批。
 这不表示所有其他 Tool 都只读：`galatea_patch_config` 会修改并校验项目 YAML，
 `galatea_stop_job` 会停止指定 Job，而它们当前不走上述三类阶段审批请求。
 
@@ -388,7 +395,7 @@ Ray Job 没有跨工作负载的通用原地暂停语义。插件只在训练项
 
 请求恢复
   → 校验 Checkpoint、配置和代码兼容性
-  → 对恢复 readiness 证据请求一次性 Tool 审批
+  → 对恢复 readiness 证据取得完全权限授权或请求一次性 Tool 审批
   → 基于 Checkpoint 提交新的 Ray Job
   → 记录新旧 Job 与 Run 的恢复关系
 ```
@@ -400,7 +407,7 @@ Ray Job 没有跨工作负载的通用原地暂停语义。插件只在训练项
 `{runId,path,digest}`，插件只在 MLflow Artifact API 按 Digest 回读成功后停止原 Job。恢复入口
 必须包含一个完整 `{config}` 参数；原 Job、Checkpoint 和 Attempt 关系通过 Ray Runtime
 Environment 与 metadata 传递，不拼接模型提供的 Shell。恢复提交和普通提交一样受 readiness
-Evidence Digest 审批约束。
+Evidence Digest 授权约束。
 
 ### 7.3 状态观察与日志游标
 
@@ -600,8 +607,8 @@ ID 和推荐的下一步动作。自然语言错误不能成为 Harness 判断�
 - 不支持 Checkpoint 恢复的项目对暂停返回 `unsupported`；
 - 恢复会创建新 Job，并保留与原 Job、Run 和 Checkpoint 的关系；
 - 每个受治理的提交、恢复和推广动作都生成可展示的当前证据包；
-- 当前调用未获得 `allowed-once`、被驳回、取消或无人应答时，受治理操作失败；
-- 模型推广当前调用未获得最终验证证据的一次性审批时必定失败；
+- 非完全权限的当前调用未获得 `allowed-once`、被驳回、取消或无人应答时，受治理操作失败；
+- 模型推广未获得当前最终验证证据的完全权限授权或一次性审批时必定失败；
 - 候选 Skill 未证明增量价值时，插件仍能以零 Skill 完成确定性平台操作。
 
 ## 13. 迁移完成后的仓库边界

@@ -1,7 +1,7 @@
 # dsh-galatea
 
 `dsh-galatea` 是 Galatea 面向 DeepSeek Harness 的唯一 Agent 扩展。它把训练项目契约、Ray Jobs、
-MLflow Tracking/Artifact/Registry 和一次性 Harness 审批组合成类型化 Tool；不实现 Agent Loop、
+MLflow Tracking/Artifact/Registry 和 Harness 权限/审批组合成类型化 Tool；不实现 Agent Loop、
 Session、Workflow、Skill Registry、权限系统或客户端。
 
 ## 能力边界
@@ -14,7 +14,7 @@ Session、Workflow、Skill Registry、权限系统或客户端。
 | 项目与配置 | `galatea_inspect_project`、`galatea_patch_config`、`galatea_plan_run` |
 | Ray Job | `galatea_submit_job`、`galatea_observe_job`、`galatea_stop_job`、`galatea_pause_job`、`galatea_resume_job` |
 | Run 与证据 | `galatea_compare_runs`、`galatea_build_stage_evidence`、`galatea_verify_candidate` |
-| 审批与推广 | 提交、恢复和推广 Tool 内部请求 `allowed-once`；`galatea_promote_model` 执行推广 |
+| 授权与推广 | “完全权限”直接授权提交、恢复和推广；其他权限由 Tool 请求 `allowed-once`；`galatea_promote_model` 执行推广 |
 
 项目入口来自 `galatea.project.yaml` 的固定 argv，模型不能提交任意 Shell。MLflow 只通过
 Tracking、Artifact 和 Registry HTTP API 访问；插件不读取 `mlflow.db`、MinIO 服务端目录或
@@ -129,23 +129,30 @@ Release。源码、执行脚本、打包配置或会改变数据/切分身份的
   `GALATEA_SUBMISSION_ID` 和 `GALATEA_PAUSE_REASON` 接收上下文，并向 stdout 输出唯一的
   `{runId,path,digest}` JSON。插件通过 MLflow Artifact API 校验摘要后才停止原 Job。
 - `resumeEntrypoint` 必须包含且只包含一个完整的 `{config}` 参数。恢复 Tool 将原 Job、Run、
-  Artifact 和 Attempt 关系注入 Ray Runtime Environment/metadata，重算 readiness 证据并在当前
-  Tool 调用中请求一次性审批，然后提交新的确定性 Submission ID；不原地继续旧 Job。
-- 提交和推广前由 Tool 重算 Evidence Digest，并在同一次 Tool 调用中请求 `allowed-once`。
-- Champion 提交还必须绑定一个经过一次性审批的 training-optimization Trial Run；插件不会接受
-  只有 readiness 审批、没有候选选择证据的 Champion。
-- 拒绝、取消、无审批应答者或当前调用未获 `allowed-once` 全部 fail closed。
-- 推广从不自动发生；只有显式调用 `galatea_promote_model` 且本次审批通过，才用幂等键创建或
+  Artifact 和 Attempt 关系注入 Ray Runtime Environment/metadata，重算 readiness 证据并获得当前
+  权限授权，然后提交新的确定性 Submission ID；不原地继续旧 Job。
+- 提交和推广前由 Tool 重算 Evidence Digest。“完全权限”（Harness preset
+  `danger-full-access`）对当前证据直接生成绑定授权，不弹审批；其他权限在同一次 Tool 调用中请求
+  `allowed-once`。
+- Champion 提交还必须绑定经过授权的 training-optimization Trial Run；插件不会接受只有 readiness
+  授权、没有候选选择证据的 Champion。
+- 非完全权限下，拒绝、取消、无审批应答者或当前调用未获 `allowed-once` 全部 fail closed。
+- 推广从不自动发生；只有显式调用 `galatea_promote_model` 且当前证据已获授权，才用幂等键创建或
   复用 Model Version 并设置 Alias；相同键指向不同证据时返回 `conflict`。
 
-高风险动作通过 Harness 现有 `ApprovalService.request()` 请求一次性 `allowed-once` 决定。实际
+插件通过 Harness `permissionPresets.current(session)` 读取当前有效 preset，不根据
+`approval.policy=never` 猜测完全权限。只有 `danger-full-access` 跳过审批；该授权仍绑定阶段、产物 ID
+和 Evidence Digest，readiness 重算、Champion 候选证据、质量门禁和显式推广调用均不跳过。
+
+非完全权限的高风险动作通过 Harness 现有 `ApprovalService.request()` 请求一次性 `allowed-once`。实际
 回答由部署已经配置的 Harness UI、ACP 或其他普通审批 answerer 负责；插件不注册审批 answerer，
 不保存审批副本，也不定义自有审批事件。Harness `ApprovalService` 仍会为每次请求记录标准
 `approval/asked` 和 `approval/decided` Session 事件。一次性授权只覆盖当前 Tool 调用；重试、证据变化或
-下一阶段必须重新请求审批。若 Session 的审批策略为 `never`（审批提示已禁用），
-`galatea_inspect_project` 会报告 `promptsEnabled: false`，提交、恢复和推广无法获得
-`allowed-once`，因此按 `approval-required` fail closed；只读检查、计划、观察、比较和证据验证
-仍可使用。不要把“重试 Tool”当成绕过禁用策略的方法，应先由管理员/用户在 Harness 层启用审批。
+下一阶段必须重新请求审批。`galatea_inspect_project` 同时报告 `permissionPreset`、
+`promptsEnabled`、`requiredForGovernedActions`、`governedActionsAvailable` 和
+`authorizationMode`。若策略为 `never` 且
+preset 不是 `danger-full-access`，提交、恢复和推广仍按 `approval-required` fail closed；重复调用不能
+绕过。只读检查、计划、观察、比较和证据验证仍可使用。
 
 `galatea_observe_job` 默认只读状态。需要日志时首次传 `includeLogs: true`（游标缺省为 `0`），
 后续把上次返回的 `nextLogCursor` 原样传为 `logCursor`；游标是 Ray 返回的完整累计日志中的字符

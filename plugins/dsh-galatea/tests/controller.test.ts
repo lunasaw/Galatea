@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { canonicalJson } from '../src/contracts/index.ts'
-import type { ApprovalReference } from '../src/policies/lifecycle.ts'
+import type { ApprovalReference, FullAccessAuthorization } from '../src/policies/lifecycle.ts'
 import type { TrainingProjectManifest } from '../src/policies/project.ts'
 import type { MlflowRun } from '../src/services/mlflow.ts'
 import type { RayJobInfo } from '../src/services/ray.ts'
@@ -346,6 +346,34 @@ function approvalFor(evidence: StageEvidence): ApprovalReference {
   }
 }
 
+function fullAccessFor(evidence: StageEvidence): FullAccessAuthorization {
+  return {
+    kind: 'full-access',
+    permissionPreset: 'danger-full-access',
+    stage: evidence.stage,
+    artifactId: evidence.artifactId,
+    evidenceDigest: evidence.digest,
+  }
+}
+
+test('reports full access as available without approval prompts', async () => {
+  const { controller } = await fixture()
+  const inspected = await controller.inspectProject({
+    approvalPolicy: 'never',
+    permissionPreset: 'danger-full-access',
+  })
+  assert.equal(inspected.ok, true)
+  if (!inspected.ok) return
+  assert.deepEqual(inspected.data.approval, {
+    policy: 'never',
+    promptsEnabled: false,
+    permissionPreset: 'danger-full-access',
+    requiredForGovernedActions: false,
+    governedActionsAvailable: true,
+    authorizationMode: 'full-access',
+  })
+})
+
 test('plans and submits a fixed project entrypoint with deterministic identity', async () => {
   const { controller, processCalls, submitted } = await fixture()
   const planned = await controller.planRun({
@@ -373,6 +401,27 @@ test('plans and submits a fixed project entrypoint with deterministic identity',
   assert.deepEqual(submitted[0]?.['runtimeEnv'], { working_dir: 's3://releases/release-1/working-dir.zip' })
   assert.equal(typeof submitted[0]?.['idempotencyKey'], 'string')
   assert.match(String(submitted[0]?.['submissionId']), /^demo-project-trial-[a-f0-9]{12}$/)
+})
+
+test('submits with evidence-bound full-access authorization', async () => {
+  const { controller, submitted } = await fixture()
+  const planned = await controller.planRun({
+    configPath: 'configs/trial.yaml',
+    releaseManifestPath: 'release-1/release.json',
+    role: 'trial',
+    attempt: 'full-access',
+  })
+  assert.equal(planned.ok, true)
+  if (!planned.ok) return
+  const result = await controller.submitJob({
+    configPath: 'configs/trial.yaml',
+    releaseManifestPath: 'release-1/release.json',
+    role: 'trial',
+    attempt: 'full-access',
+    authorization: fullAccessFor(planned.data.evidence),
+  })
+  assert.equal(result.ok, true)
+  assert.equal(submitted.length, 1)
 })
 
 test('binds the declared Runtime Environment to readiness identity', async () => {

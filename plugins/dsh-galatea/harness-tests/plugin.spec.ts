@@ -97,6 +97,7 @@ async function harness() {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(ApprovalService, { policy: 'ask' })
+  ctx.provide('permissionPresets', { current: () => 'workspace-write' } as never)
   return ctx
 }
 
@@ -112,7 +113,7 @@ describe('dsh-galatea Cordis plugin', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(GalateaPlugin) as Parameters<Context['plugin']>[0]
     expect(unwrapped).toBe(GalateaPlugin)
-    expect(GalateaPlugin.inject).toEqual(['tools', 'approval', 'sessionProjections', 'systemPrompt'])
+    expect(GalateaPlugin.inject).toEqual(['tools', 'approval', 'permissionPresets', 'sessionProjections', 'systemPrompt'])
 
     const ctx = await harness()
     const fiber = await ctx.plugin(unwrapped, await projectConfig())

@@ -11,6 +11,7 @@ import {
   authorizeTransition,
   type ApprovalReference,
   type ExecutionRole,
+  type GovernanceAuthorization,
   type LifecycleStage,
 } from '../policies/lifecycle.ts'
 import { evaluatePlanIntegrity, deriveIntegrityAdvisories, type PlanIntegrityEvaluation } from '../policies/integrity.ts'
@@ -413,8 +414,13 @@ export class GalateaController {
     }
   }
 
-  async inspectProject(input: { readonly approvalPolicy?: string; readonly signal?: AbortSignal } = {}): Promise<ToolResult<Record<string, JsonValue>>> {
+  async inspectProject(input: {
+    readonly approvalPolicy?: string
+    readonly permissionPreset?: string
+    readonly signal?: AbortSignal
+  } = {}): Promise<ToolResult<Record<string, JsonValue>>> {
     try {
+      const fullAccess = input.permissionPreset === 'danger-full-access'
       const structure = await validateProjectStructure(this.projectRoot, this.manifest, this.manifestPath)
       const [experiment, ray] = await Promise.all([
         this.mlflow.getExperimentByName(this.manifest.spec.mlflow.experimentName, input.signal),
@@ -442,6 +448,20 @@ export class GalateaController {
         approval: {
           policy: input.approvalPolicy ?? 'unknown',
           promptsEnabled: input.approvalPolicy === 'never' ? false : input.approvalPolicy === 'ask' ? true : null,
+          permissionPreset: input.permissionPreset ?? 'unknown',
+          requiredForGovernedActions: !fullAccess,
+          governedActionsAvailable: fullAccess || input.approvalPolicy === 'ask'
+            ? true
+            : input.approvalPolicy === 'never'
+              ? false
+              : null,
+          authorizationMode: fullAccess
+            ? 'full-access'
+            : input.approvalPolicy === 'ask'
+              ? 'approval'
+              : input.approvalPolicy === 'never'
+                ? 'blocked'
+                : 'unknown',
         },
         operationStatus: operationStatus('project', 'not-applicable', 'not-evaluated', 'not-required'),
       }, `Project ${this.manifest.metadata.name} satisfies the declared Galatea contract.`)
@@ -611,8 +631,10 @@ export class GalateaController {
     readonly releaseManifestPath: string
     readonly role: ExecutionRole
     readonly attempt: string
+    readonly authorization?: GovernanceAuthorization
     readonly approval?: ApprovalReference
     readonly candidateRunId?: string
+    readonly candidateAuthorization?: GovernanceAuthorization
     readonly candidateApproval?: ApprovalReference
     readonly signal?: AbortSignal
   }): Promise<ToolResult<Record<string, JsonValue>>> {
@@ -621,6 +643,7 @@ export class GalateaController {
     const transition = authorizeTransition({
       to: 'training-optimization',
       evidence: planned.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       ...(input.approval === undefined ? {} : { approval: input.approval }),
     })
     if (!transition.allowed) {
@@ -653,6 +676,7 @@ export class GalateaController {
       const candidateTransition = authorizeTransition({
         to: 'final-validation',
         evidence: candidateEvidence,
+        ...(input.candidateAuthorization === undefined ? {} : { authorization: input.candidateAuthorization }),
         ...(input.candidateApproval === undefined ? {} : { approval: input.candidateApproval }),
       })
       if (!candidateTransition.allowed) {
@@ -664,7 +688,9 @@ export class GalateaController {
           nextAction: 'Approve the current training-optimization evidence before submitting the Champion Job.',
         })
       }
-    } else if (input.candidateRunId !== undefined || input.candidateApproval !== undefined) {
+    } else if (input.candidateRunId !== undefined
+      || input.candidateAuthorization !== undefined
+      || input.candidateApproval !== undefined) {
       return failure({
         category: 'invalid-input',
         message: 'candidate approval applies only to champion submission',
@@ -920,6 +946,7 @@ export class GalateaController {
     readonly releaseManifestPath: string
     readonly checkpoint: { readonly runId: string; readonly path: string; readonly digest: string }
     readonly attempt: string
+    readonly authorization?: GovernanceAuthorization
     readonly approval?: ApprovalReference
     readonly signal?: AbortSignal
   }): Promise<ToolResult<Record<string, JsonValue>>> {
@@ -929,6 +956,7 @@ export class GalateaController {
     const transition = authorizeTransition({
       to: 'training-optimization',
       evidence: planned.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       ...(input.approval === undefined ? {} : { approval: input.approval }),
     })
     if (!transition.allowed) {
@@ -1334,6 +1362,7 @@ export class GalateaController {
     readonly runId: string
     readonly alias: string
     readonly idempotencyKey: string
+    readonly authorization?: GovernanceAuthorization
     readonly approval?: ApprovalReference
     readonly signal?: AbortSignal
   }): Promise<ToolResult<Record<string, JsonValue>>> {
@@ -1342,6 +1371,7 @@ export class GalateaController {
     const transition = authorizeTransition({
       to: 'promotion',
       evidence: verified.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       ...(input.approval === undefined ? {} : { approval: input.approval }),
     })
     if (!transition.allowed) {

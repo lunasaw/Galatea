@@ -14,7 +14,7 @@ describe('dsh-galatea bundle overlay', () => {
         {
           id: 'dsh-galatea',
           name: 'dsh-galatea',
-          inject: ['tools', 'approval', 'sessionProjections', 'systemPrompt'],
+          inject: ['tools', 'approval', 'permissionPresets', 'sessionProjections', 'systemPrompt'],
           config: {
             projects: [
               {

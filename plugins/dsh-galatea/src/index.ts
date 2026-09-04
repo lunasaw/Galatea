@@ -22,7 +22,14 @@ import { GalateaController } from './tools/controller.ts'
 import { createGalateaTools } from './tools/index.ts'
 
 export const name = 'dsh-galatea'
-export const inject = ['tools', 'approval', 'sessionProjections', 'systemPrompt']
+export const inject = ['tools', 'approval', 'permissionPresets', 'sessionProjections', 'systemPrompt']
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Harness permission-preset read surface required by this plugin. */
+    permissionPresets: { current(session: Agent['session']): string }
+  }
+}
 
 /** Return a deterministic denial reason for shell attempts that bypass Ray governance. */
 export function trainingCommandViolation(toolName: string, argumentsValue: unknown): string | undefined {
@@ -146,6 +153,11 @@ function approvalPolicy(agent: Agent | undefined, configured: Config['approvalPo
   return configured ?? 'unknown'
 }
 
+function permissionPreset(ctx: Context, agent: Agent | undefined): string {
+  if (agent === undefined) return 'unknown'
+  return ctx.permissionPresets.current(agent.session)
+}
+
 function configuredProjects(config: Config): readonly ConfiguredProjectEntry[] {
   if (config.projects !== undefined && config.projects.length > 0) return config.projects
   if (config.projectRoot === undefined || config.releaseRoot === undefined) {
@@ -234,7 +246,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       'Treat Ray execution, model quality, integrity evidence, and governance approval as independent states.',
       'Before Champion, require the project plan to prove declared preprocessing parity and contamination checks.',
       'Use status-only Job observations after the first log read and continue with nextLogCursor; fetch full logs only on failure or terminal evidence collection.',
-      'Approval-disabled sessions cannot submit, resume, or promote through governed tools. Never promote automatically.',
+      'The danger-full-access permission preset authorizes governed actions without an approval prompt. Other presets require one-time evidence-bound approval; approval policy never without full access remains blocked. Never promote automatically.',
     ].join('\n'),
   })
 
@@ -269,6 +281,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     },
     approvalPolicy: agent => approvalPolicy(agent, config.approvalPolicy),
+    permissionPreset: agent => permissionPreset(ctx, agent),
     approval: ctx.approval,
   })) {
     ctx.tools.register(tool)

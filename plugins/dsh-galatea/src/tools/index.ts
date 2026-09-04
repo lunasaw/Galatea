@@ -4,8 +4,15 @@ import type { JsonValue as HarnessJsonValue } from '@deepseek-ai/dsh-util-values
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import type { JsonValue, ToolResult } from '../contracts/index.ts'
 import { failure, redactSecrets } from '../contracts/index.ts'
-import type { ApprovalReference, ExecutionRole } from '../policies/lifecycle.ts'
+import type {
+  ApprovalReference,
+  ExecutionRole,
+  FullAccessAuthorization,
+  GovernanceAuthorization,
+} from '../policies/lifecycle.ts'
 import type { GalateaController, StageEvidence } from './controller.ts'
+
+export const FULL_ACCESS_PERMISSION_PRESET = 'danger-full-access'
 
 export const GALATEA_TOOL_NAMES = [
   'galatea_list_projects',
@@ -30,6 +37,7 @@ export interface GalateaToolContext {
   readonly listProjects?: (agent: Agent | undefined) => Promise<JsonValue>
   readonly selectProject?: (agent: Agent | undefined, projectId: string) => Promise<JsonValue>
   readonly approvalPolicy?: (agent: Agent | undefined) => string
+  readonly permissionPreset?: (agent: Agent | undefined) => string
   readonly approval: {
     request(request: ApprovalRequest): Promise<ApprovalOutcome>
   }
@@ -57,7 +65,7 @@ function requireAgent(agent: Agent | undefined): ToolResult<never> | undefined {
   if (agent !== undefined) return undefined
   return failure({
     category: 'approval-required',
-    message: 'a live Harness Agent is required to request approval',
+    message: 'a live Harness Agent is required to resolve governed authorization',
     retryable: false,
     stateChanged: false,
   })
@@ -66,6 +74,16 @@ function requireAgent(agent: Agent | undefined): ToolResult<never> | undefined {
 function approvalReference(evidence: StageEvidence): ApprovalReference {
   return {
     valid: true,
+    stage: evidence.stage,
+    artifactId: evidence.artifactId,
+    evidenceDigest: evidence.digest,
+  }
+}
+
+function fullAccessAuthorization(evidence: StageEvidence): FullAccessAuthorization {
+  return {
+    kind: 'full-access',
+    permissionPreset: FULL_ACCESS_PERMISSION_PRESET,
     stage: evidence.stage,
     artifactId: evidence.artifactId,
     evidenceDigest: evidence.digest,
@@ -117,6 +135,21 @@ async function requestApproval(
   return outcome === 'allowed-once' ? approvalReference(evidence) : approvalFailure(outcome, evidence)
 }
 
+async function authorizeAction(
+  context: GalateaToolContext,
+  agent: Agent,
+  evidence: StageEvidence,
+  toolName: string,
+  action: string,
+  callId: ApprovalRequest['callId'],
+  signal: AbortSignal | undefined,
+): Promise<GovernanceAuthorization | ToolResult<never>> {
+  if (context.permissionPreset?.(agent) === FULL_ACCESS_PERMISSION_PRESET) {
+    return fullAccessAuthorization(evidence)
+  }
+  return await requestApproval(context, agent, evidence, toolName, action, callId, signal)
+}
+
 /** Build the bounded model-facing surface over one stateless Controller. */
 export function createGalateaTools(context: GalateaToolContext): ToolDefinition[] {
   const controller = async (agent: Agent | undefined) => context.controllerFor === undefined
@@ -164,8 +197,10 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
     async execute(_args, exec) {
       const selected = await controller(exec.agent)
       const policy = context.approvalPolicy?.(exec.agent)
+      const preset = context.permissionPreset?.(exec.agent)
       return safeResult(await selected.inspectProject({
         ...(policy === undefined ? {} : { approvalPolicy: policy }),
+        ...(preset === undefined ? {} : { permissionPreset: preset }),
         signal: exec.signal,
       }))
     },
@@ -219,7 +254,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
   }))
   tools.push(defineTool({
     name: 'galatea_submit_job',
-    description: 'Submit the fixed declared training entrypoint after one-time readiness approval; Champion also requires one-time approval of the selected training-optimization evidence.',
+    description: 'Submit the fixed declared training entrypoint after evidence-bound authorization. Full access authorizes without prompting; other permission presets require one-time readiness approval. Champion also requires authorization of the selected training-optimization evidence.',
     parameters: {
       configPath,
       releaseManifestPath,
@@ -262,7 +297,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
           nextAction: 'Call galatea_plan_run again and review the new readiness evidence.',
         }))
       }
-      const requested = await requestApproval(
+      const authorization = await authorizeAction(
         context,
         exec.agent!,
         planned.data.evidence,
@@ -271,9 +306,8 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
         exec.callId,
         exec.signal,
       )
-      if (!('valid' in requested)) return safeResult(requested)
-      const approval = requested
-      let candidateApproval: ApprovalReference | undefined
+      if ('ok' in authorization) return safeResult(authorization)
+      let candidateAuthorization: GovernanceAuthorization | undefined
       if (args.role === 'champion') {
         if (args.candidateRunId === undefined) {
           return safeResult(failure({
@@ -290,7 +324,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
           signal: exec.signal,
         })
         if (!candidate.ok) return safeResult(candidate)
-        const candidateRequested = await requestApproval(
+        const candidateRequested = await authorizeAction(
           context,
           exec.agent!,
           candidate.data.evidence,
@@ -299,8 +333,8 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
           exec.callId,
           exec.signal,
         )
-        if (!('valid' in candidateRequested)) return safeResult(candidateRequested)
-        candidateApproval = candidateRequested
+        if ('ok' in candidateRequested) return safeResult(candidateRequested)
+        candidateAuthorization = candidateRequested
       } else if (args.candidateRunId !== undefined) {
         return safeResult(failure({
           category: 'invalid-input',
@@ -312,8 +346,8 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       return safeResult(await selectedController.submitJob({
         ...args,
         role: args.role as ExecutionRole,
-        approval,
-        ...(candidateApproval === undefined ? {} : { candidateApproval }),
+        authorization,
+        ...(candidateAuthorization === undefined ? {} : { candidateAuthorization }),
         signal: exec.signal,
       }))
     },
@@ -373,7 +407,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       const selectedController = await controller(exec.agent)
       const planned = await selectedController.planResume({ ...args, signal: exec.signal })
       if (!planned.ok) return safeResult(planned)
-      const requested = await requestApproval(
+      const authorization = await authorizeAction(
         context,
         exec.agent!,
         planned.data.evidence,
@@ -382,11 +416,10 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
         exec.callId,
         exec.signal,
       )
-      if (!('valid' in requested)) return safeResult(requested)
-      const approval = requested
+      if ('ok' in authorization) return safeResult(authorization)
       return safeResult(await selectedController.resumeJob({
         ...args,
-        approval,
+        authorization,
         signal: exec.signal,
       }))
     },
@@ -416,7 +449,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
   }))
   tools.push(defineTool({
     name: 'galatea_promote_model',
-    description: 'Create or reuse a model version and set an alias only after one-time approval of the current final-validation evidence.',
+    description: 'Create or reuse a model version and set an alias after evidence-bound authorization. Full access authorizes without prompting; other permission presets require one-time approval.',
     parameters: {
       runId: { type: 'string', required: true },
       alias: { type: 'string', required: true },
@@ -429,7 +462,7 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
       const selectedController = await controller(exec.agent)
       const verified = await selectedController.verifyCandidate({ runId: args.runId, signal: exec.signal })
       if (!verified.ok) return safeResult(verified)
-      const requested = await requestApproval(
+      const authorization = await authorizeAction(
         context,
         exec.agent!,
         verified.data.evidence,
@@ -438,9 +471,8 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
         exec.callId,
         exec.signal,
       )
-      if (!('valid' in requested)) return safeResult(requested)
-      const approval = requested
-      return safeResult(await selectedController.promoteModel({ ...args, approval, signal: exec.signal }))
+      if ('ok' in authorization) return safeResult(authorization)
+      return safeResult(await selectedController.promoteModel({ ...args, authorization, signal: exec.signal }))
     },
   }))
   return tools

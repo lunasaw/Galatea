@@ -1,0 +1,35 @@
+dataset:
+  root: /Users/weidian/project/luna-data/data-deal/output/wechat_aa807aaad90dc4463964
+  dataset_id: wechat_aa807aaad90dc4463964
+  source_manifest: manifests/source_manifest.json
+  split_manifest: manifests/split_manifest.json
+  candidate_file: work/05_candidates/candidates.jsonl
+  pipeline_version: wechat-preprocess-v1.2
+  source_sha256: 63ce0e55db1dcefa69366db39bd752103edfb5ebf68aa1a2a10166ebc3891219
+  config_sha256: 9a1d4a01e2926c9f6cd99e220609eb30c50a5d7582d45ccbfbd2cf3515fa3af1
+  read_only: true
+
+split:
+  strategy: chronological_session
+  selected_split: validation
+  expected_session_count: 137
+  expected_candidate_count: 759
+  fixture_count: 20
+  selection: sorted_sample_id_first_n
+
+fixture:
+  prompt_policy_version: redacted-context-v1
+  remove_final_assistant_target: true
+  require_target_speaker: target
+  allow_review_status: uncertain
+  require_second_scan_pass: true
+  require_candidate_leakage_pass: true
+  store_text_in_git: false
+  output_root: platform-data/llm-baselines
+
+consent:
+  scope: user_authorized_local_processing
+  external_record_required: true
+  source_manifest_authorization_status: not_verified_in_pipeline
+  note: >-
+    用户已确认授权；正式实现仍需读取受控 consent ledger 并记录引用，不能把授权正文写入仓库。

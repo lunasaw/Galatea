@@ -1,0 +1,35 @@
+project:
+  name: llm-lora-playground
+  phase: project_0_1_inference_baseline
+  execution_mode: local
+  python: "3.12"
+
+resources:
+  num_gpus: 1
+  num_cpus: 4
+  memory_gib: 8
+  device: cuda:0
+  preserve_existing_gpu_processes: true
+
+compatibility:
+  transformers_min: "4.51.0"
+  torch_runtime_policy: record_torch_version_and_cuda_runtime
+  ray_policy: record_if_used
+  mlflow_required_for_run: true
+  minio_required_for_run: true
+
+environment_capture:
+  record_python: true
+  record_os: true
+  record_gpu_name_and_count: true
+  record_driver_visible_version: true
+  record_torch_version: true
+  record_torch_cuda_runtime: true
+  record_package_versions:
+    - transformers
+    - datasets
+    - peft
+    - trl
+    - accelerate
+    - ray
+    - mlflow

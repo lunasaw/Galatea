@@ -1,0 +1,123 @@
+<mxfile host="app.diagrams.net"><diagram id="agent-loop-training" name="Agent Loop 训评优化">
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="user" value="用户" style="rounded=1;arcSize=18;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#64748b;strokeWidth=1.5;fontColor=#334155;fontSize=13;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="10" y="170" width="60" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="harness" value="DeepSeek Harness" style="swimlane;horizontal=1;startSize=30;container=1;collapsible=0;recursiveResize=0;whiteSpace=wrap;html=1;fillColor=#dbeafe;swimlaneFillColor=#f8fbff;strokeColor=#2563eb;strokeWidth=2;fontColor=#1e3a8a;fontSize=14;fontStyle=1;rounded=1;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="90" y="30" width="670" height="360" as="geometry" />
+        </mxCell>
+
+        <mxCell id="loop" value="Agent Loop" style="swimlane;horizontal=1;startSize=26;container=1;collapsible=0;recursiveResize=0;whiteSpace=wrap;html=1;fillColor=#eff6ff;swimlaneFillColor=#ffffff;strokeColor=#60a5fa;strokeWidth=1.5;fontColor=#1d4ed8;fontSize=13;fontStyle=1;rounded=1;arcSize=8;" vertex="1" parent="harness">
+          <mxGeometry x="30" y="40" width="610" height="220" as="geometry" />
+        </mxCell>
+
+        <mxCell id="data" value="数据检查" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;strokeWidth=1.5;fontColor=#1e3a8a;fontSize=12;fontStyle=1;" vertex="1" parent="loop">
+          <mxGeometry x="20" y="50" width="80" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="ready" value="就绪审批" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;strokeWidth=1.5;fontColor=#92400e;fontSize=12;fontStyle=1;" vertex="1" parent="loop">
+          <mxGeometry x="125" y="42" width="80" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="train" value="训练" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;strokeWidth=1.5;fontColor=#1e3a8a;fontSize=12;fontStyle=1;" vertex="1" parent="loop">
+          <mxGeometry x="230" y="50" width="80" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="evaluate" value="评估" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;strokeWidth=1.5;fontColor=#1e3a8a;fontSize=12;fontStyle=1;" vertex="1" parent="loop">
+          <mxGeometry x="335" y="50" width="80" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="gate" value="质量达标？" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;strokeWidth=1.5;fontColor=#92400e;fontSize=12;fontStyle=1;" vertex="1" parent="loop">
+          <mxGeometry x="440" y="42" width="80" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="result_approval" value="结果审批" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;strokeWidth=1.5;fontColor=#92400e;fontSize=12;fontStyle=1;" vertex="1" parent="loop">
+          <mxGeometry x="535" y="42" width="70" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="optimize" value="配置优化" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;strokeWidth=2;fontColor=#9a3412;fontSize=12;fontStyle=1;" vertex="1" parent="loop">
+          <mxGeometry x="335" y="135" width="80" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="done" value="完成" style="rounded=1;arcSize=20;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;strokeWidth=1.5;fontColor=#166534;fontSize=12;fontStyle=1;" vertex="1" parent="loop">
+          <mxGeometry x="535" y="135" width="70" height="44" as="geometry" />
+        </mxCell>
+
+        <mxCell id="plugin" value="dsh-galatea 插件" style="rounded=1;arcSize=14;whiteSpace=wrap;html=1;fillColor=#1d4ed8;strokeColor=#1e40af;strokeWidth=2;fontColor=#ffffff;fontSize=14;fontStyle=1;shadow=1;" vertex="1" parent="harness">
+          <mxGeometry x="205" y="285" width="260" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="platform" value="Galatea 训推平台" style="swimlane;horizontal=1;startSize=30;container=1;collapsible=0;recursiveResize=0;whiteSpace=wrap;html=1;fillColor=#dcfce7;swimlaneFillColor=#f7fef9;strokeColor=#16a34a;strokeWidth=2;fontColor=#166534;fontSize=14;fontStyle=1;rounded=1;arcSize=8;align=left;spacingLeft=16;" vertex="1" parent="1"><mxGeometry x="90" y="420" width="670" height="150" as="geometry" /></mxCell>
+
+        <mxCell id="project" value="训练项目" style="rounded=1;arcSize=14;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#22c55e;strokeWidth=1.5;fontColor=#166534;fontSize=12;fontStyle=1;" vertex="1" parent="platform">
+          <mxGeometry x="20" y="50" width="130" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="ray" value="Ray" style="rounded=1;arcSize=14;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#22c55e;strokeWidth=1.5;fontColor=#166534;fontSize=12;fontStyle=1;" vertex="1" parent="platform">
+          <mxGeometry x="190" y="50" width="100" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="mlflow" value="MLflow" style="rounded=1;arcSize=14;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#22c55e;strokeWidth=1.5;fontColor=#166534;fontSize=12;fontStyle=1;" vertex="1" parent="platform">
+          <mxGeometry x="350" y="50" width="100" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="minio" value="MinIO" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#dcfce7;strokeColor=#22c55e;strokeWidth=1.5;fontColor=#166534;fontSize=12;fontStyle=1;" vertex="1" parent="platform">
+          <mxGeometry x="510" y="45" width="100" height="65" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_user_loop" value="请求" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=1.5;fontColor=#475569;fontSize=11;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.55;" edge="1" parent="1" source="user" target="loop">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_data_ready" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=1.5;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="loop" source="data" target="ready">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ready_train" value="通过" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=1.5;fontColor=#475569;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="loop" source="ready" target="train">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_train_evaluate" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=1.5;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="loop" source="train" target="evaluate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_evaluate_gate" value="指标" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#64748b;strokeWidth=1.5;fontColor=#475569;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="loop" source="evaluate" target="gate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_gate_approval" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#16a34a;strokeWidth=1.7;fontColor=#166534;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.35;entryX=0;entryY=0.35;" edge="1" parent="loop" source="gate" target="result_approval">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_approval_done" value="通过" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#16a34a;strokeWidth=1.7;fontColor=#166534;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="loop" source="result_approval" target="done">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_gate_optimize" value="否" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#ea580c;strokeWidth=2;fontColor=#9a3412;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.35;exitY=1;entryX=1;entryY=0.5;" edge="1" parent="loop" source="gate" target="optimize">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="470" y="120" />
+              <mxPoint x="430" y="157" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_optimize_train" value="重试" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#ea580c;strokeWidth=2;fontColor=#9a3412;fontSize=10;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=0.5;entryY=1;" edge="1" parent="loop" source="optimize" target="train">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="285" y="157" />
+              <mxPoint x="270" y="118" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e_loop_plugin" value="Tool 调用" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#2563eb;strokeWidth=2;fontColor=#1d4ed8;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="harness" source="loop" target="plugin">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_plugin_project" value="检查/配置" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=1.4;fontColor=#475569;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.2;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="plugin" target="project">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_plugin_ray" value="提交/监控" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=1.4;fontColor=#475569;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="plugin" target="ray">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_plugin_mlflow" value="评估/比较" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#475569;strokeWidth=1.4;fontColor=#475569;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.8;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="plugin" target="mlflow">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ray_mlflow" value="记录 Run" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#16a34a;strokeWidth=1.5;fontColor=#166534;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.65;entryX=0;entryY=0.65;" edge="1" parent="platform" source="ray" target="mlflow">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_mlflow_minio" value="Artifact" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#16a34a;strokeWidth=1.5;fontColor=#166534;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.65;entryX=0;entryY=0.6;" edge="1" parent="platform" source="mlflow" target="minio">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram></mxfile>

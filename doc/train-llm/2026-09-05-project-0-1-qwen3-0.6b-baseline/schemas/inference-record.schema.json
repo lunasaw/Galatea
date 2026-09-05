@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galatea.local/schemas/llm-inference-record.schema.json",
+  "title": "LLM inference baseline record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fixture_id", "sample_id", "split", "input_tokens", "output_tokens", "first_token_latency_ms", "total_latency_ms", "tokens_per_second", "peak_gpu_memory_mib", "decode_status", "output_sha256"],
+  "properties": {
+    "fixture_id": {"type": "string", "minLength": 1},
+    "sample_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "split": {"type": "string", "const": "validation"},
+    "input_tokens": {"type": "integer", "minimum": 0},
+    "output_tokens": {"type": "integer", "minimum": 0},
+    "reference_output_tokens": {"type": "integer", "minimum": 0},
+    "first_token_latency_ms": {"type": ["number", "null"], "minimum": 0},
+    "total_latency_ms": {"type": ["number", "null"], "minimum": 0},
+    "tokens_per_second": {"type": ["number", "null"], "minimum": 0},
+    "peak_gpu_memory_mib": {"type": ["number", "null"], "minimum": 0},
+    "decode_status": {"type": "string", "enum": ["ok", "error"]},
+    "error_category": {"type": ["string", "null"]},
+    "output_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

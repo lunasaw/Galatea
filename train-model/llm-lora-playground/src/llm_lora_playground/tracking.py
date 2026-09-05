@@ -20,6 +20,13 @@ class RunContext:
     manifest_digest: str
 
 
+@dataclass(frozen=True)
+class ArtifactRecord:
+    artifact_path: str
+    sha256: str
+    size_bytes: int
+
+
 def build_run_manifest(**kwargs: Any) -> dict[str, Any]:
     manifest = dict(kwargs)
     manifest.setdefault("project", "llm-lora-playground")
@@ -41,6 +48,40 @@ def start_inference_run(manifest: dict[str, Any], tracking_uri: str, experiment_
         mlflow.set_tags({"project": "llm-lora-playground", "task": "inference_baseline", "inference_baseline_only": "true"})
         mlflow.log_param("manifest_digest", digest)
         return RunContext(run.info.run_id, str(experiment_id), digest)
+
+
+def start_training_run(manifest: dict[str, Any], tracking_uri: str, experiment_name: str) -> RunContext:
+    """Create the parent training Run; the caller remains the sole owner."""
+    import mlflow
+
+    mlflow.set_tracking_uri(tracking_uri)
+    experiment = mlflow.get_experiment_by_name(experiment_name)
+    experiment_id = experiment.experiment_id if experiment else mlflow.create_experiment(experiment_name)
+    digest = hashlib.sha256(json.dumps(manifest, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    with mlflow.start_run(experiment_id=experiment_id) as run:
+        mlflow.set_tags({"project": "llm-lora-playground", "task": "synthetic_sft_lora", "run_kind": str(manifest.get("run_kind", "training"))})
+        mlflow.log_params({"manifest_digest": digest, "objective_metric": manifest.get("objective_metric", "validation_loss"), "objective_mode": manifest.get("objective_mode", "min")})
+        return RunContext(run.info.run_id, str(experiment_id), digest)
+
+
+def log_training_metrics(context: RunContext, metrics: dict[str, float], tracking_uri: str, step: int = 0) -> None:
+    import mlflow
+
+    mlflow.set_tracking_uri(tracking_uri)
+    client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+    client.log_batch(context.run_id, metrics=[mlflow.entities.Metric(key=k, value=float(v), timestamp=0, step=step) for k, v in metrics.items()])
+
+
+def log_artifact_with_sha256(context: RunContext, path: Path, artifact_path: str, tracking_uri: str) -> ArtifactRecord:
+    import mlflow
+
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    mlflow.set_tracking_uri(tracking_uri)
+    client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+    client.log_artifact(context.run_id, str(path), artifact_path=artifact_path)
+    return ArtifactRecord(f"{artifact_path.rstrip('/')}/{path.name}", digest, path.stat().st_size)
 
 
 def log_baseline_metrics(context: RunContext, metrics: dict[str, float], tracking_uri: str) -> None:

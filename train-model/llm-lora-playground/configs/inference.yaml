@@ -8,7 +8,6 @@ model:
   max_input_tokens: 512
   trust_remote_code: false
   enable_thinking: false
-
 generation:
   do_sample: true
   temperature: 0.7
@@ -16,13 +15,11 @@ generation:
   max_new_tokens: 128
   repetition_penalty: 1.0
   seed: 42
-
 prompt:
   use_tokenizer_chat_template: true
   add_generation_prompt: true
   system_policy: "仅基于已提供的脱敏对话生成回复；不猜测或复述私人事实。"
   output_decode: new_tokens_only
-
 tracking:
   tracking_uri_env: MLFLOW_TRACKING_URI
   experiment_name_env: MLFLOW_EXPERIMENT_NAME
@@ -30,21 +27,5 @@ tracking:
   artifact_root: platform-data/llm-baselines
   upload_output_text: false
   verify_artifact_roundtrip: true
-
-metrics:
-  percentile_set: [50, 95]
-  record_first_token_latency_ms: true
-  record_total_latency_ms: true
-  record_tokens_per_second: true
-  record_peak_gpu_memory_mib: true
-  record_decode_status: true
-
 run:
   inference_baseline_only: true
-  idempotency_key_fields:
-    - dataset_id
-    - split_digest
-    - fixture_digest
-    - model_revision
-    - config_digest
-    - code_revision

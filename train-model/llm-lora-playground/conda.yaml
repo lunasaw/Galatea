@@ -1,0 +1,16 @@
+name: llm-lora-playground-py312
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - PyYAML>=6.0
+      - mlflow>=3.0
+      - torch>=2.5
+      - transformers>=4.57
+      - accelerate>=1.0
+      - datasets>=3.0
+      - peft>=0.14
+      - trl>=0.15
+      - ray[default]>=2.40

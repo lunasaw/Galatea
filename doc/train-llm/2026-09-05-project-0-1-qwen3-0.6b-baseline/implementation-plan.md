@@ -2,17 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 `train-model/llm-lora-playground/` 中实现可复现的 Qwen3-0.6B 环境/GPU 检查、固定脱敏 fixture 推理、MLflow 追踪和 Artifact 回读。
+**Goal:** 在 `train-model/llm-lora-playground/` 中实现可复现的 Qwen3.5-0.8B 环境/GPU 检查、固定脱敏 fixture 推理、MLflow 追踪和 Artifact 回读。
 
-**Architecture:** 以参数化 `scripts/infer.py` 编排四个职责包：数据 manifest/fixture、GPU/runtime、模型/template、MLflow tracking。默认执行是有界本地单进程推理；Ray Job 只作为同一入口的可选包装。外部聊天数据只读引用，模型输出默认不上传。
+**Architecture:** 以参数化 `scripts/infer.py` 编排五个职责包：数据交付/manifest/fixture、GPU/runtime、模型/template、MLflow tracking 和报告。默认执行是有界本地单进程推理；Ray Job 只作为同一入口的可选包装。外部聊天数据只读引用，模型输出默认不上传。
 
-**Tech Stack:** Python 3.12、PyTorch、Transformers >=4.51.0、Datasets、Accelerate、MLflow Tracking/Artifact API、Ray（可选 Job 包装）、JSON Schema、unittest/pytest。
+**Tech Stack:** Python 3.12、PyTorch、支持 `qwen3_5` 的 Transformers 主线/已知兼容构建、Datasets、Accelerate、MLflow Tracking/Artifact API、Ray（可选 Job 包装）、JSON Schema、unittest/pytest。
 
 ## Global Constraints
 
 - 固定数据：`wechat_aa807aaad90dc4463964`，`pipeline_version=wechat-preprocess-v1.2`。
+- 数据由用户交付到 `/data/ai/chenzhangyue/code/data`；正式运行将 `WECHAT_DATA_ROOT` 指向唯一已解析的数据集根 `/data/ai/chenzhangyue/code/data/data-deal/output/wechat_aa807aaad90dc4463964`。
+- 数据交付后先执行 `--check-data`；数据根、manifest、digest、授权和报告任一项失败，都不得下载模型或创建 MLflow Run。
 - 只从 `work/05_candidates/candidates.jsonl` 的 validation session 构造 20 条诊断 fixture；不把空的 `datasets/*.jsonl` 当作可训练集。
-- 模型：`Qwen/Qwen3-0.6B`，BF16，`cuda:0`，`enable_thinking=false`，最大输入 512 token。
+- 模型：`Qwen/Qwen3.5-0.8B`，本地路径 `/data/ai/chenzhangyue/code/model/Qwen3.5-0.8B`，BF16，`cuda:0`，non-thinking，最大输入 512 token。
+- Qwen3.5 需要支持 `qwen3_5` 架构的 Transformers 主线/已知兼容构建；共享环境当前版本若无法识别该架构，必须在模型 smoke 前阻断。
 - 生成：`temperature=0.7`、`top_p=0.9`、`max_new_tokens=128`、seed 42。
 - 必须使用 tokenizer `apply_chat_template`，不手写特殊 token。
 - 记录数据/source/split/pipeline/config/code/model/environment/resource 身份；失败 Run 不覆盖成功 Run。
@@ -31,6 +34,7 @@
 - Create: `train-model/llm-lora-playground/configs/inference.yaml`
 - Create: `train-model/llm-lora-playground/configs/data.yaml`
 - Create: `train-model/llm-lora-playground/src/llm_lora_playground/config.py`
+- Create: `train-model/llm-lora-playground/src/llm_lora_playground/data_delivery.py`
 - Test: `train-model/llm-lora-playground/tests/test_config.py`
 
 **Interfaces:**
@@ -38,6 +42,8 @@
 - `load_config(path: Path) -> ProjectConfig`
 - `validate_config(config: ProjectConfig) -> list[str]`
 - `canonical_config_digest(config: ProjectConfig) -> str`
+- `resolve_dataset_root(staging_root: Path, explicit_root: Path | None) -> Path`
+- `check_data_delivery(root: Path, expectation: DatasetExpectation) -> DataPreflight`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -72,10 +78,11 @@ git add train-model/llm-lora-playground
 git commit -m "training: scaffold llm inference baseline project"
 ```
 
-### Task 2: 实现数据 manifest 校验与确定性 fixture
+### Task 2: 实现数据交付预检、manifest 校验与确定性 fixture
 
 **Files:**
 - Create: `train-model/llm-lora-playground/src/llm_lora_playground/data.py`
+- Create: `train-model/llm-lora-playground/src/llm_lora_playground/data_delivery.py`
 - Create: `train-model/llm-lora-playground/tests/test_data.py`
 - Create: `train-model/llm-lora-playground/tests/fixtures/candidate.jsonl`
 
@@ -87,6 +94,7 @@ git commit -m "training: scaffold llm inference baseline project"
 - `validate_dataset(root: Path, expected: DatasetExpectation) -> DatasetIdentity`
 - `build_validation_fixtures(root: Path, split: str, count: int) -> list[InferenceFixture]`
 - `fixture_digest(fixtures: Sequence[InferenceFixture]) -> str`
+- `DataPreflight`: resolved root, layout, file checks, identity checks, authorization status, and blocked reasons.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -124,9 +132,9 @@ Run: `python -m pytest train-model/llm-lora-playground/tests/test_data.py -q`
 
 Expected: FAIL because data contracts are not implemented.
 
-- [ ] **Step 3: Implement streaming validation**
+- [ ] **Step 3: Implement delivery preflight and streaming validation**
 
-Read candidate JSONL incrementally, verify source/config/split reports, map validation session IDs from `split_manifest.json`, sort by `sample_id`, remove only the final target from model input, and preserve only IDs/hashes in the fixture manifest. Refuse `text_original_ref` and unknown speaker roles.
+Resolve the explicit `WECHAT_DATA_ROOT` or an accepted staging layout without silently selecting multiple datasets. Verify ordinary files, reject symlink escape, read consent ledger reference, verify source/config/split reports, map validation session IDs from `split_manifest.json`, sort by `sample_id`, remove only the final target from model input, and preserve only IDs/hashes in the fixture manifest. Refuse `text_original_ref` and unknown speaker roles.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -187,7 +195,7 @@ git add train-model/llm-lora-playground/src/llm_lora_playground/runtime.py train
 git commit -m "training: add gpu and environment preflight"
 ```
 
-### Task 4: 实现 Qwen3 loader、chat template 与生成指标
+### Task 4: 实现 Qwen3.5 loader、chat template 与生成指标
 
 **Files:**
 - Create: `train-model/llm-lora-playground/src/llm_lora_playground/models/causal_lm.py`
@@ -195,7 +203,7 @@ git commit -m "training: add gpu and environment preflight"
 - Create: `train-model/llm-lora-playground/tests/test_generation_metrics.py`
 
 **Interfaces:**
-- `ModelConfig`: `model_id`, `revision_policy`, `dtype`, `device`, `max_input_tokens`, `enable_thinking`.
+- `ModelConfig`: `model_id`, `local_path`, `revision_policy`, `dtype`, `device`, `max_input_tokens`, `enable_thinking`.
 - `GenerationConfig`: `do_sample`, `temperature`, `top_p`, `max_new_tokens`, `repetition_penalty`, `seed`.
 - `ModelInputs`: tokenized tensors and `prompt_tokens`.
 - `LoadedCausalLM`: model, tokenizer, resolved revision, and device.
@@ -224,7 +232,7 @@ Expected: FAIL because model interfaces are not implemented.
 
 - [ ] **Step 3: Implement loader and generation**
 
-Resolve and record an immutable model revision, load BF16 to `cuda:0`, call `apply_chat_template(..., add_generation_prompt=True)`, pass `enable_thinking=False` using the installed Transformers API, decode only generated IDs, and measure first-token/total latency plus peak memory. Raise a clear compatibility error if the installed template signature cannot disable thinking.
+Resolve and record an immutable model revision, load BF16 to `cuda:0`, use the text-only path of the Qwen3.5 processor, call `apply_chat_template(..., add_generation_prompt=True)`, preserve the model's default non-thinking behavior, decode only generated IDs, and measure first-token/total latency plus peak memory. Raise a clear compatibility error if the installed Transformers build cannot load `qwen3_5` or the processor/template contract.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -297,7 +305,7 @@ git commit -m "training: track inference baseline in mlflow"
 - Modify: `train-model/llm-lora-playground/README.md`
 
 **Interfaces:**
-- CLI flags: `--config`, `--data-config`, `--check-config`, `--plan-fixtures`, `--smoke-only`, `--run`, `--report RUN_ID`, `--output-dir`。
+- CLI flags: `--config`, `--data-config`, `--check-config`, `--check-data`, `--plan-fixtures`, `--smoke-only`, `--run`, `--report RUN_ID`, `--output-dir`。
 - `BaselineResult`: run ID, status, manifest path, metrics path, and record count.
 - `run_baseline(config_path: Path, data_config_path: Path, output_dir: Path) -> BaselineResult`
 
@@ -324,7 +332,7 @@ Expected: FAIL because the CLI is not implemented.
 
 - [ ] **Step 3: Implement orchestration**
 
-Implement the sequence from the design: config → data preflight → environment/GPU preflight → model smoke → fixture generation → 20 generations → local reports → MLflow Run/Artifact upload → API round-trip verification. `--check-config` must never read chat text or create a Run.
+Implement the sequence from the design: config → data delivery preflight → manifest/split preflight → environment/GPU/Transformers architecture preflight → model smoke → fixture generation → 20 generations → local reports → MLflow Run/Artifact upload → API round-trip verification. `--check-config` must not read chat text or create a Run; `--check-data` may read manifests and reports but must not load the model or create a Run.
 
 - [ ] **Step 4: Run test to verify it passes**
 

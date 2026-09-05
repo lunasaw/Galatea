@@ -6,7 +6,7 @@
 >
 > 适用仓库：Galatea 训练平台
 >
-> 核心决策：从 0.6B 小模型开始，用多个可独立验收的小项目掌握完整流程；不从 4B 起步。
+> 核心决策：从轻量级小模型开始，用多个可独立验收的小项目掌握完整流程；当前项目 0+1 使用 Qwen3.5-0.8B，不从 4B 起步。
 
 ## 1. 结论摘要
 
@@ -20,14 +20,14 @@
 推荐模型阶梯为：
 
 ```text
-Qwen3-0.6B（跑通流程）
+Qwen3.5-0.8B（当前项目，跑通流程）
         ↓ 指标确有提升需求
 Qwen3-1.7B（验证容量收益）
         ↓ 0.6B/1.7B 明显达到上限
 4B 级模型 + QLoRA（学习量化微调）
 ```
 
-第一阶段使用 [Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B) 和 BF16 LoRA。它约 0.6B 参数、支持中文和 32K 上下文，适合快速重复实验；训练和推理时关闭 thinking 模式。现有约 48 GB 显存足以让首个项目避免 QLoRA 的量化兼容性复杂度。后续可用 [Qwen3-1.7B](https://huggingface.co/Qwen/Qwen3-1.7B) 做容量对照，4B 级模型只作为进阶项目。
+第一阶段使用 [Qwen3.5-0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B) 和 BF16。它是统一视觉语言架构，但本项目只走文本输入，默认 non-thinking，适合快速重复实验；当前本地模型已下载到 `/data/ai/chenzhangyue/code/model/Qwen3.5-0.8B`。Qwen3.5 需要支持 `qwen3_5` 架构的 Transformers 主线/已知兼容构建。后续可用 [Qwen3-1.7B](https://huggingface.co/Qwen/Qwen3-1.7B) 做容量对照，4B 级模型只作为进阶项目。
 
 整个路线分成两个训练项目：
 
@@ -233,13 +233,13 @@ train-model/
 
 **验收**：环境信息可复现；GPU 张量计算通过；MLflow 服务和 MinIO 健康；没有改动现有进程。
 
-### 项目 1：0.6B 基础推理
+### 项目 1：0.8B 基础推理
 
 **目的**：先理解模型输入输出，不进行训练。
 
 **动作**：
 
-- 加载 Qwen3-0.6B 和 tokenizer。
+- 加载 Qwen3.5-0.8B processor/tokenizer 和文本模型路径。
 - 使用模型自带 chat template，不手拼特殊 token。
 - 关闭 thinking 模式，固定 seed，比较 temperature、top-p、max-new-tokens。
 - 对 20 条固定中文提示记录首 token 延迟、总延迟、tokens/s 和峰值显存。
@@ -332,7 +332,7 @@ train-model/
 
 **动作**：
 
-- 仍以 Qwen3-0.6B + BF16 LoRA 做第一轮。
+- 仍以 Qwen3.5-0.8B + BF16 LoRA 做第一轮；若 Transformers/训练栈对其统一视觉语言架构兼容性不足，再切换到已验证的纯文本基线并记录变更。
 - 给每条样本标记风格维度，例如回复长度、亲密度阶段、是否使用昵称、emoji、安慰/调侃类型。
 - 移除纯隐私记忆、一次性验证码、第三方秘密以及不希望模型复现的争吵原句。
 - 比较 Base、Prompt-only、RAG、LoRA、RAG+LoRA 五组。
@@ -380,7 +380,8 @@ train-model/
 
 ```yaml
 model:
-  id: Qwen/Qwen3-0.6B
+  id: Qwen/Qwen3.5-0.8B
+  local_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
   revision_policy: resolve_remote_commit_before_run
   dtype: bfloat16
   enable_thinking: false
@@ -571,7 +572,7 @@ platform-data/llm-private/wechat-persona/
 
 注意事项：
 
-- Qwen3 模型卡要求 Transformers 4.51.0 或更新版本；实际锁定版本还需通过本机 smoke。
+- Qwen3.5 模型卡要求支持其 `qwen3_5` 架构的最新 Transformers 构建；共享环境当前版本若无法识别该架构，必须先升级并通过本机 smoke。
 - 首个项目不用 bitsandbytes，避免把量化库兼容问题混入 LoRA 学习。
 - 4B QLoRA 项目才引入 bitsandbytes，并单独测试 4-bit 加载、反向传播和保存。
 - 模型下载缓存可复用，但每个 run 必须记录精确 revision；不能只记录可变的 `main`。
@@ -583,7 +584,7 @@ platform-data/llm-private/wechat-persona/
 
 | 周期 | 内容 | 结束时应拥有的成果 |
 |---|---|---|
-| 第 1–2 天 | 项目 0–1 | 可复现的 0.6B 推理、性能基线 |
+| 第 1–2 天 | 项目 0–1 | 可复现的 Qwen3.5-0.8B 推理、性能基线 |
 | 第 3–4 天 | 项目 2 | 第一个可保存/加载的 Toy LoRA |
 | 第 5–7 天 | 项目 3 | MLflow 可比较实验和冻结测试集 |
 | 第 2 周前半 | 项目 4 | Ray Job、checkpoint 和恢复演练 |
@@ -598,7 +599,7 @@ platform-data/llm-private/wechat-persona/
 为保证“快速跑、多项目迭代”，采用以下停止规则：
 
 - smoke 在 2 条样本/2 step 失败时，不启动正式训练。
-- 0.6B baseline 尚未形成固定评估集时，不扩容模型。
+- Qwen3.5-0.8B baseline 尚未形成固定评估集时，不扩容模型。
 - 数据质量问题优先修数据，不通过增加 epoch 掩盖。
 - validation loss 继续下降但人工质量恶化时，按人工质量选择 checkpoint。
 - 1.7B 若主指标提升不足以抵消延迟和资源成本，保留 0.6B。
@@ -626,7 +627,7 @@ platform-data/llm-private/wechat-persona/
 本设计通过后，第一次实施计划只覆盖 `train-model/llm-lora-playground/` 的项目 0–4，暂不导入真实微信聊天。第一批可交付物应为：
 
 1. 项目骨架和独立环境；
-2. 0.6B 推理 CLI；
+2. Qwen3.5-0.8B 推理 CLI；
 3. 合成数据生成与固定切分；
 4. BF16 LoRA smoke/baseline；
 5. base/Prompt/LoRA 评估；

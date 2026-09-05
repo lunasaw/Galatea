@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-lora-playground"
+version = "0.1.0"
+description = "Qwen3.5 project-0+1 inference baseline"
+requires-python = ">=3.12,<3.13"
+dependencies = ["PyYAML>=6.0", "mlflow>=3.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -3,6 +3,9 @@ project:
   phase: project_0_1_inference_baseline
   execution_mode: local
   python: "3.12"
+  data_delivery_required: true
+  data_delivery_root: /data/ai/chenzhangyue/code/data
+  model_cache_root: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
 
 resources:
   num_gpus: 1
@@ -12,11 +15,13 @@ resources:
   preserve_existing_gpu_processes: true
 
 compatibility:
-  transformers_min: "4.51.0"
+  transformers_min: "5.0.0.dev0"
+  transformers_qwen35_policy: latest_main_or_known_qwen35_build
   torch_runtime_policy: record_torch_version_and_cuda_runtime
   ray_policy: record_if_used
   mlflow_required_for_run: true
   minio_required_for_run: true
+  model_download_required_for_run: true
 
 environment_capture:
   record_python: true

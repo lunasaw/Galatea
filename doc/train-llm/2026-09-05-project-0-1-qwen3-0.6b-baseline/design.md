@@ -1,10 +1,10 @@
-# 项目 0+1 设计：环境/GPU 基线与 Qwen3-0.6B 基础推理
+# 项目 0+1 设计：环境/GPU 基线与 Qwen3.5-0.8B 基础推理
 
 ## 1. 范围与原则
 
 ### 1.1 范围
 
-本设计覆盖一次 bounded inference baseline：环境检查、GPU smoke、数据 manifest 校验、固定 fixture 构造、Qwen3-0.6B 推理、性能统计、MLflow 记录和验收报告。
+本设计覆盖一次 bounded inference baseline：环境检查、GPU smoke、数据 manifest 校验、固定 fixture 构造、Qwen3.5-0.8B 推理、性能统计、MLflow 记录和验收报告。
 
 ### 1.2 不在范围内
 
@@ -12,7 +12,7 @@
 - 训练数据人工审核流程的实现；
 - RAG、embedding、reranker 和动画脚本；
 - 在线服务、自动发消息、生产模型 alias；
-- 修改 `/Users/weidian/project/luna-data/data-deal` 下任何文件；
+- 修改用户交付的 `/data/ai/chenzhangyue/code/data` 下任何文件；
 - 把聊天正文、模型输出或原始身份映射提交到 Git。
 
 ### 1.3 设计原则
@@ -27,10 +27,13 @@
 ## 2. 端到端架构
 
 ```text
-data.yaml + 外部 dataset root
+data.yaml + user-delivered staging root
           │
           ▼
-manifest preflight ──► split/session 校验 ──► deterministic fixture builder
+data delivery preflight ──► root resolution ──► manifest preflight
+                                                    │
+                                                    ▼
+                         split/session 校验 ──► deterministic fixture builder
                                                     │
                                                     ▼
 environment/GPU preflight ──► model/tokenizer loader
@@ -62,14 +65,35 @@ environment/GPU preflight ──► model/tokenizer loader
 
 ### 3.1 固定版本
 
-默认配置锁定 `wechat_aa807aaad90dc4463964`。运行时必须读取并核对：
+默认配置锁定 `wechat_aa807aaad90dc4463964`。数据由用户交付到
+`/data/ai/chenzhangyue/code/data`，运行时按以下顺序解析数据集根：
+
+1. 若设置 `WECHAT_DATA_ROOT`，只使用该路径；
+2. 否则在 staging 根下按 `configs/data.yaml` 的 `accepted_dataset_subdirs` 依次查找；
+3. 必须恰好解析到一个包含所需 manifest 和候选文件的数据集根，否则阻断；
+4. 解析后的绝对路径、布局候选、文件存在性和数据身份写入本地 preflight 报告，
+   Run Manifest 只保存受控的 root reference，不保存私人路径片段。
+
+交付物必须是已完成预处理和脱敏的派生数据集。原始导出、身份映射、未脱敏中间文件和
+授权正文不属于本阶段输入；如需保留这些材料，应放在受控目录并通过单独的授权流程管理，
+不要与 baseline 数据混放。
+
+解析后必须读取并核对：
 
 - `manifests/source_manifest.json` 的 `dataset_id`、`source_sha256`、`config_sha256`、`pipeline_version`；
 - `manifests/split_manifest.json` 的策略、session 计数和候选计数；
 - `reports/privacy_report.json` 的二次扫描结果；
 - `reports/leakage_report.json` 的候选级检查结果。
 
-旧版本 `wechat_c92b3b462d0f86db7369` 和 `wechat_337eba55797d9ed4959a` 仅作为历史产物，不参与默认运行。
+数据交付预检还必须确认：
+
+- staging 根存在且为目录；
+- `source_manifest.json`、`split_manifest.json`、候选文件和两份报告均存在且为普通文件；
+- 没有通过符号链接逃逸到 staging 根之外；
+- `dataset_id`、source/config digest、pipeline version 和 split 计数与配置一致；
+- consent ledger 引用、处理范围和保留期限存在。缺少授权引用时，即使数据已脱敏也保持 blocked。
+
+旧版本 `wechat_c92b3b462d0f86db7369` 和 `wechat_337eba55797d9ed4959a` 仅作为历史产物，不参与默认运行。由于 staging 根下存在多个历史目录，治理运行必须显式设置 `WECHAT_DATA_ROOT` 为 `/data/ai/chenzhangyue/code/data/data-deal/output/wechat_aa807aaad90dc4463964`。
 
 ### 3.2 fixture 生成
 
@@ -104,7 +128,8 @@ environment/GPU preflight ──► model/tokenizer loader
 ### 4.1 模型
 
 ```yaml
-model_id: Qwen/Qwen3-0.6B
+model_id: Qwen/Qwen3.5-0.8B
+local_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
 revision_policy: resolve_remote_commit_before_run
 dtype: bfloat16
 device: cuda:0
@@ -116,11 +141,18 @@ enable_thinking: false
 
 ### 4.2 chat template
 
-实现必须调用 tokenizer 的 `apply_chat_template(..., tokenize=True, add_generation_prompt=True, return_tensors="pt")`（具体参数以实际 Transformers 版本签名为准），禁止手写 `<|im_start|>` 等特殊 token。生成后只解码新 token 区间，避免把 prompt 回显误计入输出。
+Qwen3.5-0.8B 是统一视觉语言架构；本阶段只允许文本输入。实现应优先通过 `AutoProcessor`
+获取 tokenizer/processor，并调用其 `apply_chat_template(..., tokenize=True,
+add_generation_prompt=True, return_tensors="pt", truncation=True, max_length=512)`（具体参数以实际
+Transformers 版本签名为准），
+禁止手写 `<|im_start|>` 等特殊 token。生成后只解码新 token 区间，避免把 prompt 回显误计入输出。
 
 ### 4.3 thinking 关闭
 
-Qwen3 的 thinking 开关以模型支持的官方 chat-template 参数实现；配置中统一使用 `enable_thinking: false`，并在一次 smoke 的记录中保存最终模板参数。若当前 Transformers 版本不支持该参数，入口必须失败并打印版本/签名信息，不静默忽略。
+Qwen3.5-0.8B 默认采用 non-thinking 模式；Qwen3 的 `/think` 和 `/nothink` 软切换不适用于
+Qwen3.5。配置仍保留 `enable_thinking: false` 作为本阶段的明确策略，入口必须记录实际使用的
+模板参数；若当前 Transformers 版本不支持 Qwen3.5 架构或该参数，必须失败并打印版本/签名信息，
+不得静默忽略或伪造“关闭 thinking”。
 
 ### 4.4 生成参数
 
@@ -209,7 +241,10 @@ Artifact 回读必须通过 MLflow Artifact API 完成，并核对 SHA-256；客
 
 ## 8. 隐私与安全
 
-用户已确认数据授权且数据已脱敏；本阶段仍把授权引用作为运行前置条件，因为现有 `source_manifest.json` 的 `authorization_status` 仍是 `not_verified_in_pipeline`。正式实现应从受控的 consent ledger 读取 scope 引用，不把授权正文复制到仓库。
+用户负责准备数据和授权材料；本阶段仍把授权引用作为运行前置条件，因为现有
+`source_manifest.json` 的 `authorization_status` 仍可能是 `not_verified_in_pipeline`。
+正式实现应从受控的 consent ledger 读取 scope 引用，不把授权正文复制到仓库。数据交付
+不等于授权门禁自动通过。
 
 运行日志不得打印聊天正文、目标回复、真实发送者标识、原始路径中的姓名或 token。错误日志使用 sample ID 和哈希。生成文本默认保存在 `platform-data/llm-private/` 下的受控目录，按授权保留期限清理。
 

@@ -4,18 +4,22 @@
 
 ## A. 数据身份与授权
 
+- [ ] 用户数据已交付到 `/data/ai/chenzhangyue/code/data`，或通过 `WECHAT_DATA_ROOT` 指定了唯一数据集根。
+- [ ] 数据交付预检通过，解析布局已记录，未发现多个候选数据集根。
+- [ ] 数据文件为只读普通文件，未通过符号链接逃逸，运行前后 staging digest 一致。
 - [ ] `dataset_id=wechat_aa807aaad90dc4463964` 与配置一致。
 - [ ] `source_sha256`、`config_sha256`、`pipeline_version=wechat-preprocess-v1.2` 核对通过。
 - [ ] split manifest 的策略为 `chronological_session`，validation session/candidate 数为 137/759。
 - [ ] `privacy_report.json` 二次扫描字段全部为 0。
 - [ ] `leakage_report.json` 的候选级检查通过。
 - [ ] 已读取受控 consent ledger 引用；不把授权正文写入仓库。
+- [ ] consent ledger 明确处理范围和保留期限；缺失时状态保持 blocked。
 - [ ] 外部数据目录在运行前后 digest 一致，未创建或覆盖文件。
 
 ## B. 环境与 GPU
 
 - [ ] 项目环境独立创建，`pip check` 通过。
-- [ ] Python、PyTorch、PyTorch CUDA runtime、Transformers（>=4.51.0）、Ray、MLflow 版本已记录。
+- [ ] Python、PyTorch、PyTorch CUDA runtime、支持 `qwen3_5` 的 Transformers 构建、Ray、MLflow 版本已记录。
 - [ ] GPU 型号、数量、驱动可见版本、总/空闲显存已记录。
 - [ ] BF16 张量矩阵乘通过。
 - [ ] 现有 GPU 进程只读记录，未被终止或重置。
@@ -23,7 +27,8 @@
 
 ## C. 模型与模板
 
-- [ ] `Qwen/Qwen3-0.6B` 加载成功。
+- [ ] `Qwen/Qwen3.5-0.8B` 加载成功。
+- [ ] Transformers 版本/构建支持 `qwen3_5` 与 `Qwen3_5ForConditionalGeneration`；不支持时保持 blocked。
 - [ ] 模型 revision 已解析为不可变 commit，而不是 `main`。
 - [ ] dtype 为 BF16，device 为 `cuda:0`。
 - [ ] 使用 tokenizer 的 `apply_chat_template`，无手写特殊 token。
@@ -52,6 +57,7 @@
 ## F. 阻断与结论
 
 - [ ] `status=completed` 仅在 A–E 全部通过后设置。
+- [ ] `--check-data` 在模型下载和 MLflow Run 创建之前完成。
 - [ ] 报告明确写出 `inference_baseline_only=true`，不宣称训练或角色质量提升。
 - [ ] `datasets/*.jsonl` 为空、人工审核未完成和 `authorization_status=not_verified_in_pipeline` 仍记录为“正式 SFT 阻断项”。
 - [ ] 未注册模型、未更新任何生产 alias。

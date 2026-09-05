@@ -1,5 +1,24 @@
 dataset:
-  root: /Users/weidian/project/luna-data/data-deal/output/wechat_aa807aaad90dc4463964
+  # Staging root supplied by the user. Set WECHAT_DATA_ROOT to the resolved
+  # dataset directory to avoid layout discovery in governed runs.
+  root: /data/ai/chenzhangyue/code/data
+  root_env: WECHAT_DATA_ROOT
+  layout: auto
+  delivery_mode: preprocessed_redacted_dataset_only
+  accepted_dataset_subdirs:
+    - output/wechat_aa807aaad90dc4463964
+    - data-deal/output/wechat_aa807aaad90dc4463964
+    - wechat_aa807aaad90dc4463964
+    - .
+  required_files:
+    - manifests/source_manifest.json
+    - manifests/split_manifest.json
+    - reports/privacy_report.json
+    - reports/leakage_report.json
+    - work/05_candidates/candidates.jsonl
+    - datasets/train.jsonl
+    - datasets/validation.jsonl
+    - datasets/test.jsonl
   dataset_id: wechat_aa807aaad90dc4463964
   source_manifest: manifests/source_manifest.json
   split_manifest: manifests/split_manifest.json
@@ -8,6 +27,8 @@ dataset:
   source_sha256: 63ce0e55db1dcefa69366db39bd752103edfb5ebf68aa1a2a10166ebc3891219
   config_sha256: 9a1d4a01e2926c9f6cd99e220609eb30c50a5d7582d45ccbfbd2cf3515fa3af1
   read_only: true
+  require_resolved_root_in_manifest: true
+  reject_symlink_escape: true
 
 split:
   strategy: chronological_session
@@ -31,5 +52,10 @@ consent:
   scope: user_authorized_local_processing
   external_record_required: true
   source_manifest_authorization_status: not_verified_in_pipeline
+  required_delivery_fields:
+    - consent_ledger_reference
+    - permitted_processing_scope
+    - retention_deadline
+  block_if_missing: true
   note: >-
     用户已确认授权；正式实现仍需读取受控 consent ledger 并记录引用，不能把授权正文写入仓库。

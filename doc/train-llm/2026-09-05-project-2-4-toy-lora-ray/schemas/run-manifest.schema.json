@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galatea.local/schemas/toy-lora-run-manifest.schema.json",
+  "title": "Toy LoRA run manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "run_kind", "project", "dataset", "split", "model", "config_digest", "code_revision", "seed", "resources", "status"],
+  "properties": {
+    "schema_version": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "run_kind": {"enum": ["smoke", "baseline", "evaluation", "ray_smoke", "roundtrip"]},
+    "project": {"const": "llm-lora-playground"},
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset_id", "source", "manifest_sha256", "preprocessing_version"],
+      "properties": {
+        "dataset_id": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "preprocessing_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "split": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "manifest_sha256"],
+      "properties": {
+        "strategy": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "dtype", "device"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "tokenizer_revision": {"type": "string", "minLength": 1},
+        "dtype": {"const": "bfloat16"},
+        "device": {"const": "cuda:0"}
+      }
+    },
+    "config_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "code_revision": {"type": "string", "minLength": 1},
+    "environment_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "seed": {"type": "integer"},
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["num_gpus", "cpus", "memory_gb"],
+      "properties": {
+        "num_gpus": {"const": 1},
+        "cpus": {"type": "number", "exclusiveMinimum": 0},
+        "memory_gb": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "objective_metric": {"type": "string", "minLength": 1},
+    "objective_mode": {"enum": ["min", "max"]},
+    "mlflow_run_id": {"type": "string", "minLength": 1},
+    "artifacts": {"type": "array", "items": {"type": "object"}},
+    "status": {"enum": ["planned", "running", "completed", "failed", "interrupted", "blocked"]}
+  }
+}

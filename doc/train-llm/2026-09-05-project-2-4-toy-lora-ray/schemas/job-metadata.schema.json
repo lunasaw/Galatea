@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galatea.local/schemas/toy-lora-job-metadata.schema.json",
+  "title": "Ray Job metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ray_job_id", "mlflow_run_id", "config_digest", "dataset_manifest_digest", "code_revision", "environment_digest", "attempt_id", "requested_resources", "status"],
+  "properties": {
+    "schema_version": {"type": "string", "minLength": 1},
+    "ray_job_id": {"type": "string", "minLength": 1},
+    "mlflow_run_id": {"type": "string", "minLength": 1},
+    "config_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "dataset_manifest_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "code_revision": {"type": "string", "minLength": 1},
+    "environment_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "parent_attempt_id": {"type": "string", "minLength": 1},
+    "retry_of": {"type": "string", "minLength": 1},
+    "resumed_from": {"type": "string", "minLength": 1},
+    "checkpoint_uri": {"type": "string", "minLength": 1},
+    "checkpoint_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "requested_resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["num_gpus", "cpus", "memory_gb"],
+      "properties": {
+        "num_gpus": {"const": 1},
+        "cpus": {"type": "number", "exclusiveMinimum": 0},
+        "memory_gb": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "status": {"enum": ["submitted", "running", "completed", "failed", "interrupted", "blocked"]},
+    "failure_reason": {"type": "string"},
+    "created_at": {"type": "string", "minLength": 1},
+    "updated_at": {"type": "string", "minLength": 1}
+  }
+}

@@ -1,0 +1,35 @@
+run_kind: ray_smoke
+model:
+  id: Qwen/Qwen3.5-0.8B
+  local_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
+  dtype: bfloat16
+  device: cuda:0
+  max_sequence_length: 512
+  enable_thinking: false
+data:
+  uri: platform-data/llm-baselines/toy-lora/v1/dataset.jsonl
+  dataset_id: toy-lora-synthetic-toy-v1
+  preprocessing_version: toy-sft-v1
+  split_strategy: scenario_group
+  split_seed: 42
+  assistant_only_loss: true
+  packing: false
+lora:
+  rank: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: [q_proj, v_proj]
+training:
+  epochs: 1
+  max_steps: 10
+  seed: 42
+resources:
+  num_gpus: 1
+  cpus: 4
+  memory_gb: 8
+objective_metric: validation_loss
+objective_mode: min
+prompt:
+  use_tokenizer_chat_template: true
+generation:
+  max_new_tokens: 128

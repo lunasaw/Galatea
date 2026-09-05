@@ -9,10 +9,11 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from llm_lora_playground.config import load_training_config, validate_training_config, canonical_training_config_digest
+from llm_lora_playground.training import TrainingContractError, train as _train
 
 
-def train(config, runtime=None, resume_from=None):
-    raise RuntimeError("model training is not enabled in the contract-only implementation; run after GPU/model preflight")
+def train(config, runtime=None, resume_from=None, data=None):
+    return _train(config, runtime=runtime, resume_from=resume_from, data=data)
 
 
 def main() -> int:
@@ -31,7 +32,11 @@ def main() -> int:
     if errors:
         return 2
     if args.run:
-        train(config, resume_from=args.resume_from)
+        try:
+            train(config, resume_from=args.resume_from, data=args.data)
+        except (TrainingContractError, RuntimeError, FileNotFoundError) as exc:
+            print({"status": "blocked", "reason": str(exc)})
+            return 2
     return 0
 
 

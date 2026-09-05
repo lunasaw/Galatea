@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -79,8 +80,8 @@ def validate_training_config(config: TrainingConfig) -> list[str]:
     lora = values.get("lora", {})
     training = values.get("training", {})
     resources = values.get("resources", {})
-    if values.get("run_kind") not in {"smoke", "baseline", "evaluation", "ray_smoke"}:
-        errors.append("run_kind must be smoke, baseline, evaluation, or ray_smoke")
+    if values.get("run_kind") not in {"smoke", "baseline", "evaluation", "ray_smoke", "owner_bulk_approved_experiment"}:
+        errors.append("run_kind must be smoke, baseline, evaluation, ray_smoke, or owner_bulk_approved_experiment")
     if not data.get("assistant_only_loss"):
         errors.append("data.assistant_only_loss must be true")
     if data.get("packing") is not False:
@@ -99,14 +100,35 @@ def validate_training_config(config: TrainingConfig) -> list[str]:
         errors.append("baseline epochs must be 1")
     if values.get("run_kind") == "baseline" and training.get("max_steps") is not None:
         errors.append("baseline max_steps must be null")
-    serialized = json.dumps(values, ensure_ascii=False).lower()
-    for marker in ("token", "password", "secret", "access_key", "minio_key"):
-        if marker in serialized and marker not in {"token"}:
-            errors.append(f"configuration contains secret-like key: {marker}")
-            break
-    tracking = values.get("tracking", {})
-    if any(key.lower() in {"token", "password", "secret", "access_key", "secret_key"} for key in tracking):
-        errors.append("tracking must not contain credentials")
+    if values.get("run_kind") == "owner_bulk_approved_experiment":
+        experiment = values.get("experiment", {})
+        if experiment.get("owner_bulk_approved") is not True:
+            errors.append("owner_bulk_approved experiment requires experiment.owner_bulk_approved=true")
+        if experiment.get("formal_training_eligible") is not False:
+            errors.append("owner_bulk_approved experiment must remain formal_training_eligible=false")
+        if not experiment.get("approval_basis"):
+            errors.append("owner_bulk_approved experiment requires experiment.approval_basis")
+        if training.get("epochs") != 1:
+            errors.append("owner_bulk_approved experiment epochs must be 1")
+        if training.get("max_steps") is not None:
+            errors.append("owner_bulk_approved experiment max_steps must be null")
+    secret_key_pattern = re.compile(r"(^|_)(token|password|secret|access[_-]?key|secret[_-]?key)(_|$)", re.IGNORECASE)
+
+    def find_secret_keys(value: Any, prefix: str = "") -> list[str]:
+        found: list[str] = []
+        if isinstance(value, dict):
+            for key, child in value.items():
+                key_text = str(key)
+                if secret_key_pattern.search(key_text):
+                    found.append(f"{prefix}{key_text}")
+                found.extend(find_secret_keys(child, f"{prefix}{key_text}."))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                found.extend(find_secret_keys(child, f"{prefix}{index}."))
+        return found
+
+    for key in find_secret_keys(values):
+        errors.append(f"configuration contains secret-like key: {key}")
     return sorted(set(errors))
 
 

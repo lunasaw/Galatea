@@ -1,9 +1,9 @@
 # 项目 2–4：Toy LoRA、可复现实验与 Ray Job 方案
 
-> 状态：设计方案，尚未实现；本目录只保存方案、契约和未来运行手册。
+> 状态：已实现代码与 TDD 验证；本目录保留方案、契约、运行手册和验收门。
 >
-> 当前边界：不启动训练、不下载新模型、不创建 MLflow Run、不写入训练数据或 checkpoint，
-> 也不修改 `train-model/llm-lora-playground/` 的代码。
+> 当前边界：实现提供配置/schema/data/mask/LoRA/checkpoint/evaluation/MLflow/Ray 接口；本次交付只执行
+> 不加载权重、不创建 Run 的契约检查，GPU 训练、Ray Job 和 test-once 仍需按运行手册明确启动。
 >
 > 上游状态：项目 0+1 的 Qwen3.5-0.8B 真实权重推理 Smoke 已完成。真实微信数据仍受
 > consent ledger、人工审核和空 SFT 数据集阻断；项目 2–4 全部使用合成或公开数据。
@@ -44,14 +44,15 @@
 | [`implementation-plan.md`](implementation-plan.md) | 按任务拆分的未来实现计划与测试接口 |
 | [`runbook.md`](runbook.md) | 从只读检查到三阶段运行、比较和恢复的操作顺序 |
 | [`acceptance-checklist.md`](acceptance-checklist.md) | 项目 2、3、4 的逐项验收门 |
+| [`fine-tuning-evaluation-protocol.md`](../fine-tuning-evaluation-protocol.md) | 跨项目的开放式聊天四层评测、盲测与安全门禁 |
 | [`schemas/sample.schema.json`](schemas/sample.schema.json) | 合成 SFT 样本契约 |
 | [`schemas/run-manifest.schema.json`](schemas/run-manifest.schema.json) | Run 与工件身份契约 |
 | [`schemas/job-metadata.schema.json`](schemas/job-metadata.schema.json) | Ray Job/attempt/checkpoint 关系契约 |
 
 ## 3. 未来代码落点
 
-实现仍归属于一个模型项目：`train-model/llm-lora-playground/`。本方案不创建代码文件，
-但实现完成后应达到以下结构；参数变体放在同一项目的 `configs/` 下，不为每个实验复制项目根。
+实现归属于一个模型项目：`train-model/llm-lora-playground/`。参数变体放在同一项目的
+`configs/` 下，不为每个实验复制项目根。
 
 ```text
 train-model/llm-lora-playground/

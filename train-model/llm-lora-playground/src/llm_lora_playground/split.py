@@ -61,3 +61,15 @@ def validate_split_manifest(samples: Iterable[TrainingSample], manifest: SplitMa
             if group in groups and groups[group] != split:
                 raise ValueError(f"group crosses splits: {group}")
             groups[group] = split
+    if split_manifest_digest(manifest) != manifest.digest:
+        raise ValueError("split manifest digest mismatch")
+
+
+def split_manifest_digest(manifest: SplitManifest) -> str:
+    payload = {
+        "strategy": manifest.strategy,
+        "seed": manifest.seed,
+        "sample_ids_by_split": manifest.sample_ids_by_split,
+        "group_ids_by_split": manifest.group_ids_by_split,
+    }
+    return _digest(payload)

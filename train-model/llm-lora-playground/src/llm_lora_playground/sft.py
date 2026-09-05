@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from collections.abc import Mapping
 import inspect
 
 
@@ -36,8 +37,8 @@ def build_assistant_only_labels(input_ids: list[int], assistant_spans: list[tupl
 
 def find_assistant_spans(tokenizer: Any, messages: list[dict[str, str]], rendered: Any) -> list[tuple[int, int]]:
     mask = None
-    if isinstance(rendered, dict):
-        mask = rendered.get("assistant_tokens_mask") or rendered.get("assistant_mask")
+    if isinstance(rendered, Mapping):
+        mask = rendered.get("assistant_tokens_mask") or rendered.get("assistant_masks") or rendered.get("assistant_mask")
     if mask is None:
         return []
     spans: list[tuple[int, int]] = []
@@ -53,6 +54,45 @@ def find_assistant_spans(tokenizer: Any, messages: list[dict[str, str]], rendere
     return spans
 
 
+def _template_assistant_span(
+    tokenizer: Any,
+    messages: list[dict[str, str]],
+    input_ids: list[int],
+    max_length: int,
+    enable_thinking: bool,
+) -> list[tuple[int, int]]:
+    """Infer the final assistant span from the template prefix when no mask exists.
+
+    Qwen3.5's bundled template does not emit a generation mask.  The stable
+    boundary is still available by rendering the same conversation without its
+    final assistant message and with ``add_generation_prompt=True``.  Only the
+    suffix after that boundary is supervised; if truncation removes it, fail
+    closed rather than silently training on context tokens.
+    """
+    if not messages or messages[-1].get("role") != "assistant":
+        return []
+    prefix_kwargs = {
+        "tokenize": True,
+        "add_generation_prompt": True,
+        "truncation": True,
+        "max_length": max_length,
+        "enable_thinking": enable_thinking,
+    }
+    prefix = tokenizer.apply_chat_template(messages[:-1], **prefix_kwargs)
+    if isinstance(prefix, Mapping):
+        prefix_ids = prefix["input_ids"]
+    else:
+        prefix_ids = prefix
+    if hasattr(prefix_ids, "tolist"):
+        prefix_ids = prefix_ids.tolist()
+    if prefix_ids and isinstance(prefix_ids[0], list):
+        prefix_ids = prefix_ids[0]
+    prefix_len = len(prefix_ids)
+    if prefix_len >= len(input_ids):
+        return []
+    return [(prefix_len, len(input_ids))]
+
+
 def tokenize_conversation(tokenizer: Any, messages: list[dict[str, str]], max_length: int, enable_thinking: bool = False) -> TokenizedSample:
     kwargs = {
         "tokenize": True,
@@ -63,16 +103,26 @@ def tokenize_conversation(tokenizer: Any, messages: list[dict[str, str]], max_le
     }
     try:
         signature = inspect.signature(tokenizer.apply_chat_template)
-        if "return_assistant_tokens_mask" in signature.parameters:
+        template = getattr(tokenizer, "chat_template", "") or ""
+        if "return_assistant_tokens_mask" in signature.parameters and "{% generation" in template:
             kwargs["return_assistant_tokens_mask"] = True
     except (TypeError, ValueError):
         pass
     rendered = tokenizer.apply_chat_template(messages, **kwargs)
-    if not isinstance(rendered, dict):
+    if not isinstance(rendered, Mapping):
         rendered = {"input_ids": rendered}
-    input_ids = list(rendered["input_ids"])
+    input_ids = rendered["input_ids"]
+    if hasattr(input_ids, "tolist"):
+        input_ids = input_ids.tolist()
+    if input_ids and isinstance(input_ids[0], list):
+        input_ids = input_ids[0]
+    input_ids = list(input_ids)
     spans = find_assistant_spans(tokenizer, messages, rendered)
-    spans = [(start, min(end, len(input_ids))) for start, end in spans if start < len(input_ids)]
+    if not spans:
+        spans = _template_assistant_span(tokenizer, messages, input_ids, max_length, enable_thinking)
+    if any(start < 0 or end > len(input_ids) for start, end in spans):
+        raise LossMaskContractError("truncation removed part of an assistant target")
+    spans = [(start, end) for start, end in spans if start < len(input_ids)]
     labels = build_assistant_only_labels(input_ids, spans, getattr(tokenizer, "pad_token_id", None))
     return TokenizedSample(input_ids, labels, [1 if token != getattr(tokenizer, "pad_token_id", None) else 0 for token in input_ids], spans)
 

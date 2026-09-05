@@ -62,3 +62,8 @@ def verify_checkpoint(manifest: CheckpointManifest) -> None:
     raw = json.loads((manifest.path / "checkpoint_manifest.json").read_text(encoding="utf-8"))
     if raw.get("status") != "complete":
         raise CheckpointContractError("checkpoint manifest is not complete")
+
+
+def checkpoint_record(manifest: CheckpointManifest) -> dict[str, Any]:
+    """Return the small pointer payload safe to put in a Run/Job manifest."""
+    return {"uri": str(manifest.path), "digest": manifest.digest, "step": manifest.step, "status": manifest.status}

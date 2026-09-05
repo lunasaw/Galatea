@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping
@@ -32,6 +33,11 @@ class DatasetManifest:
     dataset_sha256: str
     path: Path
 
+    @property
+    def manifest_sha256(self) -> str:
+        manifest_path = self.path.parent / "dataset_manifest.json"
+        return _sha256(manifest_path) if manifest_path.is_file() else self.dataset_sha256
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -43,6 +49,8 @@ def validate_sample(sample: Mapping[str, Any]) -> None:
         raise DataContractError(f"sample keys must be {sorted(required)}")
     if not isinstance(sample["sample_id"], str) or not sample["sample_id"]:
         raise DataContractError("sample_id must be non-empty")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", sample["sample_id"]):
+        raise DataContractError("sample_id contains unsupported characters")
     messages = sample["messages"]
     if not isinstance(messages, list) or len(messages) < 2:
         raise DataContractError("messages must contain at least two entries")
@@ -89,6 +97,11 @@ def _make_sample(index: int, seed: int, version: str) -> dict[str, Any]:
 
 
 def compute_dataset_digest(path: Path) -> str:
+    return _sha256(path)
+
+
+def compute_manifest_digest(path: Path) -> str:
+    """Return the digest of a manifest JSON file, not the server-side data path."""
     return _sha256(path)
 
 

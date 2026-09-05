@@ -7,7 +7,20 @@ name = "llm-lora-playground"
 version = "0.1.0"
 description = "Qwen3.5 project-0+1 inference baseline"
 requires-python = ">=3.12,<3.13"
-dependencies = ["PyYAML>=6.0", "mlflow>=3.0"]
+dependencies = [
+    "PyYAML>=6.0",
+    "mlflow>=3.0",
+    "torch>=2.5",
+    "transformers>=4.57",
+    "accelerate>=1.0",
+    "datasets>=3.0",
+    "peft>=0.14",
+    "ray[default]>=2.40",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

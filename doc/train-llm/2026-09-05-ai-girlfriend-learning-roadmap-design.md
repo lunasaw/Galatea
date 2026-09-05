@@ -473,6 +473,10 @@ acquaintance → familiar → ambiguous → committed
 
 ## 11. 评估体系
 
+开放式聊天的通用四层评测、Base/Prompt-only/LoRA 公平比较、人工盲测主指标、隐私安全门禁和
+validation/test 生命周期见 [`fine-tuning-evaluation-protocol.md`](fine-tuning-evaluation-protocol.md)。
+本节保留本项目的 RAG、关系阶段和删除测试扩展；两者应使用同一数据身份、split 和 test-once 规则。
+
 ### 11.1 固定比较组
 
 所有角色实验至少包含：

@@ -1,0 +1,62 @@
+run_kind: owner_bulk_approved_experiment
+task: private_redacted_chat_sft_lora
+experiment:
+  owner_bulk_approved: true
+  approval_basis: explicit_user_confirmation_2026-09-05
+  human_review_completed: false
+  formal_training_eligible: false
+  quality_evidence_status: experimental_only
+model:
+  id: Qwen/Qwen3.5-0.8B
+  local_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
+  revision_policy: local_immutable_snapshot
+  revision: null
+  dtype: bfloat16
+  device: cuda:0
+  max_sequence_length: 768
+  trust_remote_code: false
+  enable_thinking: false
+data:
+  uri: platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/dataset.jsonl
+  dataset_id: wechat_aa807aaad90dc4463964-owner-bulk-approved-5k
+  preprocessing_version: wechat-preprocess-v1.2-owner-bulk-approved-import-v1
+  split_strategy: chronological_session_source_split_preserved
+  split_seed: 42
+  assistant_only_loss: true
+  packing: false
+  sample_count: 5000
+lora:
+  rank: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: [q_proj, v_proj]
+  bias: none
+training:
+  epochs: 1
+  max_steps: null
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 1
+  learning_rate: 0.0002
+  warmup_ratio: 0.03
+  scheduler: cosine
+  max_grad_norm: 1.0
+  optimizer: adamw_torch
+  seed: 42
+  eval_steps: 100
+  save_steps: 100
+resources:
+  num_gpus: 1
+  cpus: 4
+  memory_gb: 8
+objective_metric: validation_loss
+objective_mode: min
+prompt:
+  use_tokenizer_chat_template: true
+generation:
+  max_new_tokens: 128
+tracking:
+  tracking_uri_env: MLFLOW_TRACKING_URI
+  experiment_name_env: MLFLOW_EXPERIMENT_NAME
+  default_experiment_name: llm-lora-playground-private-experiments
+  artifact_root: platform-data/llm-baselines/private-experiments
+output_root: platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/training

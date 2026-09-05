@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from llm_lora_playground.tracking import download_and_verify_artifact
+from llm_lora_playground.tracking import ArtifactIntegrityError, download_and_verify_artifact
 
 
 class FakeClient:
@@ -25,6 +25,13 @@ class ArtifactRoundtripTests(unittest.TestCase):
             digest = hashlib.sha256(source.read_bytes()).hexdigest()
             output = download_and_verify_artifact(FakeClient(source), "run", "artifact.json", digest, Path(directory) / "out")
             self.assertEqual(output.read_bytes(), b"{}")
+
+    def test_digest_mismatch_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "artifact.json"
+            source.write_text("{}")
+            with self.assertRaises(ArtifactIntegrityError):
+                download_and_verify_artifact(FakeClient(source), "run", "artifact.json", "0" * 64, Path(directory) / "out")
 
 
 if __name__ == "__main__":

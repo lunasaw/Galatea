@@ -13,6 +13,8 @@ interface RecordedRequest {
   method: string
   path: string
   body: unknown
+  userAgent?: string
+  secFetchMode?: string
   authorization?: string
 }
 
@@ -28,6 +30,8 @@ async function mockServer(
       method: request.method ?? 'GET',
       path: request.url ?? '/',
       body: text === '' ? undefined : JSON.parse(text),
+      ...(request.headers['user-agent'] === undefined ? {} : { userAgent: request.headers['user-agent'] }),
+      ...(request.headers['sec-fetch-mode'] === undefined ? {} : { secFetchMode: request.headers['sec-fetch-mode'] }),
       ...(request.headers.authorization === undefined ? {} : { authorization: request.headers.authorization }),
     }
     requests.push(recorded)
@@ -47,6 +51,17 @@ function json(response: ServerResponse, value: unknown, status = 200): void {
   response.writeHead(status, { 'content-type': 'application/json' })
   response.end(JSON.stringify(value))
 }
+
+test('HTTP service uses a non-browser User-Agent for Ray Dashboard POST protection', async () => {
+  const server = await mockServer((_request, response) => json(response, { ok: true }))
+  try {
+    await requestJson(`${server.baseUrl}/headers`, { method: 'POST', body: { probe: true } })
+    assert.equal(server.requests[0]?.userAgent, 'dsh-galatea')
+    assert.equal(server.requests[0]?.secFetchMode, undefined)
+  } finally {
+    await server.close()
+  }
+})
 
 test('HTTP service enforces timeout, response limits, auth, and structured errors', async () => {
   const server = await mockServer((request, response) => {
@@ -88,7 +103,12 @@ test('Ray service reuses an existing deterministic submission and caps logs', as
       metadata: { project: 'demo' },
     })
     assert.deepEqual(submitted, { submissionId: 'train-abc', reused: true, status: 'RUNNING' })
-    assert.deepEqual(await ray.logs('train-abc'), { logs: '56789', truncated: true })
+    assert.deepEqual(await ray.logs('train-abc'), {
+      logs: '56789', truncated: true, cursor: 0, nextCursor: 10, reset: false,
+    })
+    assert.deepEqual(await ray.logs('train-abc', 8), {
+      logs: '89', truncated: false, cursor: 8, nextCursor: 10, reset: false,
+    })
     assert.equal(server.requests.some(request => request.method === 'POST'), false)
     assert.equal(deterministicSubmissionId('demo', 'train', 'sha256:abcdef'), 'demo-train-abcdef')
   } finally {

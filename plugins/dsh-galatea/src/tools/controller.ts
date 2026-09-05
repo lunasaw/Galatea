@@ -1,18 +1,28 @@
 import { randomUUID } from 'node:crypto'
 import { readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
-import { dirname, join, relative } from 'node:path'
+import { dirname, isAbsolute, join, relative } from 'node:path'
 import { parseDocument } from 'yaml'
-import type { JsonValue, ToolResult } from '../contracts/index.ts'
+import type { JsonValue, OperationStatus, ToolResult } from '../contracts/index.ts'
 import { evidenceDigest, failure, success } from '../contracts/index.ts'
+import { executionFromRay, operationStatus } from '../contracts/status.ts'
 import { selectBestRun, type ComparableRun, type RunIdentity } from '../policies/comparability.ts'
 import {
   authorizeDatasetAccess,
   authorizeTransition,
   type ApprovalReference,
   type ExecutionRole,
+  type GovernanceAuthorization,
   type LifecycleStage,
 } from '../policies/lifecycle.ts'
-import { resolveProjectPath, type RunEvidenceSource, type TrainingProjectManifest } from '../policies/project.ts'
+import { evaluatePlanIntegrity, deriveIntegrityAdvisories, type PlanIntegrityEvaluation } from '../policies/integrity.ts'
+import {
+  resolveProjectPath,
+  validateProjectStructure,
+  type IntegrityReportDeclaration,
+  type IntegrityRole,
+  type RunEvidenceSource,
+  type TrainingProjectManifest,
+} from '../policies/project.ts'
 import { evaluateQualityGates } from '../policies/quality-gates.ts'
 import { HttpServiceError } from '../services/http.ts'
 import type { MlflowExperiment, MlflowModelVersion, MlflowRun, MlflowService } from '../services/mlflow.ts'
@@ -20,17 +30,39 @@ import type { ProjectProcessService } from '../services/project-process.ts'
 import { deterministicSubmissionId, type RayJobsService } from '../services/ray.ts'
 
 type ProcessClient = Pick<ProjectProcessService, 'run'>
-type RayClient = Pick<RayJobsService, 'get' | 'list' | 'logs' | 'stop' | 'submit'>
+type RayClient = Pick<RayJobsService, 'get' | 'list' | 'logs' | 'stop' | 'submit'> & Partial<Pick<RayJobsService, 'version'>>
 type MlflowClient = Pick<MlflowService,
   | 'getExperimentByName'
   | 'searchRuns'
   | 'getRun'
+  | 'getArtifact'
   | 'verifyArtifact'
   | 'getRegisteredModel'
   | 'createRegisteredModel'
   | 'searchModelVersions'
   | 'createModelVersion'
   | 'setRegisteredModelAlias'>
+
+export type PostRunIntegrityReport = {
+  readonly [key: string]: JsonValue
+  readonly id: 'preprocessing' | 'migration'
+  readonly artifactPath: string
+  readonly roles: IntegrityRole[]
+  readonly status: 'passed'
+  readonly artifactDigest: string
+  readonly contentDigest: string
+  readonly size: number
+  readonly runStatusSource: 'param' | 'tag'
+  readonly runStatusKey: string
+  readonly runDigestSource: 'param' | 'tag'
+  readonly runDigestKey: string
+}
+
+export type PostRunIntegrityEvidence = {
+  readonly [key: string]: JsonValue
+  readonly role: IntegrityRole
+  readonly reports: PostRunIntegrityReport[]
+}
 
 export type StageEvidence = {
   readonly [key: string]: JsonValue
@@ -43,10 +75,10 @@ export type StageEvidence = {
 export type RunComparisonOutput = {
   readonly objective: { readonly metric: string; readonly direction: 'max' | 'min' }
   readonly bestRunId?: string
-  readonly rankedRunIds: readonly string[]
-  readonly rejected: readonly {
+  readonly rankedRunIds: string[]
+  readonly rejected: {
     readonly runId: string
-    readonly reasons: readonly string[]
+    readonly reasons: string[]
   }[]
 }
 
@@ -54,6 +86,7 @@ export type CandidateVerificationOutput = {
   readonly runId: string
   readonly metrics: Readonly<Record<string, number>>
   readonly artifacts: Readonly<Record<string, JsonValue>>
+  readonly integrity: PostRunIntegrityEvidence
   readonly qualityGates: JsonValue
   readonly modelUri: string
   readonly evidence: StageEvidence
@@ -65,12 +98,14 @@ export type StageEvidenceOutput = {
   readonly identity: RunIdentity
   readonly metrics: Readonly<Record<string, number>>
   readonly artifacts: Readonly<Record<string, JsonValue>>
+  readonly integrity: PostRunIntegrityEvidence
   readonly evidence: StageEvidence
 }
 
 export interface GalateaControllerOptions {
   readonly projectRoot: string
   readonly releaseRoot: string
+  readonly manifestPath?: string
   readonly manifest: TrainingProjectManifest
   readonly process: ProcessClient
   readonly ray: RayClient
@@ -82,8 +117,13 @@ interface ReleaseManifest {
   readonly project: string
   readonly release_id: string
   readonly runtime_env: Readonly<Record<string, JsonValue>>
-  readonly files: {
-    readonly working_dir: { readonly sha256: string; readonly size_bytes: number }
+  readonly files: Readonly<Record<string, {
+    readonly sha256: string
+    readonly size_bytes: number
+    readonly key?: string
+    readonly filename?: string
+  }>> & {
+    readonly working_dir: { readonly sha256: string; readonly size_bytes: number; readonly key?: string; readonly filename?: string }
   }
 }
 
@@ -97,6 +137,9 @@ interface RunPlan {
   readonly runtimeEnv: Readonly<Record<string, JsonValue>>
   readonly identity: string
   readonly plan: Readonly<Record<string, JsonValue>>
+  readonly integrity?: PlanIntegrityEvaluation
+  readonly advisories?: string[]
+  readonly operationStatus?: OperationStatus
   readonly evidence: StageEvidence
 }
 
@@ -143,11 +186,47 @@ function jsonObject(value: unknown, path: string): Record<string, JsonValue> {
 }
 
 function stringMap(values: readonly { readonly key: string; readonly value: string }[] | undefined): Record<string, string> {
-  return Object.fromEntries((values ?? []).map(item => [item.key, item.value]))
+  const output: Record<string, string> = {}
+  for (const item of values ?? []) {
+    if (Object.prototype.hasOwnProperty.call(output, item.key)) throw new Error(`Run contains duplicate string evidence key ${item.key}`)
+    output[item.key] = item.value
+  }
+  return output
 }
 
 function metricMap(values: readonly { readonly key: string; readonly value: number }[] | undefined): Record<string, number> {
-  return Object.fromEntries((values ?? []).filter(item => Number.isFinite(item.value)).map(item => [item.key, item.value]))
+  const output: Record<string, number> = {}
+  for (const item of values ?? []) {
+    if (!Number.isFinite(item.value)) continue
+    if (Object.prototype.hasOwnProperty.call(output, item.key)) throw new Error(`Run contains duplicate metric key ${item.key}`)
+    output[item.key] = item.value
+  }
+  return output
+}
+
+function valueAtPath(value: unknown, path: string): unknown {
+  let current = value
+  for (const segment of path.split('.')) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)
+      || !Object.prototype.hasOwnProperty.call(current, segment)) return undefined
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return current
+}
+
+function parseArtifactJson(bytes: Uint8Array, path: string): Record<string, unknown> {
+  let decoded: string
+  try {
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    throw new Error(`integrity Artifact ${path} is not valid UTF-8`)
+  }
+  try {
+    return object(JSON.parse(decoded), `integrity Artifact ${path}`)
+  } catch (error: unknown) {
+    if (error instanceof TypeError) throw error
+    throw new Error(`integrity Artifact ${path} is not valid JSON`)
+  }
 }
 
 function shellArgument(value: string): string {
@@ -220,6 +299,16 @@ function sourceValue(
   return source.source === 'param' ? params[source.key] : tags[source.key]
 }
 
+const DEFAULT_PROVENANCE = {
+  executionIdentity: { source: 'tag', key: 'galatea.execution.identity' },
+  project: { source: 'tag', key: 'galatea.project' },
+  release: { source: 'tag', key: 'galatea.release.id' },
+  submission: { source: 'tag', key: 'galatea.submission.id' },
+  readiness: { source: 'tag', key: 'galatea.readiness.digest' },
+  executionMode: { source: 'tag', key: 'galatea.execution.mode' },
+  promotable: { source: 'tag', key: 'galatea.promotable' },
+} as const
+
 function normalizeError(error: unknown, stateChanged = false): ToolResult<never> {
   if (error instanceof HttpServiceError) {
     return failure({
@@ -239,6 +328,7 @@ function normalizeError(error: unknown, stateChanged = false): ToolResult<never>
 export class GalateaController {
   readonly projectRoot: string
   readonly releaseRoot: string
+  readonly manifestPath: string
   readonly manifest: TrainingProjectManifest
   private readonly process: ProcessClient
   private readonly ray: RayClient
@@ -247,6 +337,7 @@ export class GalateaController {
   constructor(options: GalateaControllerOptions) {
     this.projectRoot = options.projectRoot
     this.releaseRoot = options.releaseRoot
+    this.manifestPath = options.manifestPath ?? 'galatea.project.yaml'
     this.manifest = options.manifest
     this.process = options.process
     this.ray = options.ray
@@ -263,6 +354,9 @@ export class GalateaController {
   }
 
   private async configPath(candidate: string): Promise<string> {
+    if (isAbsolute(candidate)) {
+      throw new TypeError(`configPath must be relative to projectRoot ${this.projectRoot}; for example configs/baseline.yaml`)
+    }
     const configRoot = await resolveProjectPath(this.projectRoot, this.manifest.spec.configRoot)
     const config = await resolveProjectPath(this.projectRoot, candidate)
     const within = relative(configRoot, config)
@@ -273,37 +367,103 @@ export class GalateaController {
   }
 
   private async release(candidate: string): Promise<ReleaseManifest> {
+    if (isAbsolute(candidate)) {
+      throw new TypeError(`releaseManifestPath must be relative to releaseRoot ${this.releaseRoot}; for example <release-id>/release.json`)
+    }
     const path = await resolveProjectPath(this.releaseRoot, candidate)
     const value = object(JSON.parse(await readFile(path, 'utf8')), 'release manifest')
     if (value['schema_version'] !== 1) throw new TypeError('release manifest schema_version must be 1')
     if (value['project'] !== this.manifest.metadata.name) throw new TypeError('release manifest belongs to another project')
     const files = object(value['files'], 'release manifest files')
-    const workingDir = object(files['working_dir'], 'release manifest working_dir')
-    const size = workingDir['size_bytes']
-    if (!Number.isSafeInteger(size) || (size as number) < 1) throw new TypeError('release working_dir size must be positive')
+    const parsedFiles: Record<string, { sha256: string; size_bytes: number; key?: string; filename?: string }> = {}
+    for (const [name, rawFile] of Object.entries(files)) {
+      const file = object(rawFile, `release manifest files.${name}`)
+      const size = file['size_bytes']
+      if (!Number.isSafeInteger(size) || (size as number) < 1) throw new TypeError(`release ${name} size must be positive`)
+      const sha256 = nonEmpty(file['sha256'], `${name}.sha256`)
+      if (!/^[a-f0-9]{64}$/.test(sha256)) throw new TypeError(`release ${name} sha256 must be 64 lowercase hexadecimal characters`)
+      const key = typeof file['key'] === 'string' ? nonEmpty(file['key'], `${name}.key`) : undefined
+      if (key !== undefined) {
+        const expectedPrefix = `ray-runtime/${this.manifest.metadata.name}/`
+        if (!key.startsWith(expectedPrefix) || key.split('/').includes('..')) {
+          throw new TypeError(`release ${name} key must stay below ${expectedPrefix}`)
+        }
+      }
+      parsedFiles[name] = {
+        sha256,
+        size_bytes: size as number,
+        ...(key === undefined ? {} : { key }),
+        ...(typeof file['filename'] === 'string' ? { filename: nonEmpty(file['filename'], `${name}.filename`) } : {}),
+      }
+    }
+    const workingDir = parsedFiles['working_dir']
+    if (workingDir === undefined) throw new TypeError('release manifest files must include working_dir')
+    const releaseId = nonEmpty(value['release_id'], 'release_id')
+    if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,127})$/.test(releaseId)) throw new TypeError('release_id contains unsupported characters')
+    const runtimeEnv = jsonObject(value['runtime_env'], 'runtime_env')
+    const workingDirUri = runtimeEnv['working_dir']
+    if (workingDir.key !== undefined && (typeof workingDirUri !== 'string' || !workingDirUri.endsWith(`/${workingDir.key}`))) {
+      throw new TypeError('runtime_env working_dir must reference the declared working_dir key')
+    }
     return {
       schema_version: 1,
       project: value['project'],
-      release_id: nonEmpty(value['release_id'], 'release_id'),
-      runtime_env: jsonObject(value['runtime_env'], 'runtime_env'),
-      files: {
-        working_dir: {
-          sha256: nonEmpty(workingDir['sha256'], 'working_dir.sha256'),
-          size_bytes: size as number,
-        },
-      },
+      release_id: releaseId,
+      runtime_env: runtimeEnv,
+      files: { ...parsedFiles, working_dir: workingDir },
     }
   }
 
-  async inspectProject(): Promise<ToolResult<Record<string, JsonValue>>> {
+  async inspectProject(input: {
+    readonly approvalPolicy?: string
+    readonly permissionPreset?: string
+    readonly signal?: AbortSignal
+  } = {}): Promise<ToolResult<Record<string, JsonValue>>> {
     try {
-      await resolveProjectPath(this.projectRoot, this.manifest.spec.configRoot)
+      const fullAccess = input.permissionPreset === 'danger-full-access'
+      const structure = await validateProjectStructure(this.projectRoot, this.manifest, this.manifestPath)
+      const [experiment, ray] = await Promise.all([
+        this.mlflow.getExperimentByName(this.manifest.spec.mlflow.experimentName, input.signal),
+        this.ray.version === undefined
+          ? Promise.resolve(undefined)
+          : this.ray.version(input.signal).catch(() => undefined),
+      ])
       return success({
         project: this.manifest.metadata.name,
+        pathSemantics: {
+          configPath: 'relative to projectRoot and below configRoot',
+          releaseManifestPath: 'relative to releaseRoot',
+        },
         task: this.manifest.spec.task,
+        executionBackend: this.manifest.spec.executionBackend,
+        structure,
         objective: this.manifest.spec.objective,
         pauseResume: this.manifest.spec.capabilities.pauseResume,
         experimentName: this.manifest.spec.mlflow.experimentName,
+        experimentId: experiment?.experiment_id ?? null,
+        services: {
+          ray: { reachable: ray !== undefined, ...(ray === undefined ? {} : { version: ray.version, rayVersion: ray.ray_version }) },
+          mlflow: { reachable: experiment !== undefined, experimentExists: experiment !== undefined },
+        },
+        approval: {
+          policy: input.approvalPolicy ?? 'unknown',
+          promptsEnabled: input.approvalPolicy === 'never' ? false : input.approvalPolicy === 'ask' ? true : null,
+          permissionPreset: input.permissionPreset ?? 'unknown',
+          requiredForGovernedActions: !fullAccess,
+          governedActionsAvailable: fullAccess || input.approvalPolicy === 'ask'
+            ? true
+            : input.approvalPolicy === 'never'
+              ? false
+              : null,
+          authorizationMode: fullAccess
+            ? 'full-access'
+            : input.approvalPolicy === 'ask'
+              ? 'approval'
+              : input.approvalPolicy === 'never'
+                ? 'blocked'
+                : 'unknown',
+        },
+        operationStatus: operationStatus('project', 'not-applicable', 'not-evaluated', 'not-required'),
       }, `Project ${this.manifest.metadata.name} satisfies the declared Galatea contract.`)
     } catch (error: unknown) {
       return normalizeError(error)
@@ -345,7 +505,7 @@ export class GalateaController {
       if (checked.stdout.trim() !== '') validation = jsonObject(JSON.parse(checked.stdout), 'project config validation')
       return success({
         configPath,
-        patches: input.patches.map(patch => ({ path: patch.path, value: patch.value })),
+        patches: input.patches.map(patch => ({ path: [...patch.path], value: patch.value })),
         validation,
         configDigest: evidenceDigest(rendered),
       }, `Updated and validated ${configPath}.`)
@@ -377,8 +537,12 @@ export class GalateaController {
   }): Promise<ToolResult<RunPlan>> {
     try {
       nonEmpty(input.attempt, 'attempt')
+      const structure = await validateProjectStructure(this.projectRoot, this.manifest, this.manifestPath)
       const configPath = await this.configPath(input.configPath)
       const release = await this.release(input.releaseManifestPath)
+      const checkArgv = this.manifest.spec.entrypoints.checkConfig.map(argument => argument === '{config}' ? configPath : argument)
+      const checked = await this.process.run({ projectRoot: this.projectRoot, argv: checkArgv, ...(input.signal === undefined ? {} : { signal: input.signal }) })
+      if (checked.exitCode !== 0) throw new Error(`project config validation failed with exit code ${String(checked.exitCode)}`)
       const argv = this.manifest.spec.entrypoints.plan.map(argument => argument === '{config}' ? configPath : argument)
       const executed = await this.process.run({ projectRoot: this.projectRoot, argv, ...(input.signal === undefined ? {} : { signal: input.signal }) })
       if (executed.exitCode !== 0) throw new Error(`project plan failed with exit code ${String(executed.exitCode)}`)
@@ -387,6 +551,10 @@ export class GalateaController {
       const run = object(config['run'], 'project plan config.run')
       if (run['role'] !== input.role) throw new Error(`requested role ${input.role} does not match resolved config role ${String(run['role'])}`)
       const evaluation = object(config['evaluation'], 'project plan config.evaluation')
+      const rayConfig = object(config['ray'], 'project plan config.ray')
+      if (Object.keys(rayConfig).length === 0) throw new Error('project plan must declare Ray configuration')
+      const requestedResources = object(plan['requested_resources'], 'project plan requested_resources')
+      if (Object.keys(requestedResources).length === 0) throw new Error('project plan must declare requested Ray resources')
       if (evaluation['evaluate_test'] === true) {
         const access = authorizeDatasetAccess(input.role, 'test')
         if (!access.allowed) throw new Error(access.reason)
@@ -399,6 +567,10 @@ export class GalateaController {
       if (input.role !== 'champion' && objective['uses_test_holdout'] !== false) {
         throw new Error(`${input.role} plan must prove it does not use the final test holdout`)
       }
+      const integrity = evaluatePlanIntegrity(this.manifest.spec.integrity, input.role, plan)
+      if (!integrity.passed) {
+        throw new Error(`project plan failed required integrity checks: ${deriveIntegrityAdvisories(integrity).join('; ')}`)
+      }
       const identityMaterial = {
         project: this.manifest.metadata.name,
         role: input.role,
@@ -410,9 +582,10 @@ export class GalateaController {
         workloadIdempotencyKey: plan['idempotency_key'] ?? null,
         release: {
           id: release.release_id,
-          workingDirSha256: release.files.working_dir.sha256,
+          files: release.files,
           runtimeEnv: release.runtime_env,
         },
+        integrity,
       }
       const identity = evidenceDigest(identityMaterial)
       const evidencePackage = { ...identityMaterial, identity }
@@ -429,9 +602,25 @@ export class GalateaController {
         releaseId: release.release_id,
         runtimeEnv: release.runtime_env,
         identity,
-        plan,
+        plan: {
+          configDigest: plan['config_digest'] ?? null,
+          objective: plan['objective'] ?? null,
+          dataset: plan['dataset'] ?? null,
+          code: plan['code'] ?? null,
+          requestedResources,
+          tracking: plan['tracking'] ?? null,
+          willTrain: plan['will_train'] ?? null,
+          executionBackend: this.manifest.spec.executionBackend,
+          projectStructure: structure,
+        },
+        integrity,
+        advisories: deriveIntegrityAdvisories(integrity),
         evidence,
-      } as RunPlan, `Prepared ${input.role} Run readiness evidence.`, { evidenceDigest: evidence.digest })
+        operationStatus: operationStatus('plan', 'planned', 'not-evaluated', 'approval-required', {
+          preprocessingParity: integrity.preprocessing.status,
+          migrationContamination: integrity.migration.status,
+        }),
+      } as unknown as RunPlan, `Prepared ${input.role} Run readiness evidence.`, { evidenceDigest: evidence.digest })
     } catch (error: unknown) {
       return normalizeError(error)
     }
@@ -442,8 +631,10 @@ export class GalateaController {
     readonly releaseManifestPath: string
     readonly role: ExecutionRole
     readonly attempt: string
+    readonly authorization?: GovernanceAuthorization
     readonly approval?: ApprovalReference
     readonly candidateRunId?: string
+    readonly candidateAuthorization?: GovernanceAuthorization
     readonly candidateApproval?: ApprovalReference
     readonly signal?: AbortSignal
   }): Promise<ToolResult<Record<string, JsonValue>>> {
@@ -452,6 +643,7 @@ export class GalateaController {
     const transition = authorizeTransition({
       to: 'training-optimization',
       evidence: planned.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       ...(input.approval === undefined ? {} : { approval: input.approval }),
     })
     if (!transition.allowed) {
@@ -484,6 +676,7 @@ export class GalateaController {
       const candidateTransition = authorizeTransition({
         to: 'final-validation',
         evidence: candidateEvidence,
+        ...(input.candidateAuthorization === undefined ? {} : { authorization: input.candidateAuthorization }),
         ...(input.candidateApproval === undefined ? {} : { approval: input.candidateApproval }),
       })
       if (!candidateTransition.allowed) {
@@ -495,7 +688,9 @@ export class GalateaController {
           nextAction: 'Approve the current training-optimization evidence before submitting the Champion Job.',
         })
       }
-    } else if (input.candidateRunId !== undefined || input.candidateApproval !== undefined) {
+    } else if (input.candidateRunId !== undefined
+      || input.candidateAuthorization !== undefined
+      || input.candidateApproval !== undefined) {
       return failure({
         category: 'invalid-input',
         message: 'candidate approval applies only to champion submission',
@@ -504,10 +699,17 @@ export class GalateaController {
       })
     }
     try {
-      const submissionId = deterministicSubmissionId(this.manifest.metadata.name, input.role, planned.data.identity)
+      const executionIdentity = input.role === 'champion' && candidateEvidence !== undefined
+        ? evidenceDigest({
+            readinessIdentity: planned.data.identity,
+            candidateRunId: input.candidateRunId,
+            candidateEvidenceDigest: candidateEvidence.digest,
+          })
+        : planned.data.identity
+      const submissionId = deterministicSubmissionId(this.manifest.metadata.name, input.role, executionIdentity)
       const result = await this.ray.submit({
         submissionId,
-        idempotencyKey: planned.data.identity,
+        idempotencyKey: executionIdentity,
         entrypoint: renderEntrypoint(this.manifest.spec.entrypoints.train, planned.data.configPath),
         runtimeEnv: planned.data.runtimeEnv,
         metadata: {
@@ -516,6 +718,13 @@ export class GalateaController {
           attempt: input.attempt,
           release_id: planned.data.releaseId,
           evidence_digest: planned.data.evidence.digest,
+          'galatea.execution.identity': executionIdentity,
+          'galatea.project': this.manifest.metadata.name,
+          'galatea.release.id': planned.data.releaseId,
+          'galatea.submission.id': submissionId,
+          'galatea.readiness.digest': planned.data.evidence.digest,
+          'galatea.execution.mode': 'governed-ray-job',
+          'galatea.promotable': 'true',
           ...(input.candidateRunId === undefined ? {} : { candidate_run_id: input.candidateRunId }),
           ...(candidateEvidence === undefined ? {} : { candidate_evidence_digest: candidateEvidence.digest }),
         },
@@ -525,26 +734,57 @@ export class GalateaController {
         submissionId: result.submissionId,
         reused: result.reused,
         ...(result.status === undefined ? {} : { status: result.status }),
-        idempotencyKey: planned.data.identity,
+        idempotencyKey: executionIdentity,
         readinessEvidenceDigest: planned.data.evidence.digest,
+        operationStatus: operationStatus(
+          'job',
+          result.status === undefined ? 'queued' : executionFromRay(result.status),
+          'not-evaluated',
+          'approved-for-execution',
+        ),
       }, result.reused ? `Reused Ray Job ${result.submissionId}.` : `Submitted Ray Job ${result.submissionId}.`)
     } catch (error: unknown) {
       return normalizeError(error)
     }
   }
 
-  async observeJob(input: { readonly submissionId: string; readonly includeLogs?: boolean; readonly signal?: AbortSignal }): Promise<ToolResult<Record<string, JsonValue>>> {
+  async observeJob(input: {
+    readonly submissionId: string
+    readonly includeLogs?: boolean
+    readonly logCursor?: number
+    readonly signal?: AbortSignal
+  }): Promise<ToolResult<Record<string, JsonValue>>> {
     try {
       const job = await this.ray.get(input.submissionId, input.signal)
       if (job === undefined) return failure({ category: 'not-found', message: 'Ray Job does not exist', retryable: false, stateChanged: false })
-      const logs = input.includeLogs === true ? await this.ray.logs(input.submissionId, input.signal) : undefined
+      if (job.metadata?.['project'] !== this.manifest.metadata.name) {
+        return failure({
+          category: 'permission-denied',
+          message: `Ray Job belongs to project ${String(job.metadata?.['project'] ?? 'unknown')}, not selected project ${this.manifest.metadata.name}`,
+          retryable: false,
+          stateChanged: false,
+          nextAction: 'Select the project that owns this Ray Job and retry.',
+        })
+      }
+      const logs = input.includeLogs === true
+        ? await this.ray.logs(input.submissionId, input.logCursor ?? 0, input.signal)
+        : undefined
       return success({
         submissionId: job.submission_id,
         status: job.status,
+        rayStatus: job.status,
+        metadata: job.metadata ?? {},
+        operationStatus: operationStatus('job', executionFromRay(job.status), 'not-evaluated', 'unknown'),
         ...(job.message === undefined ? {} : { message: job.message }),
         ...(job.error_type === undefined ? {} : { errorType: job.error_type }),
-        ...(logs === undefined ? {} : { logs: logs.logs, logsTruncated: logs.truncated }),
-      }, `Ray Job ${job.submission_id} is ${job.status}.`)
+        ...(logs === undefined ? {} : {
+          logs: logs.logs,
+          logsTruncated: logs.truncated,
+          logCursor: logs.cursor,
+          nextLogCursor: logs.nextCursor,
+          logCursorReset: logs.reset,
+        }),
+      }, `Ray Job ${job.submission_id} is ${job.status}; this is execution state only, not model quality or governance verification.`)
     } catch (error: unknown) {
       return normalizeError(error)
     }
@@ -554,7 +794,27 @@ export class GalateaController {
     try {
       nonEmpty(input.reason, 'reason')
       nonEmpty(input.idempotencyKey, 'idempotencyKey')
-      const result = await this.ray.stop(input.submissionId, input.signal)
+      const job = await this.ray.get(input.submissionId, input.signal)
+      if (job === undefined) throw new HttpServiceError('Ray Job does not exist', 'not-found', false, 404)
+      if (job.metadata?.['project'] !== this.manifest.metadata.name) {
+        return failure({
+          category: 'permission-denied',
+          message: `Ray Job belongs to project ${String(job.metadata?.['project'] ?? 'unknown')}, not selected project ${this.manifest.metadata.name}`,
+          retryable: false,
+          stateChanged: false,
+          nextAction: 'Select the project that owns this Ray Job and retry.',
+        })
+      }
+      if (job.metadata?.['idempotency_key'] !== input.idempotencyKey) {
+        return failure({
+          category: 'conflict',
+          message: 'idempotencyKey does not match the immutable Ray Job execution identity',
+          retryable: false,
+          stateChanged: false,
+          nextAction: 'Use the idempotencyKey returned by galatea_submit_job for this exact Job.',
+        })
+      }
+      const result = await this.ray.stop(input.submissionId, input.idempotencyKey, input.signal)
       return success({
         submissionId: input.submissionId,
         stopped: result.stopped,
@@ -686,6 +946,7 @@ export class GalateaController {
     readonly releaseManifestPath: string
     readonly checkpoint: { readonly runId: string; readonly path: string; readonly digest: string }
     readonly attempt: string
+    readonly authorization?: GovernanceAuthorization
     readonly approval?: ApprovalReference
     readonly signal?: AbortSignal
   }): Promise<ToolResult<Record<string, JsonValue>>> {
@@ -695,6 +956,7 @@ export class GalateaController {
     const transition = authorizeTransition({
       to: 'training-optimization',
       evidence: planned.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       ...(input.approval === undefined ? {} : { approval: input.approval }),
     })
     if (!transition.allowed) {
@@ -737,6 +999,13 @@ export class GalateaController {
           resumed_from_run_id: checkpoint.runId,
           checkpoint_path: checkpoint.path,
           checkpoint_digest: checkpoint.digest,
+          'galatea.execution.identity': planned.data.identity,
+          'galatea.project': this.manifest.metadata.name,
+          'galatea.release.id': planned.data.releaseId,
+          'galatea.submission.id': submissionId,
+          'galatea.readiness.digest': planned.data.evidence.digest,
+          'galatea.execution.mode': 'governed-ray-job',
+          'galatea.promotable': 'true',
         },
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
@@ -750,6 +1019,12 @@ export class GalateaController {
         checkpointDigest: checkpoint.digest,
         idempotencyKey: planned.data.identity,
         readinessEvidenceDigest: planned.data.evidence.digest,
+        operationStatus: operationStatus(
+          'job',
+          result.status === undefined ? 'queued' : executionFromRay(result.status),
+          'not-evaluated',
+          'approved-for-execution',
+        ),
       }, result.reused
         ? `Reused resumed Ray Job ${result.submissionId}.`
         : `Submitted resumed Ray Job ${result.submissionId}.`)
@@ -774,11 +1049,29 @@ export class GalateaController {
 
   private runPreconditions(run: MlflowRun): string[] {
     const reasons: string[] = []
+    const params = stringMap(run.data?.params)
     const tags = stringMap(run.data?.tags)
     if (run.info.status !== 'FINISHED') reasons.push('Run status is not FINISHED')
     for (const [key, expected] of Object.entries(this.manifest.spec.runEvidence.requiredTags)) {
       if (tags[key] !== expected) reasons.push(`required tag ${key} does not equal ${expected}`)
     }
+    const declaration = this.manifest.spec.runEvidence.provenance ?? DEFAULT_PROVENANCE
+    const provenance = Object.entries(declaration)
+    const values = Object.fromEntries(provenance.map(([name, source]) => [name, sourceValue(source, params, tags)]))
+    for (const [name, value] of Object.entries(values)) {
+      if (value === undefined || value.trim() === '') reasons.push(`Run lacks governed provenance ${name}`)
+    }
+    if (values.project !== this.manifest.metadata.name) {
+      reasons.push(`Run provenance project ${String(values.project ?? 'unknown')} does not match ${this.manifest.metadata.name}`)
+    }
+    if (values.executionMode !== 'governed-ray-job') {
+      reasons.push(`Run provenance execution mode ${String(values.executionMode ?? 'unknown')} is not governed-ray-job`)
+    }
+    if (values.promotable !== 'true') reasons.push('Run provenance is not promotable')
+    if (values.executionIdentity === undefined) reasons.push('Run provenance execution identity is missing')
+    if (values.release === undefined) reasons.push('Run provenance release identity is missing')
+    if (values.submission === undefined) reasons.push('Run provenance submission identity is missing')
+    if (values.readiness === undefined) reasons.push('Run provenance readiness binding is missing')
     return reasons
   }
 
@@ -788,10 +1081,98 @@ export class GalateaController {
     return experiment
   }
 
-  private ensureExperiment(run: MlflowRun, experimentId: string): string[] {
+  private ensureExperiment(run: MlflowRun, experiment: MlflowExperiment): string[] {
     const reasons: string[] = []
-    if (run.info.experiment_id !== experimentId) reasons.push(`Run belongs to MLflow Experiment ${String(run.info.experiment_id ?? 'unknown')}, expected ${experimentId}`)
+    if (run.info.experiment_id !== experiment.experiment_id) {
+      reasons.push([
+        `Run ${run.info.run_id} belongs to MLflow Experiment ID ${String(run.info.experiment_id ?? 'unknown')}`,
+        `but the selected Galatea project ${this.manifest.metadata.name} expects ${experiment.name} (ID ${experiment.experiment_id})`,
+        'select the project that owns this Run and retry',
+      ].join('; '))
+    }
     return reasons
+  }
+
+  private async postRunIntegrity(
+    run: MlflowRun,
+    role: IntegrityRole,
+    signal?: AbortSignal,
+  ): Promise<PostRunIntegrityEvidence> {
+    const integrity = this.manifest.spec.integrity
+    if (integrity === undefined) throw new Error('project manifest does not declare required post-Run integrity evidence')
+    const params = stringMap(run.data?.params)
+    const tags = stringMap(run.data?.tags)
+    const reports = Object.entries(integrity.reports) as Array<[
+      'preprocessing' | 'migration',
+      IntegrityReportDeclaration,
+    ]>
+    const normalized: PostRunIntegrityReport[] = []
+    for (const [id, declaration] of reports) {
+      if (!declaration.roles.includes(role)) {
+        throw new Error(`integrity report ${id} is not declared for Run role ${role}`)
+      }
+      const artifact = await this.mlflow.getArtifact({
+        runId: run.info.run_id,
+        path: declaration.artifactPath,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      const report = parseArtifactJson(artifact.bytes, declaration.artifactPath)
+      const exactFields = ['schema_version', 'report_id', 'role', 'status', 'payload', 'content_digest']
+      const unknownFields = Object.keys(report).filter(key => !exactFields.includes(key))
+      const missingFields = exactFields.filter(key => !Object.prototype.hasOwnProperty.call(report, key))
+      if (unknownFields.length > 0 || missingFields.length > 0) {
+        throw new Error(`integrity report ${id} has an invalid envelope`)
+      }
+      if (report['schema_version'] !== 'galatea/integrity/v1' || report['report_id'] !== id) {
+        throw new Error(`integrity report ${id} has an invalid schema or report identity`)
+      }
+      if (report['role'] !== role) throw new Error(`integrity report ${id} role does not match Run role ${role}`)
+      object(report['payload'], `integrity report ${id} payload`)
+      const status = valueAtPath(report, declaration.statusPath)
+      const declaredDigest = valueAtPath(report, declaration.digestPath)
+      if (status !== 'passed') {
+        throw new Error(`integrity report ${id} status must be passed, not ${String(status ?? 'missing')}`)
+      }
+      if (typeof declaredDigest !== 'string' || !/^[a-f0-9]{64}$/.test(declaredDigest)) {
+        throw new Error(`integrity report ${id} digest is missing or malformed`)
+      }
+      if (declaration.digestPath !== 'content_digest') {
+        throw new Error(`integrity report ${id} digestPath must identify the top-level content_digest field`)
+      }
+      const { content_digest: _digest, ...digestMaterial } = report
+      if (evidenceDigest(digestMaterial) !== `sha256:${declaredDigest}`) {
+        throw new Error(`integrity report ${id} content does not match its declared digest`)
+      }
+      const runStatus = declaration.statusSource.source === 'param'
+        ? params[declaration.statusSource.key]
+        : tags[declaration.statusSource.key]
+      const runDigest = declaration.digestSource.source === 'param'
+        ? params[declaration.digestSource.key]
+        : tags[declaration.digestSource.key]
+      if (runStatus !== status) {
+        throw new Error(`Run ${declaration.statusSource.source} ${declaration.statusSource.key} does not match integrity report ${id}`)
+      }
+      if (runDigest !== artifact.digest) {
+        throw new Error(`Run ${declaration.digestSource.source} ${declaration.digestSource.key} does not match integrity Artifact ${id}`)
+      }
+      normalized.push({
+        id,
+        artifactPath: declaration.artifactPath,
+        roles: [...declaration.roles],
+        status: 'passed',
+        artifactDigest: artifact.digest,
+        contentDigest: `sha256:${declaredDigest}`,
+        size: artifact.size,
+        runStatusSource: declaration.statusSource.source,
+        runStatusKey: declaration.statusSource.key,
+        runDigestSource: declaration.digestSource.source,
+        runDigestKey: declaration.digestSource.key,
+      })
+    }
+    if (integrity.migration.enabled && !normalized.some(report => report.id === 'migration')) {
+      throw new Error('migration integrity is enabled but its post-Run report is missing')
+    }
+    return { role, reports: normalized }
   }
 
   private async verifyCheckpoint(input: {
@@ -803,7 +1184,7 @@ export class GalateaController {
     const experiment = await this.declaredExperiment(input.signal)
     const reasons = [
       ...this.runPreconditions(run),
-      ...this.ensureExperiment(run, experiment.experiment_id),
+      ...this.ensureExperiment(run, experiment),
     ]
     const role = stringMap(run.data?.tags)['run.role']
     if (role !== input.expectedRole) {
@@ -827,7 +1208,7 @@ export class GalateaController {
       const candidates: ComparableRun[] = []
       for (const run of runs) {
         const reasons = this.runPreconditions(run)
-        reasons.push(...this.ensureExperiment(run, experiment.experiment_id))
+        reasons.push(...this.ensureExperiment(run, experiment))
         try {
           const comparable = this.comparable(run)
           if (reasons.length === 0) candidates.push(comparable)
@@ -841,11 +1222,12 @@ export class GalateaController {
       const [reference] = candidates.splice(referenceIndex, 1)
       candidates.unshift(reference!)
       const selected = selectBestRun(candidates, this.manifest.spec.objective)
-      return success<RunComparisonOutput>({
+      return success<RunComparisonOutput & Record<string, JsonValue>>({
         objective: this.manifest.spec.objective,
         ...(selected.best === undefined ? {} : { bestRunId: selected.best.runId }),
         rankedRunIds: selected.ranked.map(run => run.runId),
-        rejected: [...rejected, ...selected.rejected],
+        rejected: [...rejected, ...selected.rejected].map(item => ({ runId: item.runId, reasons: [...item.reasons] })),
+        operationStatus: operationStatus('comparison', 'not-applicable', 'not-evaluated', 'not-required'),
       }, selected.best === undefined ? 'No comparable Run has the declared objective metric.' : `Best compatible Run is ${selected.best.runId}.`)
     } catch (error: unknown) {
       return normalizeError(error)
@@ -861,10 +1243,11 @@ export class GalateaController {
       const run = await this.mlflow.getRun(input.runId, input.signal)
       const reasons = this.runPreconditions(run)
       const experiment = await this.declaredExperiment(input.signal)
-      reasons.push(...this.ensureExperiment(run, experiment.experiment_id))
+      reasons.push(...this.ensureExperiment(run, experiment))
       const comparable = this.comparable(run)
       if (comparable.identity.role !== 'trial') reasons.push('training-optimization evidence requires a trial Run')
       if (reasons.length > 0) throw new Error(reasons.join('; '))
+      const integrity = await this.postRunIntegrity(run, 'trial', input.signal)
       const artifacts: Record<string, JsonValue> = {}
       for (const path of this.manifest.spec.runEvidence.stageArtifacts['training-optimization']) {
         const verified = await this.mlflow.verifyArtifact({
@@ -880,6 +1263,7 @@ export class GalateaController {
         runStatus: run.info.status ?? null,
         identity: comparable.identity,
         metrics: comparable.metrics,
+        integrity,
         artifacts,
       }
       const evidence: StageEvidence = {
@@ -887,13 +1271,15 @@ export class GalateaController {
         artifactId: input.runId,
         digest: evidenceDigest(evidencePackage),
       }
-      return success<StageEvidenceOutput>({
+      return success<StageEvidenceOutput & Record<string, JsonValue>>({
         runId: input.runId,
         stage: input.stage,
         identity: comparable.identity,
         metrics: comparable.metrics,
         artifacts,
+        integrity,
         evidence,
+        operationStatus: operationStatus('run', 'succeeded', 'not-evaluated', 'approval-required'),
       }, `Built training-optimization evidence for Run ${input.runId}.`, { evidenceDigest: evidence.digest })
     } catch (error: unknown) {
       return normalizeError(error)
@@ -905,12 +1291,13 @@ export class GalateaController {
       const run = await this.mlflow.getRun(input.runId, input.signal)
       const reasons = this.runPreconditions(run)
       const experiment = await this.declaredExperiment(input.signal)
-      reasons.push(...this.ensureExperiment(run, experiment.experiment_id))
+      reasons.push(...this.ensureExperiment(run, experiment))
       const comparable = this.comparable(run)
       if (comparable.identity.role !== 'champion') reasons.push('final validation requires a champion Run')
       const tags = stringMap(run.data?.tags)
       if (tags['test.evaluated'] !== 'true') reasons.push('final validation Run has not evaluated the final test split')
       if (reasons.length > 0) throw new Error(reasons.join('; '))
+      const integrity = await this.postRunIntegrity(run, 'champion', input.signal)
       const artifacts: Record<string, JsonValue> = {}
       for (const path of this.manifest.spec.runEvidence.stageArtifacts['final-validation']) {
         const verified = await this.mlflow.verifyArtifact({ runId: input.runId, path, ...(input.signal === undefined ? {} : { signal: input.signal }) })
@@ -930,6 +1317,7 @@ export class GalateaController {
         requiredTags: Object.fromEntries(Object.keys(this.manifest.spec.runEvidence.requiredTags).map(key => [key, tags[key] ?? null])),
         modelUri: expectedModelUri,
         artifacts,
+        integrity,
         qualityGates: gates,
       }
       const evidence: StageEvidence = {
@@ -948,14 +1336,23 @@ export class GalateaController {
           reason: result.reason,
         })),
       }
-      return success<CandidateVerificationOutput>({
+      return success<CandidateVerificationOutput & Record<string, JsonValue>>({
         runId: input.runId,
         metrics,
         artifacts,
+        integrity,
         qualityGates,
         modelUri: expectedModelUri,
         evidence,
-      }, `Verified final-validation evidence for Run ${input.runId}.`, { evidenceDigest: evidence.digest })
+        operationStatus: operationStatus(
+          'candidate',
+          'succeeded',
+          gates.passed ? 'passed' : 'failed',
+          gates.passed ? 'approval-required' : 'blocked',
+        ),
+      }, gates.passed
+        ? `Verified final-validation evidence for Run ${input.runId}; promotion still requires approval.`
+        : `Run ${input.runId} finished, but required model quality gates failed.`, { evidenceDigest: evidence.digest })
     } catch (error: unknown) {
       return normalizeError(error)
     }
@@ -965,6 +1362,7 @@ export class GalateaController {
     readonly runId: string
     readonly alias: string
     readonly idempotencyKey: string
+    readonly authorization?: GovernanceAuthorization
     readonly approval?: ApprovalReference
     readonly signal?: AbortSignal
   }): Promise<ToolResult<Record<string, JsonValue>>> {
@@ -973,6 +1371,7 @@ export class GalateaController {
     const transition = authorizeTransition({
       to: 'promotion',
       evidence: verified.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       ...(input.approval === undefined ? {} : { approval: input.approval }),
     })
     if (!transition.allowed) {
@@ -1019,6 +1418,7 @@ export class GalateaController {
         evidenceDigest: verified.data.evidence.digest,
         idempotencyKey: input.idempotencyKey,
         reusedVersion: sameKey !== undefined,
+        operationStatus: operationStatus('promotion', 'succeeded', 'passed', 'promoted'),
       }, `Promoted ${name} version ${version.version} to alias ${input.alias}.`)
     } catch (error: unknown) {
       return normalizeError(error)

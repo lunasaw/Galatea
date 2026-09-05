@@ -56,7 +56,10 @@ test('secret redaction removes credentials recursively without changing IDs', ()
   assert.deepEqual(redactSecrets({
     runId: 'run-1',
     token: 'secret',
-    runtimeEnv: { env_vars: { SAFE_NAME: 'still-sensitive-as-a-container' } },
+    runtimeEnv: {
+      working_dir: 's3://bucket/release/working-dir.zip',
+      env_vars: { SAFE_NAME: 'visible', API_TOKEN: 'hidden' },
+    },
     nested: {
       password: 'secret',
       authorization: 'Bearer hidden',
@@ -67,7 +70,10 @@ test('secret redaction removes credentials recursively without changing IDs', ()
   }), {
     runId: 'run-1',
     token: '[REDACTED]',
-    runtimeEnv: '[REDACTED]',
+    runtimeEnv: {
+      working_dir: 's3://bucket/release/working-dir.zip',
+      env_vars: { SAFE_NAME: 'visible', API_TOKEN: '[REDACTED]' },
+    },
     nested: {
       password: '[REDACTED]',
       authorization: '[REDACTED]',

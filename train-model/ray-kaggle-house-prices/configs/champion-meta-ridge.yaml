@@ -1,0 +1,7 @@
+extends: champion-optimized-ohe.yaml
+
+run:
+  name_prefix: ray-kaggle-house-prices-champion-meta-ridge
+
+submission:
+  filename: meta-ridge-0.1-submission.csv

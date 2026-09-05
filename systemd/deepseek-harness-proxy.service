@@ -1,0 +1,25 @@
+[Unit]
+Description=DeepSeek Harness LAN proxy
+Requires=deepseek-harness.service
+After=deepseek-harness.service network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/socat TCP-LISTEN:9090,bind=10.19.20.26,reuseaddr,fork,keepalive TCP:127.0.0.1:9091
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=10s
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

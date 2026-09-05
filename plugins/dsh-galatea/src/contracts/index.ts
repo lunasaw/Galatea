@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
+import type { OperationStatus } from './status.ts'
+
+export type * from './status.ts'
 
 export type JsonPrimitive = string | number | boolean | null
-export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue }
+export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue }
 
 export type ErrorCategory =
   | 'invalid-input'
@@ -24,6 +27,7 @@ export interface ToolError {
   readonly stateChanged: boolean
   readonly platformIds?: Readonly<Record<string, string>>
   readonly nextAction?: string
+  readonly operationStatus?: OperationStatus
 }
 
 export type ToolResult<T extends JsonValue> =
@@ -83,17 +87,14 @@ export function failure(error: ToolError): ToolResult<never> {
 }
 
 const SECRET_KEY = /(?:^|[._-])(?:authorization|cookie|password|secret|token|api[_-]?key|access[_-]?key|secret[_-]?key)(?:$|[._-])/i
-const SECRET_CONTAINER_KEY = /^(?:runtime_?env|env_?vars|environment)$/i
 
-/** Return a detached JSON-compatible tree with known credential fields masked. */
+/** Return a detached JSON-compatible tree with credential values masked while preserving safe runtime identity. */
 export function redactSecrets(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactSecrets)
   if (value === null || typeof value !== 'object') return value
   const output: Record<string, unknown> = {}
   for (const [key, child] of Object.entries(value)) {
-    output[key] = SECRET_KEY.test(key) || SECRET_CONTAINER_KEY.test(key)
-      ? '[REDACTED]'
-      : redactSecrets(child)
+    output[key] = SECRET_KEY.test(key) ? '[REDACTED]' : redactSecrets(child)
   }
   return output
 }

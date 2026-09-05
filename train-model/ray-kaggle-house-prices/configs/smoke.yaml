@@ -1,0 +1,40 @@
+extends: baseline.yaml
+
+run:
+  role: smoke
+  name_prefix: ray-kaggle-house-prices-smoke
+  seed: 123
+  log_model: false
+
+validation:
+  folds: 2
+  tuning_folds: 2
+  stratification_bins: 4
+
+models:
+  enabled: [elastic_net, gradient_boosting]
+  parameters:
+    elastic_net:
+      alpha: 0.0005
+      l1_ratio: 0.5
+      max_iter: 1000
+    gradient_boosting:
+      n_estimators: 30
+      learning_rate: 0.05
+      max_depth: 2
+      min_samples_leaf: 8
+      max_features: sqrt
+      loss: huber
+
+tuning:
+  enabled: false
+  trials_per_family: 1
+  timeout_seconds_per_family: 0
+
+evaluation:
+  evaluate_holdout: false
+  maximum_holdout_rmsle: 0.30
+
+submission:
+  generate: false
+  filename: smoke-submission.csv

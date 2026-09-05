@@ -22,6 +22,18 @@ version: 2.47.0
 
 # Ray - Unified Framework for Scaling AI and Python Applications
 
+## Execution routing and blocking rules
+
+Ray is preferred for formal, distributed, long-running, resource-intensive, or recoverable workloads, but it
+is not mandatory for every quick local check. Use local execution for read-only inspection, configuration
+validation, bounded smoke tests, and low-risk experiments that are expected to finish quickly. Use the
+project's declared Ray Job path for formal Trials/Champions and durable MLflow or competition evidence.
+
+Before execution, verify the project layout, fixed entrypoint, dependencies, runtime environment/release,
+data identity, split identity, and resource declaration. If any contract is missing, stale, or inconsistent,
+block the run and repair it; do not substitute an ad-hoc local command or bypass the failed preflight. A local
+result must never be labeled as a governed Ray Job result or final evidence.
+
 ## Overview
 
 Ray is an open-source unified framework for scaling AI and Python applications. It provides a simple, universal API for building distributed applications, enabling parallel processing of compute-heavy workloads across clusters of machines. Ray powers some of the most complex and demanding AI workloads in production.

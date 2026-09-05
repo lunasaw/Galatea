@@ -1,5 +1,6 @@
 /platform-data/
 /outputs/
+/mlflow.db
 .ipynb_checkpoints
 __pycache__/
 *.py[cod]

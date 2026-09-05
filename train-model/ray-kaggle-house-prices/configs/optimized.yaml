@@ -1,0 +1,72 @@
+extends: baseline.yaml
+
+run:
+  role: trial
+  name_prefix: ray-kaggle-house-prices-optimized
+  seed: 42
+  log_model: false
+
+models:
+  enabled: [ridge, lasso, elastic_net, gradient_boosting, xgboost, lightgbm, catboost_native]
+  blend_l2: 0.01
+  selected_parameters_path: null
+  parameters:
+    ridge:
+      alpha: 15.0
+    lasso:
+      alpha: 0.00035
+      max_iter: 30000
+      tol: 0.00001
+    elastic_net:
+      alpha: 0.00035
+      l1_ratio: 0.90
+      max_iter: 30000
+      tol: 0.00001
+    gradient_boosting:
+      n_estimators: 3000
+      learning_rate: 0.025
+      max_depth: 3
+      min_samples_leaf: 10
+      max_features: sqrt
+      loss: huber
+    xgboost:
+      n_estimators: 3000
+      learning_rate: 0.018
+      max_depth: 3
+      min_child_weight: 2
+      subsample: 0.85
+      colsample_bytree: 0.80
+      reg_alpha: 0.0001
+      reg_lambda: 3.0
+    lightgbm:
+      n_estimators: 1800
+      learning_rate: 0.018
+      num_leaves: 12
+      max_depth: 5
+      min_child_samples: 15
+      subsample: 0.85
+      colsample_bytree: 0.80
+      reg_alpha: 0.0001
+      reg_lambda: 1.0
+    catboost_native:
+      iterations: 3000
+      learning_rate: 0.03
+      depth: 5
+      l2_leaf_reg: 6.0
+      random_strength: 0.7
+
+tuning:
+  enabled: false
+  trials_per_family: 1
+  timeout_seconds_per_family: 0
+
+evaluation:
+  evaluate_holdout: false
+  maximum_holdout_rmsle: 0.14
+
+data:
+  holdout_fraction: 0.0
+
+submission:
+  generate: false
+  filename: optimized-submission.csv

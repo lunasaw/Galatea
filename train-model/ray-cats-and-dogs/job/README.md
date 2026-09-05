@@ -5,6 +5,7 @@
 1. `ci.py` 创建确定性的 `working-dir.zip`，构建 `ray_cats_dogs` Wheel，生成发布清单并上传
    MinIO；默认在成功后继续执行 CD。
 2. `cd.py` 从发布清单读取 `s3://` Runtime Environment，通过 Ray Jobs API 提交任务。
+3. `warmup.py` 在部署窗口验证每个节点的预装 Conda 环境；它不提交 Ray Job。
 
 `publish.py` 和 `submit.py` 保留为兼容入口，分别等价于“仅 CI 发布”和“单独 CD”。重复发布
 不会重新打包成本地 `gcs://_ray_pkg_*`，也不会让 Ray 隐式覆盖 MinIO 上已有的代码对象。
@@ -24,11 +25,54 @@ cd /data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs
 默认 CD 模式为 `check-config`，会提交 Ray Job 验证 Runtime Env 和配置，但不会启动训练。
 只有显式传入 `--mode train` 才会训练。
 
+正式发布默认使用节点预装的固定 Conda 前缀
+`/data/conda/envs/ray-cats-and-dogs-py312`。`conda.yaml` 仍是权威来源，环境文件 SHA-256
+和前缀会写入 `release.json`；Ray Job 的 `runtime_env.conda` 只携带绝对路径，不会在启动时
+重新创建或下载 Torch/Ray。所有节点必须使用相同路径和内容。首次部署或新环境 hash 可显式
+使用 `--runtime-mode conda` 让 Ray 执行一次动态环境预热；pip 仅用于兼容性 Smoke：
+
+```bash
+python job/ci.py --runtime-mode pip \
+  --pip-requirements /path/to/requirements-ray-smoke.txt --no-cd
+```
+
+可用 `--pip-package 'transformers @ git+https://...@<commit>'` 重复追加固定包。生产
+Trial/Champion 不应依赖共享环境中的包版本；节点需要设置 `RAY_CONDA_HOME=/data/conda`。
+
+### 部署窗口：每个节点预装并验证一次
+
+```bash
+source /data/conda/etc/profile.d/conda.sh
+export RAY_CONDA_HOME=/data/conda
+export CONDA_DEFAULT_CHANNELS=
+export CONDA_PKGS_DIRS=/data/conda/pkgs
+export PIP_CACHE_DIR=/var/cache/ray/pip
+
+/data/conda/bin/conda env create \
+  --file train-model/ray-cats-and-dogs/conda.yaml \
+  --prefix /data/conda/envs/ray-cats-and-dogs-py312
+
+/data/conda/envs/ray-cats-and-dogs-py312/bin/python job/warmup.py
+```
+
+`warmup.py` 会导入 `ray`、`torch`、`mlflow`，输出版本/CUDA 信息并执行 `pip check`。多节点
+部署必须在每个节点运行；某节点未预热时，任务调度到该节点仍可能触发冷启动。
+
+如果不能预装，可在维护窗口先提交一次只做配置检查的动态 Conda Job，等待所有节点环境创建
+成功后再恢复默认的 `preinstalled` 模式：
+
+```bash
+python job/ci.py --runtime-mode conda --mode check-config
+```
+
+不要把 `RAY_JOB_START_TIMEOUT_SECONDS=1800` 或 `3600` 当作长期方案；它只能临时保护一次冷启动。
+
 ## 当前环境默认值
 
 | 配置 | 默认值 |
 | --- | --- |
 | Python | `/data/conda/envs/attend-ray-py312/bin/python` |
+| Ray Job Conda prefix | `/data/conda/envs/ray-cats-and-dogs-py312` |
 | Ray Dashboard | `http://127.0.0.1:8265` |
 | MinIO S3 Endpoint | `http://127.0.0.1:9000` |
 | 凭据文件 | `/etc/minio/training-data-s3.env` |

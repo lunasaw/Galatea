@@ -27,6 +27,9 @@ DEFAULT_BUCKET = "training-data"
 DEFAULT_ENDPOINT_URL = "http://127.0.0.1:9000"
 DEFAULT_PREFIX = "ray-runtime/ray-cats-and-dogs"
 DEFAULT_RAY_ADDRESS = "http://127.0.0.1:8265"
+DEFAULT_CONDA_PREFIX = "/data/conda/envs/ray-cats-and-dogs-py312"
+DEFAULT_RUNTIME_MODE = "preinstalled"
+RUNTIME_MODES = ("preinstalled", "conda", "pip")
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 AWS_ENV_KEYS = {
     "AWS_ACCESS_KEY_ID",
@@ -222,12 +225,242 @@ def _normalize_s3_location(bucket: str, prefix: str) -> tuple[str, str]:
     return normalized_bucket, normalized_prefix
 
 
+def _read_requirements(path: Path) -> list[str]:
+    """Read a small pip requirements file without evaluating shell syntax."""
+
+    if not path.is_file():
+        raise FileNotFoundError(f"pip requirements file does not exist: {path}")
+    packages: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        packages.append(line)
+    if not packages:
+        raise ValueError(f"pip requirements file is empty: {path}")
+    return packages
+
+
+def build_runtime_environment(
+    project_root: Path,
+    *,
+    runtime_mode: str = DEFAULT_RUNTIME_MODE,
+    conda_prefix: str | Path | None = None,
+    pip_requirements: Path | None = None,
+    pip_packages: Sequence[str] = (),
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Build a Ray runtime dependency section from the project environment.
+
+    A fixed Conda prefix is the production default: Ray only checks that the
+    environment exists and does not create it in the Job startup path.  The
+    mapping form (``runtime_mode=conda``) remains available as an explicit
+    first-deployment/warm-up fallback.  ``pip`` is intentionally explicit and
+    intended for compatibility smoke checks; it must never be silently
+    combined with the project Conda environment.
+    """
+
+    if runtime_mode not in RUNTIME_MODES:
+        raise ValueError(f"unsupported runtime mode: {runtime_mode}")
+    root = project_root.resolve()
+    import yaml
+
+    if runtime_mode == "preinstalled":
+        if pip_requirements is not None or pip_packages:
+            raise ValueError("pip requirements or packages are only valid in pip mode")
+        resolved_prefix = Path(
+            conda_prefix
+            or os.environ.get("RAY_CATS_DOGS_CONDA_PREFIX", DEFAULT_CONDA_PREFIX)
+        ).expanduser()
+        if not resolved_prefix.is_absolute():
+            raise ValueError("preinstalled Conda prefix must be an absolute path")
+        environment_path = root / "conda.yaml"
+        if not environment_path.is_file():
+            raise FileNotFoundError(
+                f"project Conda environment does not exist: {environment_path}"
+            )
+        return (
+            {"conda": str(resolved_prefix)},
+            {
+                "runtime_mode": "preinstalled",
+                "environment_source": "conda.yaml",
+                "environment_prefix": str(resolved_prefix),
+                "environment_sha256": _sha256(environment_path),
+            },
+        )
+
+    if runtime_mode == "conda":
+        if pip_requirements is not None or pip_packages:
+            raise ValueError("pip requirements or packages are only valid in pip mode")
+        environment_path = root / "conda.yaml"
+        if not environment_path.is_file():
+            raise FileNotFoundError(f"project Conda environment does not exist: {environment_path}")
+        environment = yaml.safe_load(environment_path.read_text(encoding="utf-8"))
+        if not isinstance(environment, dict):
+            raise ValueError(f"project Conda environment must be a mapping: {environment_path}")
+        dependencies = environment.get("dependencies")
+        if not isinstance(dependencies, list) or not dependencies:
+            raise ValueError(f"project Conda environment has no dependencies: {environment_path}")
+        return (
+            {"conda": environment},
+            {
+                "runtime_mode": "conda",
+                "environment_source": "conda.yaml",
+                "environment_sha256": _sha256(environment_path),
+            },
+        )
+
+    if pip_requirements is None and not pip_packages:
+        raise ValueError("pip mode requires explicit pip requirements or packages")
+    packages = list(pip_packages)
+    if pip_requirements is not None:
+        packages = _read_requirements(pip_requirements) + packages
+    if not packages:
+        raise ValueError("pip mode requires explicit pip requirements or packages")
+    if any(not isinstance(package, str) or not package.strip() for package in packages):
+        raise ValueError("pip packages must be non-empty strings")
+    if pip_requirements is not None:
+        source = str(pip_requirements)
+        digest = _sha256(pip_requirements)
+    else:
+        source = "pip-packages"
+        digest = hashlib.sha256(_canonical_json({"packages": packages})).hexdigest()
+    return (
+        {"pip": {"packages": packages, "pip_check": True}},
+        {
+            "runtime_mode": "pip",
+            "environment_source": source,
+            "environment_sha256": digest,
+        },
+    )
+
+
+def verify_preinstalled_environment(
+    project_root: Path,
+    conda_prefix: str | Path | None = None,
+    *,
+    expected_environment_sha256: str | None = None,
+) -> dict[str, str]:
+    """Verify a node-local project environment before a formal Ray Job.
+
+    This deliberately runs outside the Ray Job startup path.  It checks the
+    immutable ``conda.yaml`` identity, imports the framework stack with the
+    prefix's interpreter, and runs ``pip check`` so dependency failures are
+    found during deployment rather than by a supervisor timeout.
+    """
+
+    root = project_root.resolve()
+    environment_path = root / "conda.yaml"
+    if not environment_path.is_file():
+        raise FileNotFoundError(f"project Conda environment does not exist: {environment_path}")
+    environment_sha256 = _sha256(environment_path)
+    if expected_environment_sha256 and expected_environment_sha256 != environment_sha256:
+        raise ValueError(
+            "project conda.yaml digest does not match the release manifest: "
+            f"{environment_sha256} != {expected_environment_sha256}"
+        )
+    resolved_prefix = Path(
+        conda_prefix
+        or os.environ.get("RAY_CATS_DOGS_CONDA_PREFIX", DEFAULT_CONDA_PREFIX)
+    ).expanduser()
+    result = verify_preinstalled_prefix(resolved_prefix)
+    result["environment_sha256"] = environment_sha256
+    return result
+
+
+def verify_preinstalled_prefix(conda_prefix: str | Path) -> dict[str, str]:
+    """Verify imports and ``pip check`` for an already-selected prefix."""
+
+    resolved_prefix = Path(conda_prefix).expanduser()
+    if not resolved_prefix.is_absolute():
+        raise ValueError("preinstalled Conda prefix must be an absolute path")
+    python = resolved_prefix / "bin" / "python"
+    if not python.is_file():
+        raise FileNotFoundError(f"preinstalled environment Python does not exist: {python}")
+
+    probe = subprocess.run(
+        [
+            str(python),
+            "-c",
+            (
+                "import json, mlflow, ray, torch; "
+                "print(json.dumps({"
+                "'python': __import__('sys').version.split()[0], "
+                "'ray': ray.__version__, "
+                "'torch': torch.__version__, "
+                "'torch_cuda': torch.version.cuda or '', "
+                "'mlflow': mlflow.__version__}, sort_keys=True))"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode != 0:
+        detail = probe.stderr.strip() or probe.stdout.strip()
+        raise RuntimeError(f"preinstalled environment import check failed: {detail}")
+    pip_check = subprocess.run(
+        [str(python), "-m", "pip", "check"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if pip_check.returncode != 0:
+        detail = pip_check.stderr.strip() or pip_check.stdout.strip()
+        raise RuntimeError(f"preinstalled environment pip check failed: {detail}")
+    try:
+        versions = json.loads(probe.stdout.strip())
+    except json.JSONDecodeError as error:
+        raise RuntimeError("preinstalled environment probe returned invalid JSON") from error
+    if not isinstance(versions, dict):
+        raise RuntimeError("preinstalled environment probe returned an invalid payload")
+    return {
+        "environment_prefix": str(resolved_prefix),
+        "python_version": str(versions.get("python", "")),
+        "ray_version": str(versions.get("ray", "")),
+        "torch_version": str(versions.get("torch", "")),
+        "torch_cuda": str(versions.get("torch_cuda", "")),
+        "mlflow_version": str(versions.get("mlflow", "")),
+        "pip_check": "passed",
+    }
+
+
+def warmup_main(arguments: Sequence[str] | None = None) -> int:
+    """Verify a node-local environment during deployment maintenance.
+
+    Run this once on every Ray node before submitting formal Trials/Champions.
+    It intentionally performs no Ray Job submission and therefore cannot add
+    dependency installation to a Job's startup critical path.
+    """
+
+    parser = argparse.ArgumentParser(
+        description="Verify the preinstalled Ray Cats and Dogs Conda environment"
+    )
+    parser.add_argument("--project-root", type=Path, default=_project_root_from_entrypoint())
+    parser.add_argument(
+        "--conda-prefix",
+        default=os.environ.get("RAY_CATS_DOGS_CONDA_PREFIX", DEFAULT_CONDA_PREFIX),
+    )
+    parser.add_argument("--environment-sha256")
+    parsed = parser.parse_args(arguments)
+    result = verify_preinstalled_environment(
+        parsed.project_root,
+        parsed.conda_prefix,
+        expected_environment_sha256=parsed.environment_sha256,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
 def build_release(
     project_root: Path,
     output_root: Path,
     bucket: str = DEFAULT_BUCKET,
     prefix: str = DEFAULT_PREFIX,
     setup_timeout_seconds: int = 600,
+    runtime_mode: str = DEFAULT_RUNTIME_MODE,
+    conda_prefix: str | Path | None = None,
+    pip_requirements: Path | None = None,
+    pip_packages: Sequence[str] = (),
 ) -> BuiltRelease:
     """Build a content-addressed working directory, wheel, and runtime env."""
 
@@ -238,6 +471,13 @@ def build_release(
     bucket, prefix = _normalize_s3_location(bucket, prefix)
     if setup_timeout_seconds <= 0:
         raise ValueError("setup timeout must be positive")
+    dependency_runtime_env, environment_identity = build_runtime_environment(
+        project_root,
+        runtime_mode=runtime_mode,
+        conda_prefix=conda_prefix,
+        pip_requirements=pip_requirements,
+        pip_packages=pip_packages,
+    )
 
     with tempfile.TemporaryDirectory(prefix="ray-cats-dogs-release-") as temporary:
         stage = Path(temporary)
@@ -260,6 +500,7 @@ def build_release(
         }
         release_identity = {
             "build_environment": build_environment,
+            "environment": environment_identity,
             "git": git_identity,
             "packages": package_identity,
         }
@@ -284,17 +525,20 @@ def build_release(
     runtime_env = {
         "working_dir": f"s3://{bucket}/{working_dir_key}",
         "py_modules": [f"s3://{bucket}/{wheel_key}"],
+        **dependency_runtime_env,
         "config": {"setup_timeout_seconds": setup_timeout_seconds},
     }
 
-    from ray.runtime_env import RuntimeEnv
+    if runtime_mode != "preinstalled":
+        from ray.runtime_env import RuntimeEnv
 
-    RuntimeEnv(**runtime_env)
+        RuntimeEnv(**runtime_env)
     manifest = {
         "schema_version": 1,
         "project": "ray-cats-and-dogs",
         "release_id": release_id,
         "build_environment": build_environment,
+        **environment_identity,
         "git": git_identity,
         "runtime_env": runtime_env,
         "s3": {"bucket": bucket, "prefix": release_prefix},
@@ -442,10 +686,34 @@ def load_release_manifest(path: Path) -> dict[str, Any]:
     runtime_env = manifest.get("runtime_env")
     if not isinstance(runtime_env, dict):
         raise ValueError(f"release manifest has no runtime_env: {path}")
+    runtime_mode = manifest.get("runtime_mode")
+    if runtime_mode is not None:
+        if runtime_mode not in RUNTIME_MODES:
+            raise ValueError(f"release manifest has unsupported runtime_mode: {path}")
+        environment_sha256 = manifest.get("environment_sha256")
+        if not isinstance(environment_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", environment_sha256):
+            raise ValueError(f"release manifest has invalid environment_sha256: {path}")
+        if runtime_mode in {"preinstalled", "conda"} and "conda" not in runtime_env:
+            raise ValueError(f"release manifest runtime_env does not match runtime_mode: {path}")
+        if runtime_mode == "pip" and "pip" not in runtime_env:
+            raise ValueError(f"release manifest runtime_env does not match runtime_mode: {path}")
+        if runtime_mode == "preinstalled":
+            prefix = manifest.get("environment_prefix")
+            if not isinstance(prefix, str) or not Path(prefix).is_absolute():
+                raise ValueError(f"preinstalled release has invalid environment_prefix: {path}")
+            if runtime_env.get("conda") != prefix:
+                raise ValueError(
+                    f"preinstalled release prefix does not match runtime_env: {path}"
+                )
 
-    from ray.runtime_env import RuntimeEnv
+    if runtime_mode == "preinstalled":
+        conda_value = runtime_env.get("conda")
+        if not isinstance(conda_value, str) or not Path(conda_value).is_absolute():
+            raise ValueError(f"preinstalled runtime_env must contain an absolute conda prefix: {path}")
+    else:
+        from ray.runtime_env import RuntimeEnv
 
-    RuntimeEnv(**runtime_env)
+        RuntimeEnv(**runtime_env)
     return manifest
 
 
@@ -497,6 +765,12 @@ def submit_release(
         "release_id": str(manifest["release_id"]),
         "working_dir_sha256": str(manifest["files"]["working_dir"]["sha256"]),
     }
+    if manifest.get("runtime_mode"):
+        metadata["runtime_mode"] = str(manifest["runtime_mode"])
+    if manifest.get("environment_sha256"):
+        metadata["environment_sha256"] = str(manifest["environment_sha256"])
+    if manifest.get("environment_prefix"):
+        metadata["environment_prefix"] = str(manifest["environment_prefix"])
     client = JobSubmissionClient(address)
 
     def existing_submission() -> dict[str, Any] | None:
@@ -587,6 +861,29 @@ def _add_ci_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env-file", type=Path, default=DEFAULT_AWS_ENV_FILE)
     parser.add_argument("--endpoint-url")
     parser.add_argument("--setup-timeout-seconds", type=int, default=600)
+    parser.add_argument(
+        "--conda-prefix",
+        default=os.environ.get("RAY_CATS_DOGS_CONDA_PREFIX", DEFAULT_CONDA_PREFIX),
+        help="absolute preinstalled Conda prefix used by production Jobs",
+    )
+    parser.add_argument(
+        "--runtime-mode",
+        choices=RUNTIME_MODES,
+        default=DEFAULT_RUNTIME_MODE,
+        help="dependency strategy; preinstalled is the production default, conda is the warm-up fallback",
+    )
+    parser.add_argument(
+        "--pip-requirements",
+        type=Path,
+        help="requirements file for explicit pip smoke/debug mode",
+    )
+    parser.add_argument(
+        "--pip-package",
+        dest="pip_packages",
+        action="append",
+        default=[],
+        help="explicit pip package; may be repeated with --runtime-mode pip",
+    )
 
 
 def _add_cd_arguments(
@@ -596,6 +893,11 @@ def _add_cd_arguments(
 ) -> None:
     if require_manifest:
         parser.add_argument("--manifest", type=Path, required=True)
+        parser.add_argument(
+            "--runtime-mode",
+            choices=RUNTIME_MODES,
+            help="assert the dependency mode recorded by the release manifest",
+        )
     parser.add_argument(
         "--address",
         default=_default_ray_jobs_address(),
@@ -626,6 +928,10 @@ def build_and_publish_release(
     env_file: Path,
     endpoint_url: str | None,
     setup_timeout_seconds: int,
+    runtime_mode: str = DEFAULT_RUNTIME_MODE,
+    conda_prefix: str | Path | None = None,
+    pip_requirements: Path | None = None,
+    pip_packages: Sequence[str] = (),
     dry_run: bool,
 ) -> tuple[BuiltRelease, dict[str, Any]]:
     """Build a release and optionally upload its immutable files to MinIO."""
@@ -636,6 +942,10 @@ def build_and_publish_release(
         bucket=bucket,
         prefix=prefix,
         setup_timeout_seconds=setup_timeout_seconds,
+        runtime_mode=runtime_mode,
+        conda_prefix=conda_prefix,
+        pip_requirements=pip_requirements,
+        pip_packages=pip_packages,
     )
     statuses: dict[str, str] = {}
     resolved_endpoint = endpoint_url
@@ -651,6 +961,10 @@ def build_and_publish_release(
     result = {
         "dry_run": dry_run,
         "endpoint_url": resolved_endpoint if not dry_run else None,
+        "runtime_mode": release.manifest.get("runtime_mode", DEFAULT_RUNTIME_MODE),
+        "environment_source": release.manifest.get("environment_source", "conda.yaml"),
+        "environment_prefix": release.manifest.get("environment_prefix"),
+        "environment_sha256": release.manifest.get("environment_sha256"),
         "manifest_path": str(release.manifest_path),
         "release_id": release.manifest["release_id"],
         "runtime_env_path": str(release.runtime_env_path),
@@ -668,12 +982,28 @@ def deploy_release_manifest(
     mode: str,
     overrides: Sequence[str] = (),
     force: bool = False,
+    runtime_mode: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Validate a release manifest and optionally submit it to Ray Jobs."""
 
     manifest = load_release_manifest(manifest_path)
+    if (
+        runtime_mode is not None
+        and manifest.get("runtime_mode") is not None
+        and manifest.get("runtime_mode") != runtime_mode
+    ):
+        raise ValueError(
+            f"manifest runtime_mode is {manifest.get('runtime_mode')!r}, not {runtime_mode!r}"
+        )
     resolved_submission_id = submission_id or generate_submission_id(config, mode)
+    if mode == "train" and not dry_run and manifest.get("runtime_mode") == "preinstalled":
+        verify_preinstalled_prefix(str(manifest["environment_prefix"]))
+    elif mode == "train" and not dry_run and manifest.get("runtime_mode") is not None:
+        raise ValueError(
+            "formal train submissions require runtime_mode=preinstalled; "
+            "use check-config to warm up a dynamic Conda fallback"
+        )
     entrypoint = build_training_entrypoint(
         config,
         mode,
@@ -684,6 +1014,10 @@ def deploy_release_manifest(
         "address": address,
         "dry_run": dry_run,
         "entrypoint": entrypoint,
+        "runtime_mode": manifest.get("runtime_mode"),
+        "environment_source": manifest.get("environment_source"),
+        "environment_prefix": manifest.get("environment_prefix"),
+        "environment_sha256": manifest.get("environment_sha256"),
         "runtime_env": manifest["runtime_env"],
         "submission_id": resolved_submission_id,
     }
@@ -720,6 +1054,10 @@ def publish_main(arguments: Sequence[str] | None = None) -> int:
         env_file=parsed.env_file,
         endpoint_url=parsed.endpoint_url,
         setup_timeout_seconds=parsed.setup_timeout_seconds,
+        runtime_mode=parsed.runtime_mode,
+        conda_prefix=parsed.conda_prefix,
+        pip_requirements=parsed.pip_requirements,
+        pip_packages=parsed.pip_packages,
         dry_run=parsed.dry_run,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -747,6 +1085,7 @@ def cd_main(arguments: Sequence[str] | None = None) -> int:
         mode=parsed.mode,
         overrides=parsed.overrides,
         force=parsed.force,
+        runtime_mode=getattr(parsed, "runtime_mode", None),
         dry_run=parsed.dry_run,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -783,6 +1122,15 @@ def ci_main(arguments: Sequence[str] | None = None) -> int:
         help="build locally and validate CD without contacting MinIO or Ray",
     )
     parsed = parser.parse_args(arguments)
+    if parsed.mode == "train" and not parsed.dry_run:
+        if parsed.runtime_mode != "preinstalled":
+            raise ValueError(
+                "formal train submissions require --runtime-mode preinstalled"
+            )
+        verify_preinstalled_environment(
+            parsed.project_root,
+            parsed.conda_prefix,
+        )
     release, ci_result = build_and_publish_release(
         parsed.project_root,
         parsed.output_dir,
@@ -791,6 +1139,10 @@ def ci_main(arguments: Sequence[str] | None = None) -> int:
         env_file=parsed.env_file,
         endpoint_url=parsed.endpoint_url,
         setup_timeout_seconds=parsed.setup_timeout_seconds,
+        runtime_mode=parsed.runtime_mode,
+        conda_prefix=parsed.conda_prefix,
+        pip_requirements=parsed.pip_requirements,
+        pip_packages=parsed.pip_packages,
         dry_run=parsed.dry_run,
     )
     cd_result: dict[str, Any] | None = None

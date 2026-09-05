@@ -246,7 +246,10 @@ Runtime Environment 中：
 - `py_modules` 提供真正的 Python 包；
 - `excludes` 排除 `.git`、Notebook、测试、缓存和字节码；
 - 代码分发不等于依赖分发。各 Ray 节点仍必须安装与项目 `conda.yaml` 一致的 Python、Ray、框架、
-  CUDA 和系统库。
+  CUDA 和系统库。正式 Job 应通过节点镜像或固定 Conda 前缀提供这些依赖；不要在每个 Job 的
+  `runtime_env` 中现场创建完整环境。首次部署可用一次动态 Conda warm-up Job，随后切换为
+  `runtime_env.conda` 的绝对前缀。发布门禁应在提交 Trial/Champion 前逐节点执行框架导入和
+  `pip check`，并把环境文件 SHA-256 与前缀写入 release manifest。
 
 ### 7.2 不可变 MinIO Release
 

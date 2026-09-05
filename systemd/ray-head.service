@@ -11,8 +11,17 @@ User=root
 Group=root
 WorkingDirectory=/data/ai/chenzhangyue/code/galatea
 Environment="PATH=/data/conda/envs/attend-ray-py312/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="RAY_CONDA_HOME=/data/conda"
+# The project Conda YAMLs pin the approved mirror explicitly.  Conda 26 still
+# consults the global ``defaults`` multichannel unless it is cleared, which
+# would trigger an interactive Anaconda Terms-of-Service gate in Ray's
+# non-interactive runtime-env agent.
+Environment="CONDA_DEFAULT_CHANNELS="
+Environment="CONDA_PKGS_DIRS=/data/conda/pkgs"
+Environment="PIP_CACHE_DIR=/var/cache/ray/pip"
 Environment="PYTHONUNBUFFERED=1"
 EnvironmentFile=/etc/minio/ray-runtime-s3.env
+ExecStartPre=/usr/bin/install -d -o root -g root -m 0755 /var/cache/ray/pip
 ExecStart=/data/conda/envs/attend-ray-py312/bin/ray start --head --node-ip-address=10.19.20.26 --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 '--resources={"accelerator_type:GC50":4}' --disable-usage-stats --block
 ExecStop=/data/conda/envs/attend-ray-py312/bin/ray stop --grace-period 30
 Restart=on-failure

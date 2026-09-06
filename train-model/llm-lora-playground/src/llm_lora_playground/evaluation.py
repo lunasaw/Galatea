@@ -87,25 +87,32 @@ def evaluate_variant(variant: str, frozen_protocol: dict[str, Any], model_ref: A
 
 def claim_test_evaluation(freeze_id: str, split_manifest_sha256: str, ledger_path: Any) -> TestEvaluationClaim:
     """Atomically consume the one permitted test evaluation for a frozen candidate."""
+    import fcntl
     from pathlib import Path
 
     ledger_path = Path(ledger_path).resolve()
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    ledger = json.loads(ledger_path.read_text(encoding="utf-8")) if ledger_path.is_file() else {"claims": []}
-    if any(claim.get("freeze_id") == freeze_id for claim in ledger.get("claims", [])):
-        raise EvaluationProtocolError(f"test evaluation already exists for frozen candidate: {freeze_id}")
-    evaluation_id = hashlib.sha256(f"{freeze_id}:{split_manifest_sha256}".encode()).hexdigest()
-    claim = {"test_evaluation_id": evaluation_id, "freeze_id": freeze_id, "split_manifest_sha256": split_manifest_sha256}
-    ledger.setdefault("claims", []).append(claim)
-    fd, temp_name = tempfile.mkstemp(prefix=f".{ledger_path.name}.", dir=ledger_path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(ledger, handle, ensure_ascii=False, sort_keys=True, indent=2)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, ledger_path)
-    finally:
-        if os.path.exists(temp_name):
-            os.unlink(temp_name)
+    lock_path = ledger_path.with_name(f".{ledger_path.name}.lock")
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8")) if ledger_path.is_file() else {"claims": []}
+            if any(claim.get("freeze_id") == freeze_id for claim in ledger.get("claims", [])):
+                raise EvaluationProtocolError(f"test evaluation already exists for frozen candidate: {freeze_id}")
+            evaluation_id = hashlib.sha256(f"{freeze_id}:{split_manifest_sha256}".encode()).hexdigest()
+            claim = {"test_evaluation_id": evaluation_id, "freeze_id": freeze_id, "split_manifest_sha256": split_manifest_sha256}
+            ledger.setdefault("claims", []).append(claim)
+            fd, temp_name = tempfile.mkstemp(prefix=f".{ledger_path.name}.", dir=ledger_path.parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(ledger, handle, ensure_ascii=False, sort_keys=True, indent=2)
+                    handle.write("\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp_name, ledger_path)
+            finally:
+                if os.path.exists(temp_name):
+                    os.unlink(temp_name)
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     return TestEvaluationClaim(**claim)

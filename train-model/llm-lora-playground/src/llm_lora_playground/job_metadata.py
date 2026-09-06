@@ -19,7 +19,7 @@ def build_job_metadata(**kwargs: Any) -> dict[str, Any]:
     missing = required - set(kwargs)
     if missing:
         raise ValueError(f"missing metadata fields: {sorted(missing)}")
-    metadata = {"schema_version": "toy-lora-job-v1", **kwargs}
+    metadata = {"schema_version": "llm-lora-ray-job-v2", **kwargs}
     metadata.setdefault("status", "submitted")
     metadata.setdefault("created_at", _now())
     metadata.setdefault("updated_at", metadata["created_at"])
@@ -46,5 +46,18 @@ def update_checkpoint_pointer(metadata: dict[str, Any], checkpoint_record: dict[
     updated = dict(metadata)
     updated["checkpoint_uri"] = checkpoint_record["uri"]
     updated["checkpoint_digest"] = checkpoint_record["digest"]
+    updated["updated_at"] = _now()
+    return updated
+
+
+def update_job_status(metadata: dict[str, Any], status: str, reason: str | None = None) -> dict[str, Any]:
+    if status not in {"submitted", "running", "completed", "failed", "interrupted", "blocked"}:
+        raise ValueError(f"invalid job status: {status}")
+    updated = dict(metadata)
+    updated["status"] = status
+    if reason:
+        updated["failure_reason"] = reason
+    elif "failure_reason" in updated:
+        updated.pop("failure_reason")
     updated["updated_at"] = _now()
     return updated

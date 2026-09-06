@@ -8,14 +8,14 @@ version = "0.1.0"
 description = "Qwen3.5 project-0+1 inference baseline"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "PyYAML>=6.0",
-    "mlflow>=3.0",
-    "torch>=2.5",
-    "transformers>=4.57",
-    "accelerate>=1.0",
-    "datasets>=3.0",
-    "peft>=0.14",
-    "ray[default]>=2.40",
+    "PyYAML==6.0.3",
+    "mlflow==3.14.0",
+    "torch==2.11.0",
+    "transformers==5.16.1",
+    "accelerate==1.14.0",
+    "datasets==5.0.1",
+    "peft==0.20.0",
+    "ray[default]==2.53.0",
 ]
 
 [tool.setuptools.packages.find]

@@ -46,14 +46,16 @@ dsh plugin --profile web add .
 dsh --profile web --dump-config
 ```
 
-默认 bundle 提供管理员配置的受信项目注册表，共三个项目：
+默认 bundle 提供管理员配置的受信项目注册表，共四个项目：
 
 - `ray-cats-and-dogs`（默认选择），Release 根为
   `/data/ai/chenzhangyue/code/galatea/platform-data/ray-cats-and-dogs-release`；
 - `ray-handwritten-digits`，Release 根为
   `/data/ai/chenzhangyue/code/galatea/platform-data/ray-handwritten-digits-release`；
 - `ray-kaggle-house-prices`，Release 根为
-  `/data/ai/chenzhangyue/code/galatea/platform-data/ray-kaggle-house-prices-release`。
+  `/data/ai/chenzhangyue/code/galatea/platform-data/ray-kaggle-house-prices-release`；
+- `llm-lora-playground`，Release 根为
+  `/data/ai/chenzhangyue/code/galatea/platform-data/llm-lora-playground-release`。
 
 `galatea_list_projects` 只列出该注册表；`galatea_select_project` 只接受其中的 ID。成功的选择由
 Harness 标准 `tool/call`、`tool/result` 或 `tool/code-dispatch` Session 事件记录，并经
@@ -117,9 +119,9 @@ Release。源码、执行脚本、打包配置或会改变数据/切分身份的
 - `galatea_plan_run` 以项目 `--plan` 的结构化输出验证声明的项目结构、预处理上下文一致性、迁移来源和
   污染检查。项目目录、固定入口、依赖、release、必需字段或检查缺失，或者状态未知/失败时，readiness
   fail closed，不生成可提交计划；这类结构或完整性问题不是 advisory。非阻断 backlog 才作为 advisory。
-- 短时、低风险的本地检查或探索实验可以直接运行项目的参数化入口，但不能把结果当作 governed Ray
-  Run 或最终证据。正式 Trial/Champion、长时或资源密集训练优先使用 `galatea_plan_run` →
-  `galatea_submit_job` 的 Ray Job 流程。
+- 短时、低风险的本地检查或探索实验可以直接运行项目声明的 check/plan 入口，但不能把结果当作 governed
+  Ray Run 或最终证据。已注册项目若声明 actual training 仅允许 Ray，则 smoke/trial/champion 全部使用
+  `galatea_plan_run` → `galatea_submit_job`；数据是合成、私有实验或生产候选不改变该架构。
 - Trial 只能使用训练集和验证集；Champion 才能执行最终测试。
 - Run 比较要求任务、数据、切分、预处理、指标定义、评估协议和角色全部兼容。
 - 相同计划身份生成确定性的 Ray Submission ID；提交校验受治理 metadata，停止要求

@@ -80,6 +80,9 @@ def validate_training_config(config: TrainingConfig) -> list[str]:
     lora = values.get("lora", {})
     training = values.get("training", {})
     resources = values.get("resources", {})
+    execution = values.get("execution", {})
+    run = values.get("run", {})
+    evaluation = values.get("evaluation", {})
     if values.get("run_kind") not in {"smoke", "baseline", "evaluation", "ray_smoke", "owner_bulk_approved_experiment"}:
         errors.append("run_kind must be smoke, baseline, evaluation, ray_smoke, or owner_bulk_approved_experiment")
     if not data.get("assistant_only_loss"):
@@ -94,6 +97,62 @@ def validate_training_config(config: TrainingConfig) -> list[str]:
         errors.append("objective_mode must be min or max")
     if resources.get("cpus") != 4 or resources.get("memory_gb") != 8:
         errors.append("resources must declare 4 CPUs and 8 GiB")
+    if execution.get("backend") != "ray_job":
+        errors.append("execution.backend must be ray_job")
+    if execution.get("worker_count") != 1:
+        errors.append("execution.worker_count must be 1")
+    if run.get("role") not in {"smoke", "trial", "champion"}:
+        errors.append("run.role must be smoke, trial, or champion")
+    if not isinstance(run.get("promotable"), bool):
+        errors.append("run.promotable must be boolean")
+    if run.get("role") == "champion" and run.get("promotable") is not True:
+        errors.append("champion runs must set run.promotable=true")
+    if values.get("experiment", {}).get("formal_training_eligible") is False and run.get("promotable") is not False:
+        errors.append("non-formal experiments must set run.promotable=false")
+    if run.get("role") != "champion" and evaluation.get("evaluate_test") is not False:
+        errors.append("smoke and trial runs must set evaluation.evaluate_test=false")
+    if not evaluation.get("protocol_version"):
+        errors.append("evaluation.protocol_version is required")
+    if evaluation.get("compare_base") is not True:
+        errors.append("evaluation.compare_base must be true")
+    if not isinstance(evaluation.get("generation_batch_size"), int) or evaluation.get("generation_batch_size", 0) <= 0:
+        errors.append("evaluation.generation_batch_size must be a positive integer")
+    if run.get("role") == "champion" and evaluation.get("evaluate_test") is not True:
+        errors.append("champion runs must set evaluation.evaluate_test=true")
+    if run.get("role") != "champion" and evaluation.get("evaluate_test") is True:
+        errors.append("only champion runs may set evaluation.evaluate_test=true")
+    if data.get("split_strategy") not in {
+        "scenario_group",
+        "chronological_session_source_split_preserved",
+    }:
+        errors.append("data.split_strategy is unsupported")
+    if not isinstance(data.get("split_seed"), int):
+        errors.append("data.split_seed must be an integer")
+    content_sha256 = data.get("content_sha256")
+    if content_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", str(content_sha256)):
+        errors.append("data.content_sha256 must be a lowercase SHA-256 digest")
+    split_sha256 = data.get("split_sha256")
+    if split_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", str(split_sha256)):
+        errors.append("data.split_sha256 must be a lowercase SHA-256 digest")
+    required_training = {
+        "epochs", "per_device_train_batch_size", "gradient_accumulation_steps",
+        "learning_rate", "warmup_ratio", "scheduler", "max_grad_norm",
+        "optimizer", "seed", "eval_steps", "save_steps",
+    }
+    missing_training = sorted(required_training - set(training))
+    if missing_training:
+        errors.append(f"training is missing required fields: {', '.join(missing_training)}")
+    if training.get("optimizer") != "adamw_torch":
+        errors.append("training.optimizer must be adamw_torch")
+    if training.get("scheduler") != "cosine":
+        errors.append("training.scheduler must be cosine")
+    for key in ("epochs", "per_device_train_batch_size", "gradient_accumulation_steps", "eval_steps", "save_steps"):
+        if key in training and (not isinstance(training[key], int) or training[key] <= 0):
+            errors.append(f"training.{key} must be a positive integer")
+    if not isinstance(training.get("learning_rate"), (int, float)) or float(training.get("learning_rate", 0)) <= 0:
+        errors.append("training.learning_rate must be positive")
+    if not isinstance(training.get("warmup_ratio"), (int, float)) or not 0 <= float(training.get("warmup_ratio", -1)) < 1:
+        errors.append("training.warmup_ratio must be in [0, 1)")
     if values.get("run_kind") == "smoke" and training.get("max_steps") != 10:
         errors.append("smoke max_steps must be 10")
     if values.get("run_kind") == "baseline" and training.get("epochs") != 1:
@@ -112,6 +171,8 @@ def validate_training_config(config: TrainingConfig) -> list[str]:
             errors.append("owner_bulk_approved experiment epochs must be 1")
         if training.get("max_steps") is not None:
             errors.append("owner_bulk_approved experiment max_steps must be null")
+        if run.get("role") != "trial":
+            errors.append("owner_bulk_approved experiment must use run.role=trial")
     secret_key_pattern = re.compile(r"(^|_)(token|password|secret|access[_-]?key|secret[_-]?key)(_|$)", re.IGNORECASE)
 
     def find_secret_keys(value: Any, prefix: str = "") -> list[str]:

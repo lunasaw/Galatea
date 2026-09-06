@@ -4,17 +4,17 @@
 
 ### 1.1 范围
 
-本设计覆盖同一训练入口从本地最小 SFT/LoRA 到 MLflow 公平评估，再到单 GPU Ray Job
-checkpoint 恢复的完整契约。训练数据为可公开分享的合成或公开数据；默认角色是虚构的、
-“温柔但简短的咖啡店店员”，不复制真实伴侣的语言。
+本设计覆盖同一训练入口经不可变 Release、Galatea 和单 GPU Ray Job 完成 SFT/LoRA、MLflow
+公平评估与 Artifact round-trip 的完整契约。训练数据可以是合成数据或经明确授权的脱敏私有副本；
+数据类型只改变身份、角色和晋级资格，不改变代码架构与执行后端。
 
 ### 1.2 非目标
 
-- 不读取、转换或训练真实微信聊天；真实数据仍由 consent ledger、人工审核和非空 SFT 导出门禁控制。
+- 不读取原始未脱敏微信聊天；未经授权的数据仍由 consent ledger、人工审核和 SFT 导出门禁控制。
 - 不做全参数微调、QLoRA、量化库兼容性学习或模型扩容；4B/QLoRA 属于后续独立项目。
 - 不用测试集进行选参、早停、提示词迭代或人工反馈循环。
 - 不把模型注册为生产模型、不更新 alias、不做公网服务或自动发消息。
-- 不让 Ray Job 复制训练逻辑；Ray 只负责提交、资源、生命周期和恢复编排。
+- 不让本地命令或 Ray wrapper 绕过 Galatea；Galatea 负责 readiness/授权，Ray 负责资源和生命周期。
 
 ### 1.3 设计原则
 
@@ -33,7 +33,7 @@ PLANNED
   │ --check-config / schema / data generator check
   ▼
 CONTRACT_VALIDATED
-  │ project 2: 2-sample/2-step check
+  │ immutable release + Galatea plan
   ▼
 SMOKE_PASSED ───────────────┐
   │ 10 steps                 │ 失败：FAILED_DIAGNOSTIC
@@ -45,9 +45,9 @@ EVAL_PROTOCOL_FROZEN         │
   │ base/prompt/LoRA + one test
   ▼                          │
 PROJECT_3_ACCEPTED           │
-  │ submit same train fn to Ray
+  │ Galatea-authorized Ray Job
   ▼                          │
-RAY_SMOKE_RECOVERED ──► PROJECT_4_ACCEPTED
+GOVERNED_RAY_SMOKE_PASSED ──► PROJECT_4_ACCEPTED
 ```
 
 状态只能向前推进；失败重试使用新的 `run_id`/`attempt_id`，并通过 `retry_of` 关联旧状态。
@@ -279,8 +279,9 @@ Artifact round-trip 必须由独立进程完成：
 
 ### 5.1 调度边界
 
-Ray Job 只包装 `scripts/train_lora.py` 暴露的同一 `train(config, runtime)` 函数；本地和 Ray
-执行的 canonical config、seed、数据 digest、训练函数版本和 adapter 输出格式必须一致。
+Galatea 只提交清单声明的固定 Ray Driver，Driver 调用唯一的 `train(config, runtime)` 函数。
+本地只允许 check/plan；所有实验和候选的 canonical config、seed、数据 digest、训练函数版本和
+adapter 输出格式必须一致。
 
 固定资源声明：
 
@@ -343,21 +344,12 @@ created_at / updated_at
 关联旧 Run。只有校验完整的 checkpoint 才能写入 `checkpoint_uri`，且写入采用临时 manifest →
 原子完成标记的方式。
 
-### 5.4 可控中断与恢复演练
+### 5.4 失败和恢复边界
 
-项目 4 只要求 smoke 级恢复：
-
-1. 使用 `ray-job-smoke.yaml`，在第 N 个 step（建议 N=5）完成 checkpoint；
-2. 由可控 flag 或 Driver 取消 Job，产生 `status=interrupted`；
-3. 通过 Ray Job API、MLflow Tracking API 和 Artifact API 检查 Job/Run/checkpoint 状态；
-4. 新建 attempt，读取最近一个完整 checkpoint，继续到目标 step 或安全重跑；
-5. 比较恢复前后的 config/data/model identity、loss history 和 adapter manifest；
-6. 确认旧 Run/adapter 未被覆盖，失败 attempt 不会成为最终候选；
-7. 记录恢复耗时、恢复起点、丢失的最多 step 数和最终状态。
-
-普通失败使用 Ray 的 `max_failures` 和最近完整 checkpoint；`--force` 不是常规重试机制。
-如果 checkpoint 缺失、哈希不匹配、身份不一致或 adapter 目录部分写入，必须从干净状态创建
-新的 Run 并标记原 attempt 为不可恢复。
+当前项目清单声明 `pauseResume: false`，因此不声称支持跨 Job 恢复。失败后保留旧 Run、attempt 和
+完整 checkpoint，用新的 readiness、attempt、Ray submission 与 MLflow Run 干净重试；不得覆盖旧工件。
+未来只有在 checkpoint 经 MLflow Artifact API 校验、恢复身份和新的 Galatea resume entrypoint 均完成后，
+才能把 capability 改为 true。
 
 ## 6. 幂等、失败与发布规则
 

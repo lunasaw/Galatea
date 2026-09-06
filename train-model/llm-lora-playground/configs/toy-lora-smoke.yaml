@@ -1,4 +1,16 @@
 run_kind: smoke
+execution:
+  backend: ray_job
+  worker_count: 1
+run:
+  role: smoke
+  log_model: false
+  promotable: false
+evaluation:
+  evaluate_test: false
+  protocol_version: validation-loss-assistant-only-v2
+  compare_base: true
+  generation_batch_size: 8
 model:
   id: Qwen/Qwen3.5-0.8B
   local_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
@@ -15,6 +27,10 @@ data:
   preprocessing_version: toy-sft-v1
   split_strategy: scenario_group
   split_seed: 42
+  split_ratios: [0.8, 0.1, 0.1]
+  content_sha256: 101ba8e8b937699fda1bf5b0200422f9052c8e0845436627f539ebb69d6348be
+  split_sha256: b700f84b00a9c063d30c5095a252909b598a1828576615e73d7d319e042c53fa
+  sample_count: 400
   assistant_only_loss: true
   packing: false
 lora:
@@ -51,3 +67,4 @@ tracking:
   experiment_name_env: MLFLOW_EXPERIMENT_NAME
   default_experiment_name: llm-lora-playground
   artifact_root: platform-data/llm-baselines
+output_root: platform-data/llm-baselines/toy-lora/training

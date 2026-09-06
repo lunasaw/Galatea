@@ -98,6 +98,7 @@ export class RayJobsService {
     readonly metadata: Readonly<Record<string, string>>
     readonly entrypointNumCpus?: number
     readonly entrypointNumGpus?: number
+    readonly entrypointMemory?: number
     readonly signal?: AbortSignal
   }): Promise<{ submissionId: string; reused: boolean; status?: RayJobStatus }> {
     this.validateGovernedMetadata(input.submissionId, input.idempotencyKey, input.metadata)
@@ -114,6 +115,7 @@ export class RayJobsService {
           metadata: { ...input.metadata, idempotency_key: input.idempotencyKey },
           ...(input.entrypointNumCpus === undefined ? {} : { entrypoint_num_cpus: input.entrypointNumCpus }),
           ...(input.entrypointNumGpus === undefined ? {} : { entrypoint_num_gpus: input.entrypointNumGpus }),
+          ...(input.entrypointMemory === undefined ? {} : { entrypoint_memory: input.entrypointMemory }),
         },
       })
       return { submissionId: created.submission_id ?? input.submissionId, reused: false }
@@ -143,8 +145,9 @@ export class RayJobsService {
     if (metadata['galatea.submission.id'] !== submissionId) {
       throw new TypeError('Ray governed metadata submission identity must equal submission_id')
     }
-    if (metadata['galatea.execution.mode'] !== 'governed-ray-job' || metadata['galatea.promotable'] !== 'true') {
-      throw new TypeError('Ray governed metadata must identify a promotable governed-ray-job')
+    if (metadata['galatea.execution.mode'] !== 'governed-ray-job'
+      || (metadata['galatea.promotable'] !== 'true' && metadata['galatea.promotable'] !== 'false')) {
+      throw new TypeError('Ray governed metadata must identify a governed-ray-job and explicit promotability')
     }
   }
 

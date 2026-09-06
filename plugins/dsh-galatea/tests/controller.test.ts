@@ -246,10 +246,10 @@ async function fixture(options: {
           signal: null,
           stderr: '',
           stdout: JSON.stringify({
-            config: { run: { role }, evaluation: { evaluate_test: role === 'champion' }, ray: { num_workers: 1 } },
+            config: { run: { role, promotable: true }, evaluation: { evaluate_test: role === 'champion' }, ray: { num_workers: 1 } },
             config_digest: `${role}-config`,
             objective: { metric: 'val_accuracy', mode: 'max', uses_test_holdout: false },
-            requested_resources: { training_workers: 1 },
+            requested_resources: { training_workers: 1, cpus: 4, num_gpus: 1, memory_gb: 8 },
             dataset: { content_sha256: 'data-1', split_sha256: 'split-1' },
             code: { source_sha256: 'code-1' },
             idempotency_key: `${role}-identity`,

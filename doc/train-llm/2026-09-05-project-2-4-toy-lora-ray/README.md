@@ -2,11 +2,11 @@
 
 > 状态：已实现代码与 TDD 验证；本目录保留方案、契约、运行手册和验收门。
 >
-> 当前边界：实现提供配置/schema/data/mask/LoRA/checkpoint/evaluation/MLflow/Ray 接口；本次交付只执行
-> 不加载权重、不创建 Run 的契约检查，GPU 训练、Ray Job 和 test-once 仍需按运行手册明确启动。
+> 当前边界：实现提供配置/schema/data/mask/LoRA/checkpoint/evaluation/MLflow/Galatea/Ray 接口；
+> GPU 训练必须使用运行手册规定的不可变 Release 和 Galatea/Ray 流程。
 >
-> 上游状态：项目 0+1 的 Qwen3.5-0.8B 真实权重推理 Smoke 已完成。真实微信数据仍受
-> consent ledger、人工审核和空 SFT 数据集阻断；项目 2–4 全部使用合成或公开数据。
+> 上游状态：项目 0+1 的 Qwen3.5-0.8B 真实权重推理 Smoke 已完成。原始未脱敏微信数据仍受
+> consent ledger 和人工审核门禁；经明确授权的脱敏私有副本只能作为 non-promotable Trial，并复用相同架构。
 
 ## 1. 这组项目要解决什么问题
 
@@ -26,14 +26,14 @@
     └─ MLflow Artifact round-trip
              │
 项目 4：单 GPU Ray Job
-    ├─ 复用同一训练入口
+    ├─ immutable release + Galatea
     ├─ Driver/Worker MLflow 边界
     ├─ Job metadata 与 checkpoint 指针
-    └─ 中断后的安全恢复
+    └─ 失败后的独立重试
 ```
 
 这三个项目只学习风格控制、实验治理和作业恢复，不是现有 `ray-cats-and-dogs` 等项目，
-不模拟真实伴侣，不接入微信数据，
+不模拟真实伴侣；明确授权的脱敏私有副本只能作为同架构 non-promotable Trial，
 也不把任何模型注册为生产 Champion。
 
 ## 2. 文档导航
@@ -73,7 +73,7 @@ train-model/llm-lora-playground/
 │   ├── roundtrip_artifact.py
 │   └── submit_train.py
 ├── job/
-│   └── submit_train.py                 # 可选薄包装；不复制训练逻辑
+│   └── submit_train.py                 # Ray Job 内部固定 Driver；不可直接提交
 ├── src/llm_lora_playground/
 │   ├── datasets.py
 │   ├── sft.py
@@ -115,11 +115,11 @@ train-model/llm-lora-playground/
 
 1. 实现项目 2 骨架、配置、数据生成器、loss mask 和单元测试。
 2. 仅执行 `--check-config`、schema 校验和少量数据生成检查；不启动模型训练。
-3. 获得确认后执行 10-step Toy LoRA smoke。
+3. 构建不可变 Release，经 Galatea plan/authorization 执行 10-step Toy LoRA smoke。
 4. Smoke 的数据、反向传播、adapter round-trip 和 checkpoint 门全部通过后，执行 1 epoch baseline。
 5. 冻结项目 3 的数据、split、prompt、指标定义和测试集；再实现三组对照与 Artifact round-trip。
-6. 项目 3 候选配置冻结并完成一次最终 test 后，才将同一训练函数包装为项目 4 Ray Job。
-7. Ray 中断/恢复演练只使用 smoke 配置；不能把恢复成功误报为最终测试集证据。
+6. 项目 3 候选配置冻结并完成一次最终 test 后，仍使用同一 Galatea/Ray 入口。
+7. 当前项目不声明跨 Job 恢复；失败后新建 attempt/Run，不能把调度成功误报为最终测试集证据。
 
 任何阶段出现数据泄漏、assistant mask 错误、工件哈希不一致、恢复指针歧义或隐私/安全门失败，
 停止进入下一阶段。
@@ -130,7 +130,7 @@ train-model/llm-lora-playground/
 |---|---|---:|---|
 | 项目 2 | 数据生成、loss mask、LoRA smoke、adapter round-trip | 0.5–1 天 | 单 GPU；smoke ≤10 分钟，baseline ≤30 分钟 |
 | 项目 3 | 固定 split、三组对照、MLflow artifact 复现 | 1–2 天 | 单 GPU；数小时级比较 |
-| 项目 4 | Ray Job 包装、metadata、checkpoint 中断恢复 | 0.5–1 天 | 单 GPU；smoke 级恢复演练 |
+| 项目 4 | Galatea/Ray Job、metadata、checkpoint 与独立重试 | 0.5–1 天 | 单 GPU；governed smoke |
 
 时间是学习和工程投入估计，不是训练时长保证。首次模型下载、环境修复、数据去重和服务故障
 不应通过降低验收门来压缩；遇到阻断应记录原因并停在当前项目。

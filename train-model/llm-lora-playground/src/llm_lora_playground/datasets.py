@@ -8,7 +8,7 @@ import random
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, Sequence
 
 
 class DataContractError(ValueError):
@@ -37,6 +37,20 @@ class DatasetManifest:
     def manifest_sha256(self) -> str:
         manifest_path = self.path.parent / "dataset_manifest.json"
         return _sha256(manifest_path) if manifest_path.is_file() else self.dataset_sha256
+
+
+@dataclass(frozen=True)
+class DatasetSplits:
+    strategy: str
+    seed: int
+    samples_by_split: dict[str, list[TrainingSample]]
+    sample_ids_by_split: dict[str, list[str]]
+    group_ids_by_split: dict[str, list[str]]
+    digest: str
+
+    @property
+    def counts(self) -> dict[str, int]:
+        return {name: len(self.samples_by_split[name]) for name in ("train", "validation", "test")}
 
 
 def _sha256(path: Path) -> str:
@@ -145,3 +159,86 @@ def load_samples(path: Path) -> Iterator[TrainingSample]:
                 raise DataContractError(f"duplicate sample_id: {row['sample_id']}")
             seen.add(row["sample_id"])
             yield TrainingSample(row["sample_id"], row["scenario_id"], row["messages"], row["metadata"])
+
+
+def _canonical_digest(value: object) -> str:
+    payload = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_partition(
+    samples: Sequence[TrainingSample],
+    samples_by_split: dict[str, list[TrainingSample]],
+    group_key: str,
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    required = ("train", "validation", "test")
+    if any(not samples_by_split.get(name) for name in required):
+        counts = {name: len(samples_by_split.get(name, [])) for name in required}
+        raise DataContractError(f"train/validation/test splits must all be non-empty: {counts}")
+    seen_samples: set[str] = set()
+    group_owner: dict[str, str] = {}
+    sample_ids: dict[str, list[str]] = {}
+    group_ids: dict[str, list[str]] = {}
+    for split in required:
+        ids: list[str] = []
+        groups: set[str] = set()
+        for sample in samples_by_split[split]:
+            if sample.sample_id in seen_samples:
+                raise DataContractError(f"sample appears in multiple splits: {sample.sample_id}")
+            seen_samples.add(sample.sample_id)
+            group = str(sample.metadata.get(group_key) or sample.scenario_id)
+            previous = group_owner.setdefault(group, split)
+            if previous != split:
+                raise DataContractError(f"group crosses splits: {group}")
+            ids.append(sample.sample_id)
+            groups.add(group)
+        sample_ids[split] = sorted(ids)
+        group_ids[split] = sorted(groups)
+    expected = {sample.sample_id for sample in samples}
+    if seen_samples != expected:
+        raise DataContractError("split partition does not cover the immutable dataset exactly once")
+    return sample_ids, group_ids
+
+
+def partition_samples(samples: Sequence[TrainingSample], data_config: Mapping[str, Any]) -> DatasetSplits:
+    """Resolve the immutable train/validation/test population without model access."""
+
+    items = list(samples)
+    if not items:
+        raise DataContractError("dataset is empty")
+    strategy = str(data_config.get("split_strategy", ""))
+    seed = int(data_config.get("split_seed", 42))
+    if strategy == "chronological_session_source_split_preserved":
+        samples_by_split = {name: [] for name in ("train", "validation", "test")}
+        for sample in items:
+            split = sample.metadata.get("split")
+            if split not in samples_by_split:
+                raise DataContractError(f"metadata.split is invalid for sample {sample.sample_id}")
+            samples_by_split[str(split)].append(sample)
+        group_key = "source_session_id"
+    elif strategy == "scenario_group":
+        from .split import build_group_split
+
+        ratios_value = data_config.get("split_ratios", [0.8, 0.1, 0.1])
+        if not isinstance(ratios_value, list) or len(ratios_value) != 3:
+            raise DataContractError("data.split_ratios must contain train/validation/test ratios")
+        ratios = tuple(float(value) for value in ratios_value)
+        if any(value <= 0 for value in ratios) or abs(sum(ratios) - 1.0) > 1e-9:
+            raise DataContractError("data.split_ratios must be positive and sum to 1")
+        manifest = build_group_split(items, "scenario_id", ratios, seed)
+        lookup = {sample.sample_id: sample for sample in items}
+        samples_by_split = {
+            split: [lookup[sample_id] for sample_id in manifest.sample_ids_by_split[split]]
+            for split in ("train", "validation", "test")
+        }
+        group_key = "scenario_id"
+    else:
+        raise DataContractError(f"unsupported split strategy: {strategy}")
+    sample_ids, group_ids = _validate_partition(items, samples_by_split, group_key)
+    identity = {
+        "strategy": strategy,
+        "seed": seed,
+        "sample_ids_by_split": sample_ids,
+        "group_ids_by_split": group_ids,
+    }
+    return DatasetSplits(strategy, seed, samples_by_split, sample_ids, group_ids, _canonical_digest(identity))

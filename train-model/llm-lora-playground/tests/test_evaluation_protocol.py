@@ -31,6 +31,22 @@ class EvaluationProtocolTests(unittest.TestCase):
             with self.assertRaises(EvaluationProtocolError):
                 claim_test_evaluation("freeze-1", "split-1", ledger)
 
+    def test_test_evaluation_claim_is_reusable_only_for_a_new_freeze(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "test-ledger.json"
+            first = claim_test_evaluation("freeze-1", "split-1", ledger)
+            second = claim_test_evaluation("freeze-2", "split-1", ledger)
+            self.assertNotEqual(first.test_evaluation_id, second.test_evaluation_id)
+
+    def test_test_evaluation_requires_explicit_claim_id(self):
+        with self.assertRaisesRegex(EvaluationProtocolError, "test_evaluation_id"):
+            from llm_lora_playground.evaluation import evaluate_variant
+            evaluate_variant(
+                "lora",
+                {"split": "test", "ruleset_version": "style-v1"},
+                [{"output": "x", "reference": "x"}],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

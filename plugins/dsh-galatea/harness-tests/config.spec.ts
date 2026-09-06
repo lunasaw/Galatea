@@ -32,6 +32,11 @@ describe('dsh-galatea bundle overlay', () => {
                 projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-kaggle-house-prices',
                 releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-kaggle-house-prices-release',
               },
+              {
+                id: 'llm-lora-playground',
+                projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/llm-lora-playground',
+                releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/llm-lora-playground-release',
+              },
             ],
             defaultProject: 'ray-cats-and-dogs',
             rayTokenEnv: { __jsExpr: 'process.env.GALATEA_RAY_TOKEN_ENV' },

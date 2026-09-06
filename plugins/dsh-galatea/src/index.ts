@@ -39,10 +39,12 @@ export function trainingCommandViolation(toolName: string, argumentsValue: unkno
   if (typeof command !== 'string') return undefined
   if (/\bray\s+(?:job|jobs)\s+submit\b/i.test(command)
     || /(?:^|[\s/])job\/(?:cd|submit)\.py\b[^;&|]*\b(?:--mode\s+)?train\b/i.test(command)
+    || /(?:^|[\s/])(?:scripts|job)[\\/]submit_train\.py\b/i.test(command)
+    || /(?:^|[\s/])scripts[\\/]wechat_full_baseline\.py\b/i.test(command)
     || /\bpython(?:3(?:\.\d+)?)?\s+-m\s+ray_[A-Za-z0-9_.]+(?:\.train|\.job_release)\b/i.test(command)) {
     return 'direct Ray Jobs submission is disabled; use galatea_plan_run then galatea_submit_job'
   }
-  const trainingSegments = command.split(/&&|\|\||[;|]/).filter(segment => /scripts[\\/]train\.py\b/i.test(segment))
+  const trainingSegments = command.split(/&&|\|\||[;|]/).filter(segment => /scripts[\\/](?:train|train_lora)\.py\b/i.test(segment))
   if (trainingSegments.some(segment => !/--(?:check-config|plan)\b/i.test(segment))) {
     return 'formal training scripts may not run through a shell; use galatea_plan_run then galatea_submit_job'
   }

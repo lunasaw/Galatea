@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import importlib.metadata
+import hashlib
+import json
+from pathlib import Path
 import platform
 import subprocess
 import sys
@@ -44,6 +47,61 @@ def collect_environment_snapshot() -> dict[str, Any]:
     except (OSError, subprocess.SubprocessError):
         snapshot["gpu_processes"] = []
     return snapshot
+
+
+def environment_digest(snapshot: dict[str, Any] | None = None) -> str:
+    payload = dict(snapshot or collect_environment_snapshot())
+    # Active GPU processes are diagnostic occupancy, not an immutable software or
+    # hardware identity. Including PIDs would make consecutive Galatea plan and
+    # submit preflights produce different readiness identities.
+    payload.pop("gpu_processes", None)
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def validate_training_environment(
+    model_path: Path,
+    expected_python: str = "3.12.12",
+    expected_ray: str = "2.53.0",
+    expected_transformers: str = "5.16.1",
+) -> list[str]:
+    """Validate the fixed Ray/Qwen runtime without loading model weights."""
+
+    errors: list[str] = []
+    python_version = ".".join(map(str, sys.version_info[:3]))
+    if python_version != expected_python:
+        errors.append(f"python version must be {expected_python}, got {python_version}")
+    required = {
+        "ray": expected_ray,
+        "transformers": expected_transformers,
+        "torch": "2.11.0",
+        "peft": "0.20.0",
+        "accelerate": "1.14.0",
+        "mlflow": "3.14.0",
+    }
+    for name, expected in required.items():
+        try:
+            actual = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            errors.append(f"required package is missing: {name}")
+            continue
+        if actual != expected:
+            errors.append(f"{name} version must be {expected}, got {actual}")
+    if not model_path.is_dir():
+        errors.append(f"model path is missing: {model_path}")
+    else:
+        try:
+            from transformers import AutoConfig
+
+            model_config = AutoConfig.from_pretrained(
+                model_path,
+                local_files_only=True,
+                trust_remote_code=False,
+            )
+            if getattr(model_config, "model_type", None) != "qwen3_5":
+                errors.append("model snapshot is not qwen3_5")
+        except Exception as exc:
+            errors.append(f"Qwen3.5 config preflight failed: {type(exc).__name__}: {exc}")
+    return errors
 
 
 def check_gpu_capabilities(device: str = "cuda:0", dtype: Any = None) -> dict[str, Any]:

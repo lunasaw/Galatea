@@ -17,7 +17,14 @@ def main() -> int:
     parser.add_argument("--submission-id")
     parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
-    handle = submit_job(args.config, args.address, {"working_dir": str(args.config.resolve().parents[1])}, args.data, args.submission_id, dry_run=not args.run)
+    handle = submit_job(
+        args.config,
+        args.address,
+        {"py_executable": "/data/conda/envs/llm-lora-ray-py312/bin/python"},
+        args.data,
+        args.submission_id,
+        dry_run=not args.run,
+    )
     print(handle)
     return 0
 

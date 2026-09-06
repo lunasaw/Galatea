@@ -132,7 +132,7 @@ python -m pytest train-model/llm-lora-playground/tests/test_loss_mask.py \
 - 只保存 adapter，不复制完整 base model；
 - checkpoint 目录带 run/attempt/step 唯一前缀；写全后再标记 `complete`；
 - metadata 含 data/config/model/code/environment/seed、step、optimizer/scheduler/RNG state；
-- 训练函数可在本地和 Ray Driver 调用，不能在函数内部假定 notebook 全局变量。
+- 训练函数只能由清单声明的 Ray Driver 调用，不能在函数内部假定 notebook 全局变量；本地入口只做 check/plan。
 
 **测试与检查**
 
@@ -143,16 +143,12 @@ python train-model/llm-lora-playground/scripts/train_lora.py \
   --config configs/toy-lora-smoke.yaml --check-config
 ```
 
-### Task 2.5：项目 2 smoke 和 baseline（需用户确认后才可运行）
+### Task 2.5：项目 2 governed smoke 和 baseline
 
 运行前提：Task 2.1–2.4 的测试通过，模型兼容性/GPU preflight 通过，且明确得到启动确认。
 
-```bash
-python train-model/llm-lora-playground/scripts/train_lora.py \
-  --config configs/toy-lora-smoke.yaml --run
-python train-model/llm-lora-playground/scripts/train_lora.py \
-  --config configs/toy-lora-baseline.yaml --run
-```
+实际运行统一使用不可变 Release、`galatea_plan_run` 和 `galatea_submit_job`。禁止从 shell 调用
+`scripts/train_lora.py --run` 或直接 `ray job submit`。
 
 每次运行都要检查：10-step ≤10 分钟（不含首次下载）、1 epoch ≤30 分钟、loss 有合理变化、
 adapter 可在全新进程加载、固定风格 fixture 相对 base 有可解释差异、失败训练没有覆盖成功 adapter。
@@ -270,10 +266,11 @@ Driver 唯一创建/结束父 Run、发布共享 artifacts 和最终状态；Wor
 恢复只允许从完整且 digest/identity 匹配的 checkpoint 开始；不匹配时干净重跑并关联 `retry_of`。
 `--force` 不作为普通恢复接口。
 
-### Task 4.4：项目 4 Ray smoke（需用户确认后才可运行）
+### Task 4.4：项目 4 Galatea/Ray smoke
 
-执行一次：第 N step checkpoint → 可控取消 → API 检查 → 新 attempt 恢复 → 对比 loss/metadata → 报告。
-检查 Ray Job 成功不被记录成最终 test evidence，且旧成功 adapter/Run 未被覆盖。
+执行一次：不可变 Release → Galatea plan/authorization → Ray Job → MLflow/Artifact API 检查 → 报告。
+当前 `pauseResume: false`，失败后以新 attempt 干净重跑，不声称跨 Job 恢复。检查 Ray Job 成功不被记录成
+最终 test evidence，且旧成功 adapter/Run 未被覆盖。
 
 ## 结束检查
 

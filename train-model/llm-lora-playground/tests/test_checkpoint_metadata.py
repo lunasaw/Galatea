@@ -5,6 +5,7 @@ import unittest
 from llm_lora_playground.checkpoints import (
     CheckpointContractError,
     save_checkpoint,
+    load_checkpoint,
     verify_checkpoint,
 )
 
@@ -19,6 +20,7 @@ class CheckpointMetadataTests(unittest.TestCase):
             )
             self.assertEqual(record.status, "complete")
             verify_checkpoint(record)
+            self.assertEqual(record.digest, load_checkpoint(record.path).digest)
             self.assertTrue((record.path / "checkpoint_manifest.json").is_file())
 
     def test_incomplete_checkpoint_cannot_verify(self):

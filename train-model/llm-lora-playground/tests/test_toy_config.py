@@ -21,6 +21,11 @@ class ToyConfigTests(unittest.TestCase):
         self.assertEqual(smoke.values["run_kind"], "smoke")
         self.assertEqual(smoke.values["training"]["max_steps"], 10)
         self.assertEqual(baseline.values["run_kind"], "baseline")
+        self.assertEqual(smoke.values["execution"]["backend"], "ray_job")
+        self.assertEqual(baseline.values["execution"]["backend"], "ray_job")
+        self.assertEqual(smoke.values["run"]["role"], "smoke")
+        self.assertEqual(baseline.values["run"]["role"], "trial")
+        self.assertFalse(smoke.values["evaluation"]["evaluate_test"])
         self.assertEqual(baseline.values["training"]["epochs"], 1)
         self.assertNotEqual(
             canonical_training_config_digest(smoke),
@@ -47,6 +52,19 @@ class ToyConfigTests(unittest.TestCase):
         candidate = {**values, "tracking": {"token": "secret"}}
         errors = validate_training_config(TrainingConfig(candidate, ROOT / "x.yaml"))
         self.assertTrue(any("secret" in error.lower() for error in errors))
+
+    def test_role_and_final_test_access_are_explicitly_bound(self):
+        values = load_training_config(ROOT / "configs/toy-lora-smoke.yaml").values
+        champion = {
+            **values,
+            "run": {**values["run"], "role": "champion", "promotable": True},
+            "evaluation": {**values["evaluation"], "evaluate_test": True},
+        }
+        self.assertEqual(validate_training_config(TrainingConfig(champion, ROOT / "champion.yaml")), [])
+        invalid_trial = {**values, "evaluation": {**values["evaluation"], "evaluate_test": True}}
+        self.assertTrue(validate_training_config(TrainingConfig(invalid_trial, ROOT / "invalid.yaml")))
+        invalid_champion = {**champion, "run": {**champion["run"], "promotable": False}}
+        self.assertTrue(validate_training_config(TrainingConfig(invalid_champion, ROOT / "invalid-champion.yaml")))
 
 
 if __name__ == "__main__":

@@ -1,4 +1,16 @@
 run_kind: owner_bulk_approved_experiment
+execution:
+  backend: ray_job
+  worker_count: 1
+run:
+  role: trial
+  log_model: false
+  promotable: false
+evaluation:
+  evaluate_test: false
+  protocol_version: validation-loss-assistant-only-v2
+  compare_base: true
+  generation_batch_size: 8
 task: private_redacted_chat_sft_lora
 experiment:
   owner_bulk_approved: true
@@ -22,6 +34,8 @@ data:
   preprocessing_version: wechat-preprocess-v1.2-owner-bulk-approved-import-v1
   split_strategy: chronological_session_source_split_preserved
   split_seed: 42
+  content_sha256: 9d69ea9e50131c19c6528dfc4b63f03d31d77cda57d2d89518015586a9761138
+  split_sha256: dee2650c9b1bf42e7e506ed24bbfb6ed43223767f60db7e08fc95d300cf5c67a
   assistant_only_loss: true
   packing: false
   sample_count: 5000
@@ -57,6 +71,6 @@ generation:
 tracking:
   tracking_uri_env: MLFLOW_TRACKING_URI
   experiment_name_env: MLFLOW_EXPERIMENT_NAME
-  default_experiment_name: llm-lora-playground-private-experiments
+  default_experiment_name: llm-lora-playground
   artifact_root: platform-data/llm-baselines/private-experiments
 output_root: platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/training

@@ -141,6 +141,7 @@ interface RunPlan {
   readonly advisories?: string[]
   readonly operationStatus?: OperationStatus
   readonly evidence: StageEvidence
+  readonly promotable: boolean
 }
 
 interface ResumePlan extends RunPlan {
@@ -163,6 +164,26 @@ function object(value: unknown, path: string): Record<string, unknown> {
 function nonEmpty(value: unknown, path: string): string {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${path} must be a non-empty string`)
   return value
+}
+
+function nonNegativeFiniteNumber(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new TypeError(`${path} must be a finite non-negative number`)
+  }
+  return value
+}
+
+function rayEntrypointResources(plan: RunPlan['plan']): {
+  readonly entrypointNumCpus: number
+  readonly entrypointNumGpus: number
+  readonly entrypointMemory: number
+} {
+  const requested = object(plan['requestedResources'], 'run plan requestedResources')
+  return {
+    entrypointNumCpus: nonNegativeFiniteNumber(requested['cpus'], 'requested_resources.cpus'),
+    entrypointNumGpus: nonNegativeFiniteNumber(requested['num_gpus'], 'requested_resources.num_gpus'),
+    entrypointMemory: nonNegativeFiniteNumber(requested['memory_gb'], 'requested_resources.memory_gb') * 1024 ** 3,
+  }
 }
 
 function checkpointReference(value: unknown): CheckpointReference {
@@ -550,6 +571,7 @@ export class GalateaController {
       const config = object(plan['config'], 'project plan config')
       const run = object(config['run'], 'project plan config.run')
       if (run['role'] !== input.role) throw new Error(`requested role ${input.role} does not match resolved config role ${String(run['role'])}`)
+      if (typeof run['promotable'] !== 'boolean') throw new Error('project plan config.run.promotable must be a boolean')
       const evaluation = object(config['evaluation'], 'project plan config.evaluation')
       const rayConfig = object(config['ray'], 'project plan config.ray')
       if (Object.keys(rayConfig).length === 0) throw new Error('project plan must declare Ray configuration')
@@ -574,6 +596,7 @@ export class GalateaController {
       const identityMaterial = {
         project: this.manifest.metadata.name,
         role: input.role,
+        promotable: run['promotable'],
         attempt: input.attempt,
         configPath,
         configDigest: plan['config_digest'] ?? null,
@@ -596,6 +619,7 @@ export class GalateaController {
       }
       return success({
         role: input.role,
+        promotable: run['promotable'],
         attempt: input.attempt,
         configPath,
         releaseManifestPath: input.releaseManifestPath,
@@ -699,6 +723,7 @@ export class GalateaController {
       })
     }
     try {
+      const entrypointResources = rayEntrypointResources(planned.data.plan)
       const executionIdentity = input.role === 'champion' && candidateEvidence !== undefined
         ? evidenceDigest({
             readinessIdentity: planned.data.identity,
@@ -724,10 +749,11 @@ export class GalateaController {
           'galatea.submission.id': submissionId,
           'galatea.readiness.digest': planned.data.evidence.digest,
           'galatea.execution.mode': 'governed-ray-job',
-          'galatea.promotable': 'true',
+          'galatea.promotable': String(planned.data.promotable),
           ...(input.candidateRunId === undefined ? {} : { candidate_run_id: input.candidateRunId }),
           ...(candidateEvidence === undefined ? {} : { candidate_evidence_digest: candidateEvidence.digest }),
         },
+        ...entrypointResources,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
       return success({
@@ -969,6 +995,7 @@ export class GalateaController {
       })
     }
     try {
+      const entrypointResources = rayEntrypointResources(planned.data.plan)
       const entrypoint = this.manifest.spec.capabilities.resumeEntrypoint
       if (entrypoint === undefined) throw new Error('project resume entrypoint is missing')
       const checkpoint = planned.data.checkpoint
@@ -1005,8 +1032,9 @@ export class GalateaController {
           'galatea.submission.id': submissionId,
           'galatea.readiness.digest': planned.data.evidence.digest,
           'galatea.execution.mode': 'governed-ray-job',
-          'galatea.promotable': 'true',
+          'galatea.promotable': String(planned.data.promotable),
         },
+        ...entrypointResources,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
       return success({

@@ -22,20 +22,32 @@ spec:
   configRoot: configs
   entrypoints:
     checkConfig:
-      - /data/conda/envs/llm-lora-ray-py312/bin/python
+      - /data/conda/envs/ray-llm-py312/bin/python
       - scripts/train_lora.py
       - --config
       - "{config}"
       - --check-config
     plan:
-      - /data/conda/envs/llm-lora-ray-py312/bin/python
+      - /data/conda/envs/ray-llm-py312/bin/python
       - scripts/train_lora.py
       - --config
       - "{config}"
       - --plan
     train:
-      - /data/conda/envs/llm-lora-ray-py312/bin/python
+      - /data/conda/envs/ray-llm-py312/bin/python
       - scripts/submit_train.py
+      - --config
+      - "{config}"
+      - --run
+    inferenceCheck:
+      - /data/conda/envs/ray-llm-py312/bin/python
+      - scripts/serve_lora.py
+      - --config
+      - "{config}"
+      - --check-config
+    inference:
+      - /data/conda/envs/ray-llm-py312/bin/python
+      - scripts/serve_lora.py
       - --config
       - "{config}"
       - --run

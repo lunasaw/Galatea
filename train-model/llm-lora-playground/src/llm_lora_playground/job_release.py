@@ -129,7 +129,7 @@ def build_release(
     *,
     bucket: str = DEFAULT_BUCKET,
     prefix: str = DEFAULT_PREFIX,
-    py_executable: str = "/data/conda/envs/llm-lora-ray-py312/bin/python",
+    py_executable: str = "/data/conda/envs/ray-llm-py312/bin/python",
     repository_root: Path | None = None,
     mlflow_tracking_uri: str = "http://127.0.0.1:5000",
     mlflow_experiment_name: str = "llm-lora-playground",
@@ -183,6 +183,7 @@ def build_release(
             "GALATEA_REPOSITORY_ROOT": str(repository_root),
             "MLFLOW_TRACKING_URI": mlflow_tracking_uri,
             "MLFLOW_EXPERIMENT_NAME": mlflow_experiment_name,
+            "LD_LIBRARY_PATH": "/data/conda/envs/ray-llm-py312/lib:/data/conda/envs/ray-llm-py312/lib/python3.12/site-packages/nvidia/cuda_runtime/lib",
         },
         "config": {"setup_timeout_seconds": 600},
     }

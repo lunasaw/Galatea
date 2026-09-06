@@ -10,18 +10,24 @@ service:
   health_check_period_s: 10
   health_check_timeout_s: 30
 model:
-  id: wechat-private-5k-standard-20260906-v2-step-944-lora
+  id: qwen35-wechat-trial
+  lora_id: wechat-private-5k-standard-20260906-v2-step-944
   base_model_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
   adapter_path: /data/ai/chenzhangyue/code/galatea/platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/training/5486e8a7db3547919a66865983a81162/checkpoints/wechat-private-5k-standard-20260906-v2/step-944/adapter
   checkpoint_manifest_path: /data/ai/chenzhangyue/code/galatea/platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/training/5486e8a7db3547919a66865983a81162/checkpoints/wechat-private-5k-standard-20260906-v2/step-944/checkpoint_manifest.json
   source_mlflow_run_id: 5486e8a7db3547919a66865983a81162
-  engine: transformers-peft-ray-serve
+  engine: ray-serve-llm-vllm
   protocol: openai-chat-completions-v1
   dtype: bfloat16
   device: cuda:0
   max_input_tokens: 512
   trust_remote_code: false
   enable_thinking: false
+  lora_loading_path: s3://training-data/ray-runtime/llm-lora-playground-inference/5486e8a7db3547919a66865983a81162
+  max_model_len: 512
+  max_num_seqs: 1
+  gpu_memory_utilization: 0.7
+  max_loras: 1
 generation:
   do_sample: false
   temperature: 0.7

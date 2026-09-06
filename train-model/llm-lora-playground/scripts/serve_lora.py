@@ -18,6 +18,7 @@ from llm_lora_playground.inference_service import (  # noqa: E402
     create_deployment,
     validate_inference_config,
     write_serving_manifest,
+    validate_inference_binding,
 )
 from llm_lora_playground.planning import code_revision  # noqa: E402
 
@@ -30,8 +31,7 @@ def _submission_id() -> str:
 
 
 def _require_job_boundary() -> None:
-    if os.environ.get("RAY_INFERENCE_AUTHORIZED") != "true":
-        raise RuntimeError("inference service requires the standard Ray Job authorization boundary")
+    validate_inference_binding()
     # Ray Job injects this identifier in some versions, while the runtime
     # context is the authoritative check across local and remote workers.
     try:
@@ -54,14 +54,20 @@ def run(config_path: Path) -> int:
     expected_manifest = os.environ.get("RAY_INFERENCE_MODEL_MANIFEST_DIGEST")
     if expected_manifest and expected_manifest != preflight["model_manifest_sha256"]:
         raise RuntimeError("model manifest digest does not match the submission binding")
-    submission_id = _submission_id()
+    binding = validate_inference_binding()
+    submission_id = binding["submission_id"]
+    if submission_id != _submission_id():
+        raise RuntimeError("submission identity does not match the Galatea binding")
     manifest = build_serving_manifest(preflight, submission_id, os.environ.get("CODE_REVISION", code_revision(PROJECT_ROOT)))
+    manifest["governance_binding"] = binding
     manifest_path = write_serving_manifest(manifest, Path(str(preflight["values"]["output_root"])), submission_id)
     print(json.dumps({"status": "starting", "submission_id": submission_id, "manifest": str(manifest_path), "config_digest": preflight["config_digest"], "model_manifest_sha256": preflight["model_manifest_sha256"]}, ensure_ascii=False, sort_keys=True), flush=True)
 
     from ray import serve
 
     service = preflight["values"]["service"]
+    # Ray LLM/vLLM loads CUDA libraries from the isolated official runtime.
+    # Keep this process-bound and do not persist credentials or prompts.
     serve.start(
         http_options={
             "host": str(service["host"]),
@@ -70,6 +76,9 @@ def run(config_path: Path) -> int:
         }
     )
     app = create_deployment(preflight)
+    official_model_id = preflight.get("official_model_id")
+    if official_model_id:
+        print(json.dumps({"status": "ray-llm-ready", "model": official_model_id, "engine": "ray-serve-llm-vllm", "promotable": False, "test_access": "untouched"}, ensure_ascii=False, sort_keys=True), flush=True)
     serve.run(
         app,
         name=str(service["name"]),

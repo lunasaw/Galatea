@@ -21,6 +21,8 @@ export const GALATEA_TOOL_NAMES = [
   'galatea_patch_config',
   'galatea_plan_run',
   'galatea_submit_job',
+  'galatea_plan_inference',
+  'galatea_submit_inference',
   'galatea_observe_job',
   'galatea_stop_job',
   'galatea_pause_job',
@@ -50,6 +52,7 @@ interface ReadinessRecord {
   readonly releaseManifestPath: string
   readonly attempt: string
   readonly evidenceDigest: string
+  readonly operation?: 'training' | 'inference'
 }
 
 const output = {
@@ -246,10 +249,69 @@ export function createGalateaTools(context: GalateaToolContext): ToolDefinition[
             releaseManifestPath: args.releaseManifestPath,
             attempt: args.attempt,
             evidenceDigest: result.data.evidence.digest,
+            operation: 'training',
           })
         }
       }
       return safeResult(result)
+    },
+  }))
+  tools.push(defineTool({
+    name: 'galatea_plan_inference',
+    description: 'Run the declared read-only inference preflight and build evidence without starting Ray Serve.',
+    parameters: { configPath, releaseManifestPath, attempt: { type: 'string', required: true } }, output,
+    async execute(args, exec) {
+      const selectedController = await controller(exec.agent)
+      const result = await selectedController.planInference({ ...args, signal: exec.signal })
+      if (result.ok) {
+        const session = sessionKey(exec.agent)
+        if (session !== undefined) {
+          readinessBySession.set(session, {
+            project: selectedController.manifest?.metadata?.name ?? 'unknown',
+            role: 'trial',
+            configPath: args.configPath,
+            releaseManifestPath: args.releaseManifestPath,
+            attempt: args.attempt,
+            evidenceDigest: result.data.evidence.digest,
+            operation: 'inference',
+          })
+        }
+      }
+      return safeResult(result)
+    },
+  }))
+  tools.push(defineTool({
+    name: 'galatea_submit_inference',
+    description: 'Submit the fixed official Ray Serve LLM inference entrypoint after evidence-bound authorization.',
+    parameters: { configPath, releaseManifestPath, attempt: { type: 'string', required: true } }, output,
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      const agentFailure = requireAgent(exec.agent)
+      if (agentFailure !== undefined) return safeResult(agentFailure)
+      const selectedController = await controller(exec.agent)
+      const session = sessionKey(exec.agent)
+      const readiness = session === undefined ? undefined : readinessBySession.get(session)
+      if (readiness === undefined || readiness.operation !== 'inference'
+        || readiness.project !== (selectedController.manifest?.metadata?.name ?? 'unknown')
+        || readiness.configPath !== args.configPath
+        || readiness.releaseManifestPath !== args.releaseManifestPath
+        || readiness.attempt !== args.attempt) {
+        return safeResult(failure({
+          category: 'precondition-failed',
+          message: 'galatea_plan_inference must succeed for the same project, config, release manifest, and attempt before galatea_submit_inference',
+          retryable: false,
+          stateChanged: false,
+          nextAction: 'Call galatea_plan_inference first and submit the unchanged plan.',
+        }))
+      }
+      const planned = await selectedController.planInference({ ...args, signal: exec.signal })
+      if (!planned.ok) return safeResult(planned)
+      if (planned.data.evidence.digest !== readiness.evidenceDigest) {
+        return safeResult(failure({ category: 'conflict', message: 'inference readiness evidence changed; plan again before submission', retryable: false, stateChanged: false }))
+      }
+      const authorization = await authorizeAction(context, exec.agent!, planned.data.evidence, 'galatea_submit_inference', 'submit a Ray Serve LLM inference Job', exec.callId, exec.signal)
+      if ('ok' in authorization) return safeResult(authorization)
+      return safeResult(await selectedController.submitInference({ ...args, authorization, signal: exec.signal }))
     },
   }))
   tools.push(defineTool({

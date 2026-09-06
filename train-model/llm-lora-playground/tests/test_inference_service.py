@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from llm_lora_playground.inference_service import validate_inference_config
+from llm_lora_playground.inference_service import validate_inference_binding, validate_inference_config
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +19,8 @@ class InferenceServiceContractTests(unittest.TestCase):
         self.assertEqual(values["governance"]["role"], "trial")
         self.assertFalse(values["governance"]["promotable"])
         self.assertEqual(values["governance"]["test_access"], "untouched")
-        self.assertEqual(values["model"]["engine"], "transformers-peft-ray-serve")
+        self.assertEqual(values["model"]["engine"], "ray-serve-llm-vllm")
+        self.assertTrue(values["model"]["lora_loading_path"].startswith("s3://"))
         self.assertEqual(len(result["model_manifest_sha256"]), 64)
 
     def test_config_rejects_public_bind(self):
@@ -43,6 +44,22 @@ class InferenceServiceContractTests(unittest.TestCase):
             path.write_text(yaml.safe_dump(source, allow_unicode=True))
             with self.assertRaises(ValueError):
                 validate_inference_config(path)
+
+    def test_inference_requires_external_galatea_binding(self):
+        with self.assertRaisesRegex(ValueError, "Galatea authorization binding"):
+            validate_inference_binding(environment={})
+
+    def test_inference_binding_is_explicit_and_typed(self):
+        binding = validate_inference_binding(environment={
+            "GALATEA_PROJECT": "llm-lora-playground",
+            "GALATEA_RELEASE_ID": "2f43042e31363a149af2",
+            "GALATEA_READINESS_DIGEST": "sha256:" + "a" * 64,
+            "GALATEA_EXECUTION_IDENTITY": "sha256:" + "b" * 64,
+            "GALATEA_SUBMISSION_ID": "llm-lora-inference-test",
+            "GALATEA_EXECUTION_MODE": "governed-ray-serve-inference",
+            "GALATEA_INFERENCE_AUTHORIZED": "true",
+        })
+        self.assertEqual(binding["release_id"], "2f43042e31363a149af2")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ def main() -> int:
     else:
         entry_args += ["--data-config", "configs/data.yaml", "--check-data", "--output-dir", "platform-data/llm-baselines/ray-data-preflight"]
     runtime_env = {
-        "conda": "/data/conda/envs/llm-lora-playground-py312",
+        "conda": "/data/conda/envs/ray-llm-py312",
         "env_vars": {
             "QWEN35_MODEL_PATH": "/data/ai/chenzhangyue/code/model/Qwen3.5-0.8B",
             "MLFLOW_TRACKING_URI": "http://127.0.0.1:5000",
@@ -32,7 +32,7 @@ def main() -> int:
         },
     }
     command = [
-        "/data/conda/envs/llm-lora-playground-py312/bin/ray", "job", "submit",
+        "/data/conda/envs/ray-llm-py312/bin/ray", "job", "submit",
         "--address", args.address, "--submission-id", args.submission_id,
         "--working-dir", str(PROJECT_ROOT), "--runtime-env-json", json.dumps(runtime_env),
         "--entrypoint-num-cpus", "4", "--entrypoint-num-gpus", "1", "--entrypoint-memory", str(8 * 1024**3),

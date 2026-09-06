@@ -52,6 +52,48 @@ local execution is never represented as governed Ray evidence. `experimental_onl
 owner approval, and `promotable=false` do not change this execution path. The final test partition is
 not loaded by smoke/trial training or validation quality evaluation.
 
+## Standard Ray LLM inference
+
+The experimental adapter is served through the official Ray LLM integration, rather than a
+project-specific Transformers HTTP wrapper:
+
+```text
+Galatea planInference
+  -> evidence-bound Galatea authorization
+  -> Ray Job (immutable Release, Ray 2.58.0 runtime)
+  -> ray.serve.llm + vLLM (Ray Serve)
+  -> OpenAI-compatible /v1/chat/completions
+```
+
+The pinned serving stack is Ray `2.58.0`, vLLM `0.26.0`, Transformers `5.16.1`, Torch `2.11.0`,
+and PEFT `0.20.0`. The current trial service is loopback-only at `http://127.0.0.1:8000` and
+exposes these model IDs:
+
+```text
+qwen35-wechat-trial
+qwen35-wechat-trial:wechat-private-5k-standard-20260906-v2-step-944
+```
+
+After the first vLLM compilation/warmup, call the adapter with the OpenAI protocol:
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "qwen35-wechat-trial:wechat-private-5k-standard-20260906-v2-step-944",
+    "messages": [{"role": "user", "content": "你好，请用一句话介绍你自己。"}],
+    "max_tokens": 64,
+    "temperature": 0,
+    "stream": false
+  }'
+```
+
+Future inference starts must use the Galatea `galatea_plan_inference` →
+`galatea_submit_inference` path with the same immutable release and unchanged config. Do not run
+`ray job submit`, `job/submit_inference.py`, or `scripts/serve_lora.py --run` manually; the serving
+entrypoint requires the Galatea binding and rejects local execution. The adapter remains a Trial
+(`promotable=false`, `test_access=untouched`) even while it is available for controlled inference.
+
 The Ray Runtime Environment reader requires only `ListBucket` and `GetObject` below
 `s3://training-data/ray-runtime/llm-lora-playground/`; it must not receive upload, delete,
 dataset or MLflow artifact permissions. Add this prefix before publishing the first release,

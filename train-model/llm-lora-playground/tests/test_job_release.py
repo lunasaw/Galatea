@@ -17,7 +17,7 @@ class JobReleaseTests(unittest.TestCase):
             second = build_release(ROOT, Path(directory))
         self.assertEqual(first.manifest["release_id"], second.manifest["release_id"])
         self.assertEqual(
-            "/data/conda/envs/llm-lora-ray-py312/bin/python",
+            "/data/conda/envs/ray-llm-py312/bin/python",
             first.manifest["runtime_env"]["py_executable"],
         )
         self.assertEqual(str(ROOT.parents[1]), first.manifest["runtime_env"]["env_vars"]["GALATEA_REPOSITORY_ROOT"])

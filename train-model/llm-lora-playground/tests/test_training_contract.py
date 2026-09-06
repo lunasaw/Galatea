@@ -51,7 +51,7 @@ class TrainingContractTests(unittest.TestCase):
                 __import__("os").environ["GALATEA_REPOSITORY_ROOT"] = previous
 
     def test_environment_identity_ignores_transient_gpu_processes(self):
-        base = {"python": "3.12.12", "packages": {"ray": "2.53.0"}, "gpu_processes": ["11, python, 10 MiB"]}
+        base = {"python": "3.12.12", "packages": {"ray": "2.58.0"}, "gpu_processes": ["11, python, 10 MiB"]}
         changed = {**base, "gpu_processes": ["99, python, 20 MiB"]}
         self.assertEqual(environment_digest(base), environment_digest(changed))
 

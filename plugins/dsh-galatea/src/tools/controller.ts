@@ -149,6 +149,20 @@ interface ResumePlan extends RunPlan {
   readonly checkpoint: CheckpointReference
 }
 
+interface InferencePlan {
+  readonly [key: string]: JsonValue
+  readonly role: 'trial'
+  readonly attempt: string
+  readonly configPath: string
+  readonly releaseManifestPath: string
+  readonly releaseId: string
+  readonly runtimeEnv: Readonly<Record<string, JsonValue>>
+  readonly identity: string
+  readonly plan: Readonly<Record<string, JsonValue>>
+  readonly evidence: StageEvidence
+  readonly promotable: false
+}
+
 interface CheckpointReference {
   readonly [key: string]: JsonValue
   readonly runId: string
@@ -769,6 +783,146 @@ export class GalateaController {
           'approved-for-execution',
         ),
       }, result.reused ? `Reused Ray Job ${result.submissionId}.` : `Submitted Ray Job ${result.submissionId}.`)
+    } catch (error: unknown) {
+      return normalizeError(error)
+    }
+  }
+
+  async planInference(input: {
+    readonly configPath: string
+    readonly releaseManifestPath: string
+    readonly attempt: string
+    readonly signal?: AbortSignal
+  }): Promise<ToolResult<InferencePlan>> {
+    try {
+      nonEmpty(input.attempt, 'attempt')
+      const structure = await validateProjectStructure(this.projectRoot, this.manifest, this.manifestPath)
+      const configPath = await this.configPath(input.configPath)
+      const release = await this.release(input.releaseManifestPath)
+      const entrypoint = this.manifest.spec.entrypoints.inferenceCheck
+      if (entrypoint === undefined) throw new Error('project does not declare an inferenceCheck entrypoint')
+      const argv = entrypoint.map(argument => argument === '{config}' ? configPath : argument)
+      const checked = await this.process.run({ projectRoot: this.projectRoot, argv, env: { LD_LIBRARY_PATH: '/data/conda/envs/ray-llm-py312/lib:/data/conda/envs/ray-llm-py312/lib/python3.12/site-packages/nvidia/cuda_runtime/lib' }, ...(input.signal === undefined ? {} : { signal: input.signal }) })
+      if (checked.exitCode !== 0) throw new Error(`project inference preflight failed with exit code ${String(checked.exitCode)}`)
+      const check = jsonObject(JSON.parse(checked.stdout), 'project inference preflight')
+      if (check['status'] !== 'ok') throw new Error('project inference preflight did not return status=ok')
+      const configDigest = nonEmpty(check['config_digest'], 'project inference preflight.config_digest')
+      const manifestDigest = nonEmpty(check['model_manifest_sha256'], 'project inference preflight.model_manifest_sha256')
+      const identity = evidenceDigest({
+        project: this.manifest.metadata.name,
+        operation: 'inference',
+        role: 'trial',
+        promotable: false,
+        attempt: input.attempt,
+        configPath,
+        configDigest,
+        modelManifestDigest: manifestDigest,
+        release: { id: release.release_id, files: release.files, runtimeEnv: release.runtime_env },
+        structure,
+      })
+      const evidence: StageEvidence = {
+        stage: 'readiness',
+        artifactId: `${this.manifest.metadata.name}:inference:${input.attempt}`,
+        digest: evidenceDigest({ identity, operation: 'inference-readiness' }),
+      }
+      return success({
+        role: 'trial',
+        promotable: false,
+        attempt: input.attempt,
+        configPath,
+        releaseManifestPath: input.releaseManifestPath,
+        releaseId: release.release_id,
+        runtimeEnv: release.runtime_env,
+        identity,
+        plan: {
+          operation: 'inference',
+          executionBackend: this.manifest.spec.executionBackend,
+          requestedResources: { num_gpus: 1, cpus: 4, memory_gb: 8 },
+          configDigest,
+          modelManifestDigest: manifestDigest,
+          inference: check,
+          projectStructure: structure,
+        },
+        evidence,
+      }, 'Prepared inference readiness evidence.', { evidenceDigest: evidence.digest })
+    } catch (error: unknown) {
+      return normalizeError(error)
+    }
+  }
+
+  async submitInference(input: {
+    readonly configPath: string
+    readonly releaseManifestPath: string
+    readonly attempt: string
+    readonly authorization?: GovernanceAuthorization
+    readonly signal?: AbortSignal
+  }): Promise<ToolResult<Record<string, JsonValue>>> {
+    const planned = await this.planInference(input)
+    if (!planned.ok) return planned
+    const transition = authorizeTransition({
+      to: 'training-optimization',
+      evidence: planned.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
+    })
+    if (!transition.allowed) {
+      return failure({
+        category: 'approval-required',
+        message: transition.reasons.join('; '),
+        retryable: false,
+        stateChanged: false,
+        nextAction: 'Approve the current inference readiness evidence before submitting the Ray Serve Job.',
+      })
+    }
+    try {
+      const entrypoint = this.manifest.spec.entrypoints.inference
+      if (entrypoint === undefined) throw new Error('project does not declare an inference entrypoint')
+      const executionIdentity = planned.data.identity
+      const submissionId = deterministicSubmissionId(this.manifest.metadata.name, 'inference', executionIdentity)
+      const runtimeEnv = runtimeEnvWith(planned.data.runtimeEnv, {
+        GALATEA_PROJECT: this.manifest.metadata.name,
+        GALATEA_RELEASE_ID: planned.data.releaseId,
+        GALATEA_READINESS_DIGEST: planned.data.evidence.digest,
+        GALATEA_EXECUTION_IDENTITY: executionIdentity,
+        GALATEA_SUBMISSION_ID: submissionId,
+        GALATEA_EXECUTION_MODE: 'governed-ray-serve-inference',
+        GALATEA_INFERENCE_AUTHORIZED: 'true',
+        RAY_JOB_SUBMISSION_ID: submissionId,
+        RAY_INFERENCE_SUBMISSION_ID: submissionId,
+      })
+      const result = await this.ray.submit({
+        submissionId,
+        idempotencyKey: executionIdentity,
+        entrypoint: renderEntrypoint(entrypoint, planned.data.configPath),
+        runtimeEnv,
+        metadata: {
+          project: this.manifest.metadata.name,
+          role: 'trial',
+          attempt: input.attempt,
+          release_id: planned.data.releaseId,
+          evidence_digest: planned.data.evidence.digest,
+          'galatea.execution.identity': executionIdentity,
+          'galatea.project': this.manifest.metadata.name,
+          'galatea.release.id': planned.data.releaseId,
+          'galatea.submission.id': submissionId,
+          'galatea.readiness.digest': planned.data.evidence.digest,
+          'galatea.execution.mode': 'governed-ray-serve-inference',
+          'galatea.promotable': 'false',
+        },
+        entrypointNumCpus: 2,
+        entrypointNumGpus: 0,
+        entrypointMemory: 2 * 1024 ** 3,
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+      })
+      const response: Record<string, JsonValue> = {
+        submissionId: result.submissionId,
+        reused: result.reused,
+        ...(result.status === undefined ? {} : { status: result.status }),
+        idempotencyKey: executionIdentity,
+        readinessEvidenceDigest: planned.data.evidence.digest,
+        modelManifestDigest: planned.data.plan['modelManifestDigest'] ?? null,
+        operationStatus: operationStatus('job', result.status === undefined ? 'queued' : executionFromRay(result.status), 'not-evaluated', 'approved-for-execution'),
+      }
+      return success(response, result.reused ? `Reused Ray inference Job ${result.submissionId}.` : `Submitted Ray inference Job ${result.submissionId}.`)
     } catch (error: unknown) {
       return normalizeError(error)
     }

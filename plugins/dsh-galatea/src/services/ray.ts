@@ -146,8 +146,9 @@ export class RayJobsService {
       throw new TypeError('Ray governed metadata submission identity must equal submission_id')
     }
     if (metadata['galatea.execution.mode'] !== 'governed-ray-job'
+      && metadata['galatea.execution.mode'] !== 'governed-ray-serve-inference'
       || (metadata['galatea.promotable'] !== 'true' && metadata['galatea.promotable'] !== 'false')) {
-      throw new TypeError('Ray governed metadata must identify a governed-ray-job and explicit promotability')
+      throw new TypeError('Ray governed metadata must identify a governed Ray execution mode and explicit promotability')
     }
   }
 

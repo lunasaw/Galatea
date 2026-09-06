@@ -130,6 +130,8 @@ export interface TrainingProjectManifest {
       readonly checkConfig: ProjectEntrypoint
       readonly plan: ProjectEntrypoint
       readonly train: ProjectEntrypoint
+      readonly inferenceCheck?: ProjectEntrypoint
+      readonly inference?: ProjectEntrypoint
     }
     readonly mlflow: {
       readonly experimentName: string
@@ -689,6 +691,12 @@ export function validateProjectManifest(value: unknown): TrainingProjectManifest
         checkConfig: argvTemplate(entrypoints['checkConfig'], 'spec.entrypoints.checkConfig', 1),
         plan: argvTemplate(entrypoints['plan'], 'spec.entrypoints.plan', 1),
         train: argvTemplate(entrypoints['train'], 'spec.entrypoints.train', 1),
+        ...(entrypoints['inferenceCheck'] === undefined
+          ? {}
+          : { inferenceCheck: argvTemplate(entrypoints['inferenceCheck'], 'spec.entrypoints.inferenceCheck', 1) }),
+        ...(entrypoints['inference'] === undefined
+          ? {}
+          : { inference: argvTemplate(entrypoints['inference'], 'spec.entrypoints.inference', 1) }),
       },
       mlflow: {
         experimentName: text(mlflow['experimentName'], 'spec.mlflow.experimentName'),

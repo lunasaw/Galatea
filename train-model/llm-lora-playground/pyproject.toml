@@ -15,7 +15,7 @@ dependencies = [
     "accelerate==1.14.0",
     "datasets==5.0.1",
     "peft==0.20.0",
-    "ray[default,serve]==2.53.0",
+    "ray[default,serve,llm]==2.58.0",
     "boto3==1.43.89",
 ]
 

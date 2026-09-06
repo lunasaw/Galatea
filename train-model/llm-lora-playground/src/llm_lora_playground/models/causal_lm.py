@@ -19,6 +19,11 @@ class ModelConfig:
     max_input_tokens: int = 512
     trust_remote_code: bool = False
     enable_thinking: bool = False
+    # The Qwen3.5 LoRA checkpoint was trained and saved through the text-only
+    # CausalLM path.  Keep the multimodal AutoProcessor path for the existing
+    # baseline smoke, but allow governed inference to pin the exact loader used
+    # by training instead of relying on Transformers' Auto* dispatch.
+    text_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -70,7 +75,7 @@ def _torch_dtype(name: str) -> Any:
 def load_model_and_tokenizer(config: ModelConfig) -> LoadedCausalLM:
     try:
         import torch
-        from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
+        from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor, AutoTokenizer
     except Exception as exc:
         raise RuntimeError(f"transformers/torch import failed: {type(exc).__name__}: {exc}") from exc
     model_path = Path(config.local_path)
@@ -85,11 +90,23 @@ def load_model_and_tokenizer(config: ModelConfig) -> LoadedCausalLM:
         ) from exc
     revision = getattr(model_config, "_name_or_path", None) or "local-" + hashlib.sha256(str(model_path).encode()).hexdigest()[:16]
     try:
-        processor = AutoProcessor.from_pretrained(model_path, local_files_only=True, trust_remote_code=config.trust_remote_code)
-        tokenizer = getattr(processor, "tokenizer", processor)
-        # Qwen3.5 is a unified vision-language conditional-generation model;
-        # Transformers 5.x exposes it through AutoModelForImageTextToText.
-        model_loader = getattr(__import__("transformers", fromlist=["AutoModelForImageTextToText"]), "AutoModelForImageTextToText", AutoModelForCausalLM)
+        if config.text_only:
+            # Do not use AutoProcessor/AutoModelForImageTextToText here.  PEFT
+            # adapter keys in this checkpoint correspond to the CausalLM module
+            # tree and loading through the multimodal class produces missing
+            # adapter-key warnings (and an unsafe serving artifact).
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_path,
+                local_files_only=True,
+                trust_remote_code=config.trust_remote_code,
+            )
+            model_loader = AutoModelForCausalLM
+        else:
+            processor = AutoProcessor.from_pretrained(model_path, local_files_only=True, trust_remote_code=config.trust_remote_code)
+            tokenizer = getattr(processor, "tokenizer", processor)
+            # Qwen3.5 is a unified vision-language conditional-generation model;
+            # Transformers 5.x exposes it through AutoModelForImageTextToText.
+            model_loader = getattr(__import__("transformers", fromlist=["AutoModelForImageTextToText"]), "AutoModelForImageTextToText", AutoModelForCausalLM)
         model = model_loader.from_pretrained(
             model_path,
             local_files_only=True,

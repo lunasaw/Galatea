@@ -20,7 +20,7 @@ def main() -> int:
     handle = submit_job(
         args.config,
         args.address,
-        {"py_executable": "/data/conda/envs/llm-lora-ray-py312/bin/python"},
+        {"py_executable": "/data/conda/envs/ray-llm-py312/bin/python"},
         args.data,
         args.submission_id,
         dry_run=not args.run,

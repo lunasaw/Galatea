@@ -61,7 +61,7 @@ def environment_digest(snapshot: dict[str, Any] | None = None) -> str:
 def validate_training_environment(
     model_path: Path,
     expected_python: str = "3.12.12",
-    expected_ray: str = "2.53.0",
+    expected_ray: str = "2.58.0",
     expected_transformers: str = "5.16.1",
 ) -> list[str]:
     """Validate the fixed Ray/Qwen runtime without loading model weights."""

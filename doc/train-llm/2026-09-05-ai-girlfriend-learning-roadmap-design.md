@@ -215,7 +215,10 @@ train-model/
         └── test_privacy_gates.py
 ```
 
-项目代码和配置进入 Git；数据、索引、checkpoint、adapter、模型、缓存和密钥不进入 Git。Notebook 只用于探索和可视化，正式训练必须从参数化脚本启动。
+项目代码和配置进入 Git；数据、索引、checkpoint、adapter、模型、缓存和密钥不进入 Git。Notebook
+只用于探索、只读检查和 forward-only fixture。任何参数更新、真实 checkpoint/adapter 或持久训练
+证据都属于 Training Run，必须使用项目声明的 governed backend；通用契约见
+[`governed-training-workflow`](../../.codex/skills/governed-training-workflow/SKILL.md)。
 
 ## 7. 十个可独立验收的小项目
 
@@ -290,7 +293,8 @@ train-model/
 - 人为中断一次 smoke 作业，从 checkpoint 或幂等重跑恢复。
 - 在 Ray Job metadata 中保存 MLflow Run ID 和 checkpoint URI。
 
-**验收**：本地脚本与 Ray Job 使用同一配置和训练函数；中断后可定位失败原因；重试创建独立 run 且不产生半发布模型。
+**验收**：本地脚本只能 check/plan，固定 Ray Driver 才能调用唯一训练实现和 canonical config；
+中断后可定位失败原因；重试创建独立 run 且不产生半发布模型。
 
 ### 项目 5：微信聊天数据工程
 
@@ -602,7 +606,7 @@ platform-data/llm-private/wechat-persona/
 
 为保证“快速跑、多项目迭代”，采用以下停止规则：
 
-- smoke 在 2 条样本/2 step 失败时，不启动正式训练。
+- governed smoke 的 2 条样本/2 step 预检查失败时，不进入后续 Trial/训练预算。
 - Qwen3.5-0.8B baseline 尚未形成固定评估集时，不扩容模型。
 - 数据质量问题优先修数据，不通过增加 epoch 掩盖。
 - validation loss 继续下降但人工质量恶化时，按人工质量选择 checkpoint。

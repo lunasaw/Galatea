@@ -3,6 +3,8 @@
 > 本文件记录已完成的 TDD 实施任务与运行门；GPU/Ray/test-once 仍按 runbook 需要显式启动。
 >
 > 实现时按任务逐步写测试、运行最窄检查，再扩大范围；每个项目的验收门未通过前不进入下一项目。
+> Training Run 分类与跨项目证据契约以
+> [`governed-training-workflow`](../../../.codex/skills/governed-training-workflow/SKILL.md) 为准。
 
 ## Global constraints
 

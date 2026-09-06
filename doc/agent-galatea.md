@@ -87,7 +87,7 @@ DeepSeek Harness 已公开的 Cordis 插件、Tool、Policy Hook、Approval 和 
 | Job 执行和资源状态 | Ray | 通过 Jobs API 提交、查询和停止；恢复仅在项目声明能力时可用，资源可满足性在提交后观察 |
 | Run、Metric 和模型治理 | MLflow | 通过 Tracking、Artifact 和 Registry API 操作 |
 | 数据和 Artifact 对象 | MinIO | 平台负责受控持久化；插件仅经 MLflow Artifact API 间接访问，不读取服务端目录 |
-| 训练计算 | 训练项目与 Ray Worker | 不在插件进程中执行正式训练 |
+| 训练计算 | 训练项目与 Ray Worker | 不在插件进程、Notebook 或本地 shell 中执行任何 Training Run |
 
 ### 2.3 非目标
 
@@ -198,7 +198,7 @@ allowlist。默认名单是 `PATH`、`HOME`、`LANG`、`LC_ALL`、`PYTHONPATH`�
 `configs/*.yaml`、`src/`、`scripts/`、`tests/` 及环境文件。清单必须声明
 `spec.executionBackend: ray`，计划必须返回非空 Ray 配置和资源声明。当前 Session 必须先成功
 `galatea_plan_run`，再以相同项目/配置/Release/角色/attempt 提交；readiness digest 变化会阻断提交。
-插件还在 Harness `tools/pre-execute` 边界拒绝直接 `scripts/train.py` 正式训练和 `ray job submit`，
+插件还在 Harness `tools/pre-execute` 边界拒绝直接 `scripts/train.py` Training Run 和 `ray job submit`，
 但通用 Shell 工具的最终可用性仍由宿主权限预设控制。
 
 正式模型和 Checkpoint 验证使用 MLflow Artifact API；`dsh-galatea` 当前不实现直接 MinIO
@@ -441,7 +441,7 @@ Harness 根据这些结果决定下一步；插件不自行启动无限重试循
 
 ### 8.2 Run 所有权
 
-正式训练必须明确唯一的权威 Run 写入者。分布式 Worker 不得并发创建、结束或争用同一个父
+每个 Training Run 必须明确唯一的权威 Run 写入者。分布式 Worker 不得并发创建、结束或争用同一个父
 Run，也不得各自发布局部模型冒充最终模型。安全的 Nested Run 设计必须由项目显式声明。
 
 ### 8.3 Artifact 访问

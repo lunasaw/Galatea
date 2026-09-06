@@ -7,6 +7,9 @@
 本设计覆盖同一训练入口经不可变 Release、Galatea 和单 GPU Ray Job 完成 SFT/LoRA、MLflow
 公平评估与 Artifact round-trip 的完整契约。训练数据可以是合成数据或经明确授权的脱敏私有副本；
 数据类型只改变身份、角色和晋级资格，不改变代码架构与执行后端。
+跨项目的 Training Run 分类与证据下限由
+[`governed-training-workflow`](../../../.codex/skills/governed-training-workflow/SKILL.md) 定义；
+本设计只能增加 LLM 专项门禁，不能提供本地执行例外。
 
 ### 1.2 非目标
 

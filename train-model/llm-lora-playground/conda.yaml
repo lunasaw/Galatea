@@ -5,11 +5,13 @@ dependencies:
   - python=3.12.12
   - pip
   - pip:
+      - --index-url https://pypi.tuna.tsinghua.edu.cn/simple
       - PyYAML==6.0.3
+      - boto3==1.43.89
       - mlflow==3.14.0
       - torch==2.11.0
       - transformers==5.16.1
       - accelerate==1.14.0
       - datasets==5.0.1
       - peft==0.20.0
-      - ray[default]==2.53.0
+      - ray[default,serve]==2.53.0

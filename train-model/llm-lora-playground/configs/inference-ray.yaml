@@ -1,0 +1,45 @@
+schema_version: llm-lora-inference-v1
+project: llm-lora-playground
+service:
+  name: llm-lora-playground-experimental
+  host: 127.0.0.1
+  port: 8000
+  route_prefix: /
+  replicas: 1
+  max_ongoing_requests: 8
+  health_check_period_s: 10
+  health_check_timeout_s: 30
+model:
+  id: wechat-private-5k-standard-20260906-v2-step-944-lora
+  base_model_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
+  adapter_path: /data/ai/chenzhangyue/code/galatea/platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/training/5486e8a7db3547919a66865983a81162/checkpoints/wechat-private-5k-standard-20260906-v2/step-944/adapter
+  checkpoint_manifest_path: /data/ai/chenzhangyue/code/galatea/platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/training/5486e8a7db3547919a66865983a81162/checkpoints/wechat-private-5k-standard-20260906-v2/step-944/checkpoint_manifest.json
+  source_mlflow_run_id: 5486e8a7db3547919a66865983a81162
+  engine: transformers-peft-ray-serve
+  protocol: openai-chat-completions-v1
+  dtype: bfloat16
+  device: cuda:0
+  max_input_tokens: 512
+  trust_remote_code: false
+  enable_thinking: false
+generation:
+  do_sample: false
+  temperature: 0.7
+  top_p: 0.9
+  max_new_tokens: 64
+  repetition_penalty: 1.15
+  no_repeat_ngram_size: 4
+  seed: 42
+prompt:
+  system_policy: "仅基于已提供的脱敏对话生成回复；不猜测或复述私人事实。"
+governance:
+  role: trial
+  promotable: false
+  quality_status: experimental_only
+  test_access: untouched
+  private_data_scope: authorized_redacted_only
+resources:
+  num_gpus: 1
+  cpus: 4
+  memory_gb: 8
+output_root: platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/serving

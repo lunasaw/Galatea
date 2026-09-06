@@ -11,6 +11,8 @@
 > 排错的权威要求见 [`ray-training-guide.md`](ray-training-guide.md)；MLflow 所有权和 Artifact 规范见
 > [`mlflow-training-integration-spec.md`](mlflow-training-integration-spec.md)。本文中的通用步骤不得覆盖
 > 两份专项规范。
+> Training Run 的机械分类、实验与 Champion 共用架构、test-once 和证据下限见
+> [`governed-training-workflow`](../../.codex/skills/governed-training-workflow/SKILL.md)。
 
 ---
 
@@ -58,7 +60,7 @@ MLflow Model Registry
 
 | 组件 | 负责 | 不负责 |
 |---|---|---|
-| JupyterLab | 数据探索、代码开发、小样本验证 | 正式训练任务的长期可靠运行 |
+| JupyterLab | 数据探索、代码开发、只读/forward-only 组件验证 | 参数更新、真实 checkpoint 或训练证据 |
 | Ray Jobs | 提交、停止、查询训练任务 | 保存实验历史 |
 | Ray Core / Train | CPU、GPU资源调度和训练进程执行 | 模型版本管理 |
 | PyTorch | 模型、Loss、Optimizer、训练循环 | 集群资源管理 |
@@ -181,8 +183,8 @@ ai-training-project/
 
 原则：
 
-- Notebook只用于探索和小规模验证。
-- 正式训练逻辑放进 `src/`。
+- Notebook只用于探索、只读检查、forward-only fixture 和 inference-only smoke。
+- 所有 Training Run 逻辑放进 `src/`，只由声明的 governed Driver 调用。
 - 可执行入口放进 `scripts/`。
 - 配置和代码分离。
 - 大型数据、Checkpoint和模型不提交到Git。
@@ -579,7 +581,7 @@ output:
 
 要求：
 
-- 正式训练不在代码中硬编码超参数。
+- 任何 Training Run 都不在代码中硬编码超参数。
 - 每个MLflow Run保存完整配置文件。
 - 配置变更必须进入Git。
 - 随机种子必须明确。
@@ -648,12 +650,12 @@ with mlflow.start_run() as active_run:
 
 - 随机读取10条数据。
 - 检查输入输出形状。
-- 运行一个Batch。
-- 检查Loss是否为有限数值。
+- 对 mock/fixture 运行 forward-only Batch，并检查 Loss 是否为有限数值。
 - 检查显存占用。
-- 确认Checkpoint可以保存和加载。
+- 用 mock 状态测试 checkpoint 序列化接口；不产出可恢复的真实训练 checkpoint。
 
-开发阶段不要直接启动数小时训练。
+开发阶段不得执行 optimizer step、更新参数、创建训练 MLflow Run，或把本地结果当作 Smoke/Trial
+证据。真实反向传播、checkpoint 和 adapter 生命周期由后续 governed Smoke 验证。
 
 ### 10.2 Smoke Test
 
@@ -672,7 +674,9 @@ ray job submit \
 ```
 
 Runtime Package 下载凭据由 Ray Head/Worker 在启动前继承，不在提交终端中 `source` MinIO 环境文件，
-也不放入 `runtime_env.env_vars`。配置检查成功后，移除 `--check-config` 才会执行 Smoke。
+也不放入 `runtime_env.env_vars`。该命令只验证 `--check-config`；不得从 shell 移除该参数启动 Smoke。
+对 Galatea 项目，实际 Smoke 使用不可变 Release、`galatea_plan_run` 和 readiness-bound
+`galatea_submit_job`。
 
 Smoke Test 通过标准：
 
@@ -685,18 +689,11 @@ Smoke Test 通过标准：
 
 ### 10.3 正式训练
 
-正式发布优先使用项目提供的不可变 Release 流程。参考项目的真实发布命令为：
-
-```bash
-cd /data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs
-
-/data/conda/envs/attend-ray-py312/bin/python job/ci.py \
-  --mode train \
-  --config configs/baseline.yaml
-```
-
-其他项目即使没有相同的 CI 脚本，也必须保存不可变代码身份、Entrypoint、Runtime Environment、唯一
-Submission ID 和发布结果。完整提交规范见 [`ray-training-guide.md`](ray-training-guide.md)。
+Training Run 使用项目提供的不可变 Release 流程。Galatea 项目先以 Release manifest 和 canonical
+config 调用 `galatea_plan_run`，再使用完全相同的 role/attempt 调用 `galatea_submit_job`。其他项目也
+必须通过明确声明的 governed backend，保存不可变代码身份、Entrypoint、Runtime Environment、唯一
+Submission ID 和发布结果；不得用直接 shell 训练代替。完整提交规范见
+[`ray-training-guide.md`](ray-training-guide.md)。
 
 提交前确认 Head 已启动并且 8265 仅对本机或受控内网开放：
 

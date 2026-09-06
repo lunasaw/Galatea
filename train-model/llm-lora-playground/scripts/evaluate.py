@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
 
@@ -23,12 +24,39 @@ def main() -> int:
     config = load_training_config(args.config)
     errors = validate_training_config(config)
     if errors:
-        print({"status": "blocked", "errors": errors})
+        print(json.dumps({"status": "blocked", "errors": errors}, sort_keys=True))
+        return 2
+    if args.run:
+        print(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "reason": (
+                        "evaluation evidence must run through the immutable Release, "
+                        "Galatea authorization, and fixed Ray Driver"
+                    ),
+                    "execution_backend": "ray_job",
+                    "will_create_mlflow_run": False,
+                },
+                sort_keys=True,
+            )
+        )
         return 2
     if args.split == "test" and not args.test_once:
-        print({"status": "blocked", "reason": "test requires --test-once"})
+        print(json.dumps({"status": "blocked", "reason": "test requires --test-once"}, sort_keys=True))
         return 2
-    print({"status": "planned", "variant": args.variant, "split": args.split, "run": args.run})
+    print(
+        json.dumps(
+            {
+                "status": "planned",
+                "variant": args.variant,
+                "split": args.split,
+                "run": False,
+                "will_create_mlflow_run": False,
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 

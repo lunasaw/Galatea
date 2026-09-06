@@ -1,6 +1,9 @@
 import ast
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 
@@ -32,6 +35,30 @@ class DriverWorkerBoundaryTests(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / "scripts/train_lora.py"
         source = path.read_text()
         self.assertIn("actual training requires Galatea plan/authorization", source)
+
+    def test_direct_evaluation_evidence_entrypoint_is_fail_closed(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(root / "scripts/evaluate.py"),
+                "--config",
+                str(root / "configs/reproducible-eval.yaml"),
+                "--variant",
+                "base",
+                "--split",
+                "validation",
+                "--run",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual("blocked", payload["status"])
+        self.assertEqual("ray_job", payload["execution_backend"])
+        self.assertFalse(payload["will_create_mlflow_run"])
 
     def test_legacy_full_baseline_entrypoint_is_fail_closed(self):
         path = Path(__file__).resolve().parents[1] / "scripts/wechat_full_baseline.py"

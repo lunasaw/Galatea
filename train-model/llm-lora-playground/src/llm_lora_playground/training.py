@@ -30,6 +30,88 @@ class TrainingContractError(RuntimeError):
     pass
 
 
+REQUIRED_PERFORMANCE_METRICS = frozenset(
+    {
+        "data_preparation_wall_seconds",
+        "model_load_wall_seconds",
+        "tokenization_wall_seconds",
+        "training_wall_seconds",
+        "optimization_compute_wall_seconds",
+        "validation_wall_seconds",
+        "checkpoint_wall_seconds",
+        "checkpoint_upload_wall_seconds",
+        "worker_wall_seconds",
+        "train_samples_per_second",
+        "train_target_tokens_per_second",
+        "optimizer_steps_per_second",
+        "validation_target_tokens_per_second",
+        "training_peak_gpu_memory_mib",
+        "training_peak_gpu_reserved_mib",
+        "process_max_rss_mib",
+        "base_generation_tokens_per_second",
+        "base_generation_samples_per_second",
+        "base_generation_batch_latency_ms_p50",
+        "base_generation_batch_latency_ms_p95",
+        "base_generation_generated_tokens_mean",
+        "base_generation_generated_tokens_p50",
+        "base_generation_generated_tokens_p95",
+        "base_generation_generation_peak_gpu_memory_mib",
+        "lora_generation_tokens_per_second",
+        "lora_generation_samples_per_second",
+        "lora_generation_batch_latency_ms_p50",
+        "lora_generation_batch_latency_ms_p95",
+        "lora_generation_generated_tokens_mean",
+        "lora_generation_generated_tokens_p50",
+        "lora_generation_generated_tokens_p95",
+        "lora_generation_generation_peak_gpu_memory_mib",
+    }
+)
+
+REQUIRED_MODEL_QUALITY_METRICS = frozenset(
+    {
+        "train_loss",
+        "validation_loss",
+        "validation_perplexity",
+        "base_validation_loss",
+        "base_validation_perplexity",
+        "validation_loss_improvement",
+        "base_generation_generation_success_rate",
+        "base_generation_token_f1_mean",
+        "base_generation_rouge_l_f1_mean",
+        "base_generation_exact_match_rate",
+        "base_generation_format_follow_rate",
+        "base_generation_repetition_3gram_rate",
+        "base_generation_max_length_stop_rate",
+        "base_generation_auxiliary_quality_score",
+        "lora_generation_generation_success_rate",
+        "lora_generation_token_f1_mean",
+        "lora_generation_rouge_l_f1_mean",
+        "lora_generation_exact_match_rate",
+        "lora_generation_format_follow_rate",
+        "lora_generation_repetition_3gram_rate",
+        "lora_generation_max_length_stop_rate",
+        "lora_generation_auxiliary_quality_score",
+        "auxiliary_quality_score_improvement",
+    }
+)
+
+
+def validate_required_evidence_metrics(metrics: dict[str, float]) -> None:
+    """Fail a governed Run before success if performance or quality evidence is incomplete."""
+    required = REQUIRED_PERFORMANCE_METRICS | REQUIRED_MODEL_QUALITY_METRICS
+    missing = sorted(required - set(metrics))
+    non_finite = sorted(
+        key for key in required & set(metrics) if not math.isfinite(float(metrics[key]))
+    )
+    if missing or non_finite:
+        details: list[str] = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if non_finite:
+            details.append("non_finite=" + ",".join(non_finite))
+        raise TrainingContractError("incomplete governed metric evidence: " + "; ".join(details))
+
+
 @dataclass(frozen=True)
 class TrainResult:
     run_id: str
@@ -606,6 +688,7 @@ def train(
     if base_quality:
         metrics["auxiliary_quality_score_improvement"] = float(lora_quality["auxiliary_quality_score"]) - float(base_quality["auxiliary_quality_score"])
     metrics["worker_wall_seconds"] = time.perf_counter() - worker_started
+    validate_required_evidence_metrics(metrics)
     quality_report = {
         "schema_version": "validation-generation-quality-v2",
         "split": "validation",

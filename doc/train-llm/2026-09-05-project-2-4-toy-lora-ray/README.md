@@ -8,6 +8,10 @@
 > 上游状态：项目 0+1 的 Qwen3.5-0.8B 真实权重推理 Smoke 已完成。原始未脱敏微信数据仍受
 > consent ledger 和人工审核门禁；经明确授权的脱敏私有副本只能作为 non-promotable Trial，并复用相同架构。
 
+仓库级 Training Run 分类、统一执行架构和证据契约见
+[`governed-training-workflow`](../../../.codex/skills/governed-training-workflow/SKILL.md)。本目录只补充
+该 LLM 项目的具体配置和验收标准，不能放宽仓库级规则。
+
 ## 1. 这组项目要解决什么问题
 
 项目 2–4 是一条连续但可独立验收的 LLM 学习路线：

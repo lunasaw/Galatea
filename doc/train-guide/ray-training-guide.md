@@ -8,6 +8,8 @@ MLflow Run、Artifact、最终测试和模型发布规则见
 [`mlflow-training-integration-spec.md`](mlflow-training-integration-spec.md)。Ray Head、Runtime
 Package 读取凭据和多节点部署见 [`ray-start.md`](../ray-start.md)，Dashboard HTTP 接口见
 [`ray-api.md`](../ray-api.md)。
+仓库级 Training Run 分类和统一证据契约见
+[`governed-training-workflow`](../../.codex/skills/governed-training-workflow/SKILL.md)。
 
 当前参考版本为 Python 3.12、Ray 2.53、PyTorch CUDA 13 和 MLflow 3.14。升级 Ray 后必须重新验证
 Runtime Environment 继承、Train Callback、Checkpoint 恢复、State API 和 Job CLI，不能只根据 API
@@ -24,10 +26,13 @@ Runtime Environment 继承、Train Callback、Checkpoint 恢复、State API 和 
 | Ray Data | 分块读取、批量转换、流式供数和 Object Store 缓存 | 定义数据版本或决定测试集用途 |
 | MLflow | Run、血缘、指标、最终 Artifact、Logged Model 和审计 | 调度 GPU 或替代 Ray Checkpoint |
 | MinIO | 持久化 Runtime Package、数据快照和 MLflow Artifact | 充当训练客户端可直接读取的服务端文件系统 |
-| Notebook | 检查、短 Smoke、提交和查看结果 | 承载正式训练生命周期 |
+| Notebook | 探索、只读检查、forward-only fixture、提交和查看结果 | 执行参数更新或产出训练证据 |
 
-正式或长时间训练必须从 `train-model/<project>/scripts/` 下的参数化入口通过 Ray Jobs 提交。直接从
-Shell 运行入口只适合开发检查和短 Smoke；它的 Driver 生命周期仍依赖当前终端。
+只要发生参数更新、完整/实质性 fitting pass、真实 checkpoint/adapter/model 产出，或形成持久训练
+证据，就属于 Training Run。声明 `spec.executionBackend: ray` 的项目必须从固定参数化 Driver 通过
+Ray Jobs/Train 执行；已接入 Galatea 的项目还必须先完成不可变 Release、readiness 和授权绑定。
+Shell 与 Notebook 只允许 check/plan、forward-only 或 mock 组件测试和 inference-only smoke，不能用
+数据规模小、运行时间短、`experimental_only` 或不可晋级作为本地训练例外。
 
 不要用一个 `@ray.remote(num_gpus=1)` 函数包住完整训练循环来模拟 Ray Train。正式分布式训练应使用
 框架对应的 Trainer，例如 `TorchTrainer`，以获得明确的 Worker 拓扑、数据分片、Checkpoint 和
@@ -200,7 +205,7 @@ Head、Object Store、MLflow 和 MinIO 的资源。
 | --- | --- | --- | --- |
 | `--check-config` | 无 | 无 | YAML、类型、目标和资源声明检查 |
 | `--plan` | MLflow 只读 API、完整数据 | 可在被忽略的本地缓存创建或复用 Manifest；不创建远程 Run | 数据、代码和幂等身份计划 |
-| 正式训练 | Ray、MLflow、数据和 Artifact API | 创建独立 Attempt、Checkpoint 和 Artifact | Smoke、Trial 或最终训练 |
+| Governed Training Run | Ray、MLflow、数据和 Artifact API | 创建独立 Attempt、Checkpoint 和 Artifact | Smoke、实验、Trial、调参、重训或 Champion |
 
 从仓库根目录执行无训练成本检查：
 
@@ -237,8 +242,10 @@ ray job submit \
   -- python scripts/train.py --config configs/smoke.yaml --check-config
 ```
 
-先提交 `--check-config`，再提交 `--plan`，最后才移除模式参数执行训练。正式训练应给提交端生成唯一且
-可读的 Submission ID，并保存 Job 输出；不要依赖 Ray 自动生成的 ID 作为外部工作流幂等策略。
+可以直接提交 `--check-config` 和 `--plan` 做只读 Runtime 校验，但不得从通用 shell 命令移除模式参数
+来启动训练。实际 Training Run 必须回到项目声明的 governed submission；Galatea 项目由 readiness
+绑定的 `galatea_submit_job` 提交。提交端生成唯一且可读的 Submission ID 并保存 Job 输出；不要依赖
+Ray 自动生成的 ID 作为外部工作流幂等策略。
 
 Runtime Environment 中：
 
@@ -265,16 +272,11 @@ cd /data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs
 /data/conda/envs/attend-ray-py312/bin/python job/ci.py --dry-run
 ```
 
-真实 `job/ci.py` 默认发布后提交 `check-config`，不会训练。只有显式指定才启动 Smoke：
-
-```bash
-/data/conda/envs/attend-ray-py312/bin/python job/ci.py \
-  --mode train \
-  --config configs/smoke.yaml
-```
-
-不要跳过 Smoke 直接提交 `baseline.yaml` 或 `distributed.yaml`。CI 输出中的 Release ID、
-Submission ID、Entrypoint、Runtime Env 和 Manifest 路径应进入发布记录。
+真实 Release 工具可以发布后提交 `check-config`，但不得成为绕过治理的训练按钮。对 Galatea 项目，
+使用 Release manifest 调用 `galatea_plan_run`，再以完全相同的项目、配置、Release、角色和 attempt
+调用 `galatea_submit_job` 启动 Smoke。不要跳过 Smoke 直接提交 baseline、Trial 或 distributed 配置。
+Release ID、readiness digest、execution identity、Submission ID、Entrypoint、Runtime Env 和 Manifest
+路径都应进入发布记录。
 
 ### 7.3 Submission ID 语义
 

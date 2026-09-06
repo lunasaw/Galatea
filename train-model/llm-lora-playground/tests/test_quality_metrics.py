@@ -1,6 +1,12 @@
 import unittest
 
 from llm_lora_playground.quality import _f1, _input_ids, _quality_score, _repeated_trigram, _rouge_l
+from llm_lora_playground.training import (
+    REQUIRED_MODEL_QUALITY_METRICS,
+    REQUIRED_PERFORMANCE_METRICS,
+    TrainingContractError,
+    validate_required_evidence_metrics,
+)
 
 
 class QualityMetricTests(unittest.TestCase):
@@ -37,6 +43,21 @@ class QualityMetricTests(unittest.TestCase):
         self.assertEqual([1, 2, 3], _input_ids(MappingLike()))
         with self.assertRaises(ValueError):
             _input_ids("rendered prompt")
+
+    def test_success_requires_complete_performance_and_quality_metrics(self):
+        complete = {
+            key: 0.0
+            for key in REQUIRED_PERFORMANCE_METRICS | REQUIRED_MODEL_QUALITY_METRICS
+        }
+        validate_required_evidence_metrics(complete)
+        incomplete = dict(complete)
+        incomplete.pop("lora_generation_auxiliary_quality_score")
+        with self.assertRaisesRegex(TrainingContractError, "incomplete governed metric evidence"):
+            validate_required_evidence_metrics(incomplete)
+        non_finite = dict(complete)
+        non_finite["train_loss"] = float("nan")
+        with self.assertRaisesRegex(TrainingContractError, "non_finite=train_loss"):
+            validate_required_evidence_metrics(non_finite)
 
 
 if __name__ == "__main__":

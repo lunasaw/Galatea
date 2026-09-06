@@ -13,6 +13,8 @@ The reusable open-ended chat comparison contract is documented in
 [`doc/train-llm/fine-tuning-evaluation-protocol.md`](../../doc/train-llm/fine-tuning-evaluation-protocol.md).
 It defines the four evaluation layers, the fair Base/Prompt-only/LoRA matrix, validation-only
 selection, test-once evaluation, human blind preference, and privacy/safety hard gates.
+The repository-wide execution classification and evidence contract are defined by
+[`governed-training-workflow`](../../.codex/skills/governed-training-workflow/SKILL.md).
 
 Model weights, generated data, adapters, checkpoints, manifests and reports stay outside
 the source tree under `platform-data/`. Private redacted data may be referenced only by an
@@ -30,8 +32,8 @@ python train-model/llm-lora-playground/scripts/generate_synthetic.py \
 python -m unittest discover -s train-model/llm-lora-playground/tests -p 'test_*.py'
 ```
 
-`scripts/train_lora.py` is read-only: it supports `--check-config` and `--plan`, while `--run`
-always fails closed. Actual training has one path:
+`scripts/train_lora.py` and `scripts/evaluate.py` are read-only planning/check boundaries; their
+`--run` modes always fail closed. Actual training and durable evaluation evidence have one path:
 
 ```text
 immutable release -> Galatea plan -> evidence-bound authorization -> Galatea Ray submission
@@ -46,8 +48,9 @@ remain non-promotable, while a separately authorized Champion may claim the fina
 split exactly once.
 
 A missing dependency, data/split identity, resource, release or service returns `blocked`;
-local execution is never represented as governed Ray evidence. The final test partition is not
-loaded by smoke/trial training or validation quality evaluation.
+local execution is never represented as governed Ray evidence. `experimental_only`, private data,
+owner approval, and `promotable=false` do not change this execution path. The final test partition is
+not loaded by smoke/trial training or validation quality evaluation.
 
 The Ray Runtime Environment reader requires only `ListBucket` and `GetObject` below
 `s3://training-data/ray-runtime/llm-lora-playground/`; it must not receive upload, delete,

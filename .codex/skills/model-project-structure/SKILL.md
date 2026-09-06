@@ -59,7 +59,7 @@ A test that names, imports, configures, or validates one workload belongs to tha
 
 - Store workload and model parameters in `configs/*.yaml`, grouped by purpose or model family.
 - Keep credentials, private endpoints, and tokens out of YAML committed to Git; reference environment variables or documented external configuration instead.
-- Make dataset identity, split, preprocessing, seed, resources, hyperparameters, objective metric, and optimization direction explicit when applicable.
+- Make dataset identity, split, preprocessing, seed, resources, hyperparameters, objective metric, optimization direction, run role, final-test access, promotability, and execution backend explicit when applicable.
 - Avoid duplicating complete configurations for small variants when the project's loader supports clear composition or overrides.
 - Keep shared service dependencies in the repository root environment only when they are truly platform-wide; keep model dependencies in the project environment file.
 
@@ -69,7 +69,9 @@ A test that names, imports, configures, or validates one workload belongs to tha
 2. Identify the immediate project root as `train-model/<project-name>/`; do not add another category layer between `train-model/` and the project.
 3. Classify each file by ownership: configuration, implementation, entry point, test, notebook, documentation, or generated state.
 4. Create or migrate the required hierarchy. Preserve behavior while updating imports, commands, documentation, and test discovery paths.
-5. Ensure formal training remains parameterized and runnable outside notebooks.
+5. Ensure every Training Run remains parameterized and runnable only through the project's declared governed
+   backend. If `galatea.project.yaml` declares Ray, keep local entry points read-only and make direct training
+   fail closed; use the repository `governed-training-workflow` Skill for the complete execution contract.
 6. Run the narrowest project-local tests first. Run repository-level tests only when shared or cross-project behavior changed.
 7. Report any legacy files left outside the project hierarchy and explain why they could not be moved.
 
@@ -84,3 +86,5 @@ Do not reorganize unrelated projects as collateral work. When reviewing without 
 - Confirm root `tests/` contains only repository-level or cross-project tests.
 - Confirm commands, imports, README paths, and test discovery still match the hierarchy.
 - Confirm runtime artifacts and notebook execution state are ignored rather than committed.
+- Confirm smoke, experiment, baseline, Trial, and Champion configurations share the declared execution
+  architecture, and that no local or generic submission path can produce trained artifacts or durable evidence.

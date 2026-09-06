@@ -3,6 +3,9 @@
 > 本清单对应 [`design.md`](design.md) 和 [`runbook.md`](runbook.md)。实施时复制到受控的
 > `platform-data/llm-baselines/<project>/<run_id>/acceptance.md`，填写证据路径或 MLflow Artifact 名称。
 > 不粘贴聊天正文、完整模型输出、密钥或真实个人信息。
+>
+> Training Run 分类和通用证据契约遵循
+> [`governed-training-workflow`](../../../.codex/skills/governed-training-workflow/SKILL.md)。
 
 ## A. 共用前置条件
 
@@ -60,6 +63,9 @@
 - [ ] Prompt-only 与 LoRA 的主要变量只有 adapter；没有为 LoRA 单独改 system prompt。
 - [ ] objective metric 和 `min/max` 方向在配置中声明；结果含定义版本。
 - [ ] 自动指标包括 validation loss、生成长度、格式/风格遵循率、重复率等。
+- [ ] Run 成功前的代码门禁确认完整性能指标、Base/LoRA 模型质量指标及辅助质量分均存在且为有限值。
+- [ ] 性能指标包含阶段耗时、训练/验证/生成吞吐、p50/p95 生成延迟与长度、GPU/RSS 峰值。
+- [ ] 辅助质量分保存固定公式、Base/LoRA 分量和增量，且未被当成人工偏好、安全或可晋级资格。
 - [ ] 固定规则测试覆盖简短、温和、角色一致和不编造未提供事实。
 
 ## E. 项目 3：候选、测试和 MLflow
@@ -79,7 +85,10 @@
 
 ## F. 项目 4：Ray Job 与恢复
 
-- [ ] Ray Job 与本地脚本调用同一 `train()` 函数和同一 canonical config。
+- [ ] `galatea.project.yaml` 声明 `executionBackend: ray`，所有 smoke/baseline/experiment/Trial/Champion Training Run 均走 immutable Release、Galatea 和固定 Ray Driver。
+- [ ] 本地 `train_lora.py`/`evaluate.py` 只允许 check/plan，`--run` fail closed；普通 `ray job submit` 和直接 Driver 调用不能训练。
+- [ ] Ray Driver 调用项目唯一 `train()` 实现和 canonical config；本地入口不能调用训练函数形成模型或证据。
+- [ ] 私有、合成、`experimental_only`、`formal_training_eligible=false` 和 `promotable=false` 只改变治理状态，不改变执行架构。
 - [ ] Job 显式声明 1 GPU、4 CPU、8 GiB memory、worker_count=1。
 - [ ] Driver 是唯一创建/结束父 MLflow Run、发布共享 artifact 和最终状态的 owner。
 - [ ] Worker 不重复创建/结束父 Run，不发布共享 alias；只计算、报告指标和写 checkpoint。

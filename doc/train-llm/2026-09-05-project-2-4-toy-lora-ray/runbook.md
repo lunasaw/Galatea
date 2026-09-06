@@ -4,6 +4,9 @@
 角色、授权、最终测试访问和可晋级状态。`scripts/train_lora.py` 只允许配置检查和只读计划，所有实际
 GPU 训练必须经过 `immutable release -> Galatea plan -> Galatea authorization -> Ray Job ->
 Driver-owned MLflow Run -> Artifact API round-trip`。任何本地训练或直接 Ray 提交都不能形成规范证据。
+Training Run 分类和跨项目证据要求以
+[`governed-training-workflow`](../../../.codex/skills/governed-training-workflow/SKILL.md) 为准；
+`experimental_only`、私有脱敏、owner approval 和不可晋级都不是执行后端例外。
 
 ## 0. 变量与目录
 
@@ -161,30 +164,23 @@ python "$LLM_PROJECT_ROOT/scripts/evaluate.py" \
 preprocessing、model revision、seed 和 sample/group count 一致。冻结后复制 manifest 到受控 artifact，
 不要手工改 test 清单。
 
-### 7.2 运行三组比较
+### 7.2 运行比较
 
-```bash
-for variant in base prompt-only lora; do
-  python "$LLM_PROJECT_ROOT/scripts/evaluate.py" \
-    --config "$LLM_PROJECT_ROOT/configs/reproducible-eval.yaml" \
-    --variant "$variant" --split validation --run
-done
-```
+为每个需要声明的 Base、Prompt-only、LoRA 变体准备继承同一冻结协议的 canonical config，并逐个使用
+第 6 节的 immutable Release、Galatea plan/authorization 和固定 Ray Driver 提交。不得用
+`scripts/evaluate.py --run`、Notebook 或 shell 生成比较证据；该脚本的 `--run` 会 fail closed。
 
-三组必须共享 prompt、tokenizer、generation、seed、输入和 max tokens。候选只用 train/validation
-证据选择；记录 validation loss、生成长度、格式/风格规则、重复率和运行指标。
+三组必须共享 split、prompt、tokenizer、generation、seed、输入和 max tokens。当前 Driver 原生记录
+同一 validation population 上的 Base 与 LoRA；若要声明独立 Prompt-only 结果，必须先在同一 Driver
+和 Artifact 契约中实现并测试该 variant，不能用本地输出补齐矩阵。候选只用 train/validation 证据选择；
+记录 validation loss、生成长度、格式/风格规则、重复率、性能和资源指标。
 
 ### 7.3 冻结候选并只评估 test 一次
 
-```bash
-python "$LLM_PROJECT_ROOT/scripts/evaluate.py" \
-  --config "$LLM_PROJECT_ROOT/configs/reproducible-eval.yaml" \
-  --freeze-candidate --candidate-run RUN_ID
-
-python "$LLM_PROJECT_ROOT/scripts/evaluate.py" \
-  --config "$LLM_PROJECT_ROOT/configs/reproducible-eval.yaml" \
-  --candidate RUN_ID --split test --test-once --run
-```
+候选冻结由 Galatea 绑定 Trial Run ID、validation evidence digest、checkpoint、prompt、metric
+definition、split/config digest。随后使用 `role=champion`、`evaluate_test=true` 的新 canonical config，
+经新的 readiness 和授权提交同一个固定 Ray Driver。Driver 必须先取得原子 test-once claim；
+`scripts/evaluate.py --split test --run` 永远不是允许的执行入口。
 
 输出必须带 `test_evaluation_id`、candidate/config/split digest。若后续改 prompt、阈值、checkpoint、
 数据或评估规则，旧 test 结果作废，不能继续作为最终证据。

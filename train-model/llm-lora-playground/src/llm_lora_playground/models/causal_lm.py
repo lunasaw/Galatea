@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any
 
 
+class ModelArchitectureError(RuntimeError):
+    """Raised when training and serving would resolve different model trees."""
+
+
 @dataclass(frozen=True)
 class ModelConfig:
     model_id: str
@@ -19,11 +23,14 @@ class ModelConfig:
     max_input_tokens: int = 512
     trust_remote_code: bool = False
     enable_thinking: bool = False
-    # The Qwen3.5 LoRA checkpoint was trained and saved through the text-only
-    # CausalLM path.  Keep the multimodal AutoProcessor path for the existing
-    # baseline smoke, but allow governed inference to pin the exact loader used
-    # by training instead of relying on Transformers' Auto* dispatch.
+    # Governed training and serving use the concrete ConditionalGeneration
+    # class.  text_only remains available only for an explicitly declared
+    # legacy diagnostic path.
     text_only: bool = False
+    # This is intentionally explicit.  Auto* dispatch may select the
+    # multimodal Qwen3.5 class for the same config.json, while the existing
+    # adapter was trained against the pure text CausalLM module tree.
+    architecture: str = "qwen3_5_conditional_generation"
 
 
 @dataclass(frozen=True)
@@ -72,15 +79,52 @@ def _torch_dtype(name: str) -> Any:
     return {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}[name]
 
 
+def inspect_model_architecture(model_path: Path) -> dict[str, Any]:
+    """Read the immutable model config without loading weights."""
+
+    config_path = model_path / "config.json"
+    if not config_path.is_file():
+        raise ModelArchitectureError(f"model config is missing: {config_path}")
+    try:
+        import json
+
+        value = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ModelArchitectureError(f"invalid model config: {config_path}: {exc}") from exc
+    if not isinstance(value, dict) or value.get("model_type") != "qwen3_5":
+        raise ModelArchitectureError("the project requires model_type=qwen3_5")
+    return value
+
+
 def load_model_and_tokenizer(config: ModelConfig) -> LoadedCausalLM:
     try:
         import torch
-        from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+        from transformers import (
+            AutoConfig,
+            AutoModelForCausalLM,
+            AutoModelForImageTextToText,
+            AutoProcessor,
+            AutoTokenizer,
+            Qwen3_5ForCausalLM,
+            Qwen3_5ForConditionalGeneration,
+        )
     except Exception as exc:
         raise RuntimeError(f"transformers/torch import failed: {type(exc).__name__}: {exc}") from exc
     model_path = Path(config.local_path)
     if not model_path.exists():
         raise FileNotFoundError(f"model path does not exist: {model_path}")
+    architecture = inspect_model_architecture(model_path)
+    if config.architecture not in {"qwen3_5_causal_lm", "qwen3_5_conditional_generation"}:
+        raise ModelArchitectureError(f"unsupported architecture contract: {config.architecture}")
+    if config.text_only and config.architecture != "qwen3_5_causal_lm":
+        raise ModelArchitectureError("text_only loading requires qwen3_5_causal_lm")
+    if not config.text_only and config.architecture != "qwen3_5_conditional_generation":
+        raise ModelArchitectureError("multimodal loading requires qwen3_5_conditional_generation")
+    # Keep the check explicit even though both concrete Qwen classes share the
+    # same config.json.  This prevents an Auto* fallback from silently
+    # changing the module tree expected by PEFT.
+    if architecture.get("model_type") != "qwen3_5":
+        raise ModelArchitectureError("unsupported model_type for Qwen3.5 project")
     try:
         model_config = AutoConfig.from_pretrained(model_path, local_files_only=True, trust_remote_code=config.trust_remote_code)
     except Exception as exc:
@@ -100,13 +144,15 @@ def load_model_and_tokenizer(config: ModelConfig) -> LoadedCausalLM:
                 local_files_only=True,
                 trust_remote_code=config.trust_remote_code,
             )
-            model_loader = AutoModelForCausalLM
+            # Use the concrete class rather than relying on Auto* dispatch.
+            # This keeps the PEFT key tree stable across training and serving.
+            model_loader = Qwen3_5ForCausalLM
         else:
             processor = AutoProcessor.from_pretrained(model_path, local_files_only=True, trust_remote_code=config.trust_remote_code)
             tokenizer = getattr(processor, "tokenizer", processor)
             # Qwen3.5 is a unified vision-language conditional-generation model;
             # Transformers 5.x exposes it through AutoModelForImageTextToText.
-            model_loader = getattr(__import__("transformers", fromlist=["AutoModelForImageTextToText"]), "AutoModelForImageTextToText", AutoModelForCausalLM)
+            model_loader = Qwen3_5ForConditionalGeneration
         model = model_loader.from_pretrained(
             model_path,
             local_files_only=True,

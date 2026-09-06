@@ -241,9 +241,9 @@ def _load_adapter_in_fresh_process(model_path: Path, adapter_dir: Path) -> None:
 import sys
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM
+from transformers import Qwen3_5ForConditionalGeneration
 
-base = AutoModelForCausalLM.from_pretrained(
+base = Qwen3_5ForConditionalGeneration.from_pretrained(
     sys.argv[1], local_files_only=True, dtype=torch.float32, device_map=None
 )
 loaded = PeftModel.from_pretrained(base, sys.argv[2], is_trainable=False)

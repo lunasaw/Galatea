@@ -21,6 +21,11 @@ model:
   dtype: bfloat16
   device: cuda:0
   max_input_tokens: 512
+  # The historical adapter was trained through Qwen3_5ForCausalLM and its
+  # keys are base_model.model.model.layers.*.  vLLM/Ray Serve currently loads
+  # Qwen3_5ForConditionalGeneration, whose tree is different.  Keep this
+  # explicit so readiness fails closed until a same-class adapter is exported.
+  expected_architecture: qwen3_5_conditional_generation
   trust_remote_code: false
   enable_thinking: false
   lora_loading_path: s3://training-data/ray-runtime/llm-lora-playground-inference/5486e8a7db3547919a66865983a81162
@@ -38,6 +43,16 @@ generation:
   seed: 42
 prompt:
   system_policy: "仅基于已提供的脱敏对话生成回复；不猜测或复述私人事实。"
+memory:
+  enabled: true
+  protocol_version: memory-grounded-v1
+  default_status: confirmed
+  owner_scope_required: true
+  allow_model_generated_writeback: false
+  retrieval:
+    lexical: bm25
+    semantic: optional
+    max_results: 5
 governance:
   role: trial
   promotable: false

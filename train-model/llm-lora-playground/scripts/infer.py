@@ -39,7 +39,8 @@ def _resolved_root(data_config: dict) -> Path:
 
 def _model_config(config) -> ModelConfig:
     model = config.values["model"]
-    return ModelConfig(model_id=model["id"], local_path=os.environ.get("QWEN35_MODEL_PATH", model["local_path"]), dtype=model["dtype"], device=model["device"], max_input_tokens=int(model["max_input_tokens"]), trust_remote_code=bool(model.get("trust_remote_code", False)), enable_thinking=bool(model["enable_thinking"]))
+    architecture = str(model.get("architecture", "qwen3_5_conditional_generation"))
+    return ModelConfig(model_id=model["id"], local_path=os.environ.get("QWEN35_MODEL_PATH", model["local_path"]), dtype=model["dtype"], device=model["device"], max_input_tokens=int(model["max_input_tokens"]), trust_remote_code=bool(model.get("trust_remote_code", False)), enable_thinking=bool(model["enable_thinking"]), text_only=architecture == "qwen3_5_causal_lm", architecture=architecture)
 
 
 def check_config(config_path: Path, data_path: Path) -> dict:

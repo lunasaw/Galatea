@@ -228,6 +228,17 @@ def _adapter_state(model: Any, tokenizer: Any) -> dict[str, bytes]:
     with tempfile.TemporaryDirectory(prefix="llm-lora-adapter-") as directory:
         adapter_dir = Path(directory) / "adapter"
         model.save_pretrained(adapter_dir, safe_serialization=True)
+        # Persist the concrete model-tree contract alongside PEFT metadata.
+        # ``base_model_name_or_path`` alone cannot distinguish Qwen3.5 text
+        # and conditional-generation module prefixes.
+        adapter_config_path = adapter_dir / "adapter_config.json"
+        if adapter_config_path.is_file():
+            adapter_config = json.loads(adapter_config_path.read_text(encoding="utf-8"))
+            adapter_config["model_architecture"] = "qwen3_5_conditional_generation"
+            adapter_config_path.write_text(
+                json.dumps(adapter_config, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
         for path in sorted(adapter_dir.rglob("*")):
             if path.is_file():
                 state[f"adapter/{path.relative_to(adapter_dir).as_posix()}"] = path.read_bytes()
@@ -309,7 +320,7 @@ def train(
     _require_gpu(device)
     try:
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedule_with_warmup
+        from transformers import AutoTokenizer, Qwen3_5ForConditionalGeneration, get_cosine_schedule_with_warmup
     except ImportError as exc:
         raise TrainingContractError("torch and transformers are required in the project Ray environment") from exc
 
@@ -331,6 +342,8 @@ def train(
     data_preparation_seconds = time.perf_counter() - data_started
     config_digest = canonical_training_config_digest(config)
     model_cfg = config.values["model"]
+    if model_cfg.get("architecture") != "qwen3_5_conditional_generation":
+        raise TrainingContractError("training requires model.architecture=qwen3_5_conditional_generation")
     training_cfg = config.values["training"]
     model_path = Path(str(model_cfg["local_path"])).expanduser().resolve()
     if not model_path.is_dir():
@@ -345,7 +358,7 @@ def train(
     )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    base_model = AutoModelForCausalLM.from_pretrained(
+    base_model = Qwen3_5ForConditionalGeneration.from_pretrained(
         model_path,
         local_files_only=True,
         dtype=torch.bfloat16,

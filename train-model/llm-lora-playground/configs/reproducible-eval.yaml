@@ -11,8 +11,16 @@ evaluation:
   protocol_version: eval-v1
   compare_base: true
   generation_batch_size: 8
+  memory_challenge_set: memory-grounded-v1
+memory:
+  enabled: true
+  protocol_version: memory-grounded-v1
+  default_status: confirmed
+  owner_scope_required: true
+  allow_model_generated_writeback: false
 model:
   id: Qwen/Qwen3.5-0.8B
+  architecture: qwen3_5_conditional_generation
   local_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
   revision_policy: resolve_remote_commit_before_run
   dtype: bfloat16

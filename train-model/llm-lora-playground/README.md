@@ -94,6 +94,39 @@ Future inference starts must use the Galatea `galatea_plan_inference` →
 entrypoint requires the Galatea binding and rejects local execution. The adapter remains a Trial
 (`promotable=false`, `test_access=untouched`) even while it is available for controlled inference.
 
+### Architecture and adapter readiness
+
+Training and official Ray Serve/vLLM serving now both pin the concrete
+`Qwen3_5ForConditionalGeneration` class and record
+`model_architecture: qwen3_5_conditional_generation` in adapter metadata. Its text backbone is
+under `language_model.model.layers.*` when PEFT is attached to the multimodal wrapper. The
+historical adapter was exported through the pure-text `Qwen3_5ForCausalLM` tree
+(`model.model.layers.*`), so it is intentionally blocked at readiness until it is re-exported from
+the same class used by serving. No key-prefix rewrite is supported.
+
+Readiness now performs three checks: concrete base architecture, adapter tensor-key architecture,
+and a multi-probe Base-vs-LoRA logits check. A message such as “Loaded new LoRA adapter” only proves
+download/registration. If all probes are identical, readiness fails and the service is not exposed.
+`max_loras: 1` remains a hard constraint; the project does not assume online composition of style and
+memory adapters.
+
+### Long-term memory
+
+Style SFT and memory-grounded behavior are separate contracts. Style samples redact identifiers,
+deduplicate by session, preserve multi-turn context, and train assistant-only loss. Memory is kept
+outside model parameters in owner-scoped records with `candidate/confirmed/superseded/deleted`
+status, source message IDs, confidence, sensitivity, and validity windows. Serving retrieves only the
+current owner's confirmed, non-expired records, injects them in an explicit `<memory>` block, and
+must say it does not know when evidence is absent. Model-generated text is never written back as a
+fact automatically.
+
+The reference implementation is in `src/llm_lora_playground/memory.py` and
+`src/llm_lora_playground/data_prep.py`; it supports lexical BM25-like retrieval and an optional
+semantic scorer so a production vector index can be added without changing the prompt contract.
+`memory-grounded-v1` evaluates retrieval and answer safety separately: evidence support, unsupported
+claim/refusal behavior, conflict recency, cross-owner leakage, and PII/canary leakage (the latter two
+must be zero). The current Trial remains `formal_training_eligible=false` and `promotable=false`.
+
 The Ray Runtime Environment reader requires only `ListBucket` and `GetObject` below
 `s3://training-data/ray-runtime/llm-lora-playground/`; it must not receive upload, delete,
 dataset or MLflow artifact permissions. Add this prefix before publishing the first release,

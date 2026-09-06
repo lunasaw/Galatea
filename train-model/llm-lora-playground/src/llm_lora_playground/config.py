@@ -60,6 +60,8 @@ def validate_config(config: ProjectConfig) -> list[str]:
         errors.append("model.dtype must be bfloat16")
     if model.get("device") != "cuda:0":
         errors.append("model.device must be cuda:0")
+    if model.get("architecture") not in {None, "qwen3_5_causal_lm", "qwen3_5_conditional_generation"}:
+        errors.append("model.architecture must name a supported Qwen3.5 architecture")
     if model.get("enable_thinking") is not False:
         errors.append("model.enable_thinking must be false")
     if generation.get("max_new_tokens") != 128:
@@ -83,6 +85,7 @@ def validate_training_config(config: TrainingConfig) -> list[str]:
     execution = values.get("execution", {})
     run = values.get("run", {})
     evaluation = values.get("evaluation", {})
+    memory = values.get("memory", {})
     if values.get("run_kind") not in {"smoke", "baseline", "evaluation", "ray_smoke", "owner_bulk_approved_experiment"}:
         errors.append("run_kind must be smoke, baseline, evaluation, ray_smoke, or owner_bulk_approved_experiment")
     if not data.get("assistant_only_loss"):
@@ -115,6 +118,19 @@ def validate_training_config(config: TrainingConfig) -> list[str]:
         errors.append("evaluation.protocol_version is required")
     if evaluation.get("compare_base") is not True:
         errors.append("evaluation.compare_base must be true")
+    if memory:
+        if memory.get("enabled") is not True:
+            errors.append("memory.enabled must be true when memory configuration is present")
+        if memory.get("default_status") != "confirmed":
+            errors.append("memory.default_status must be confirmed")
+        if memory.get("owner_scope_required") is not True:
+            errors.append("memory.owner_scope_required must be true")
+        if memory.get("allow_model_generated_writeback") is not False:
+            errors.append("memory.allow_model_generated_writeback must be false")
+        if memory.get("protocol_version") != "memory-grounded-v1":
+            errors.append("memory.protocol_version must be memory-grounded-v1")
+    if values.get("model", {}).get("architecture") != "qwen3_5_conditional_generation":
+        errors.append("training model.architecture must be qwen3_5_conditional_generation")
     if not isinstance(evaluation.get("generation_batch_size"), int) or evaluation.get("generation_batch_size", 0) <= 0:
         errors.append("evaluation.generation_batch_size must be a positive integer")
     if run.get("role") == "champion" and evaluation.get("evaluate_test") is not True:

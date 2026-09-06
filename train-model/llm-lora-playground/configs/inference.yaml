@@ -1,5 +1,6 @@
 model:
   id: Qwen/Qwen3.5-0.8B
+  architecture: qwen3_5_conditional_generation
   local_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
   revision_policy: resolve_remote_commit_before_run
   revision: null

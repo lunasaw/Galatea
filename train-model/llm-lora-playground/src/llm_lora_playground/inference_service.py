@@ -17,8 +17,9 @@ from typing import Any
 
 from .checkpoints import CheckpointManifest, load_checkpoint
 from .config import canonical_config_digest, load_config
-from .lora import load_adapter
-from .models.causal_lm import ModelConfig, prepare_inputs
+from .lora import LoRAContractError, load_adapter, validate_adapter_architecture
+from .models.causal_lm import ModelArchitectureError, ModelConfig, load_model_and_tokenizer, prepare_inputs
+from .probes import AdapterEffectError, assert_adapter_effective, probes_from_tokenizer
 
 
 class InferenceContractError(ValueError):
@@ -104,6 +105,7 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
     generation = values.get("generation", {})
     governance = values.get("governance", {})
     resources = values.get("resources", {})
+    memory = values.get("memory", {})
     for key in ("name", "host", "port", "route_prefix", "replicas", "max_ongoing_requests"):
         if key not in service:
             errors.append(f"service.{key} is required")
@@ -116,7 +118,7 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
     if service.get("max_ongoing_requests", 0) <= 0:
         errors.append("service.max_ongoing_requests must be positive")
 
-    for key in ("id", "lora_id", "base_model_path", "adapter_path", "checkpoint_manifest_path", "source_mlflow_run_id", "engine", "protocol", "dtype", "device", "max_input_tokens", "lora_loading_path"):
+    for key in ("id", "lora_id", "base_model_path", "adapter_path", "checkpoint_manifest_path", "source_mlflow_run_id", "engine", "protocol", "dtype", "device", "max_input_tokens", "lora_loading_path", "expected_architecture"):
         if key not in model:
             errors.append(f"model.{key} is required")
     if model.get("engine") != "ray-serve-llm-vllm":
@@ -131,6 +133,8 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
         errors.append("model.trust_remote_code must be false")
     if model.get("enable_thinking") is not False:
         errors.append("model.enable_thinking must be false")
+    if model.get("expected_architecture") not in {"qwen3_5_causal_lm", "qwen3_5_conditional_generation"}:
+        errors.append("model.expected_architecture must name a supported Qwen3.5 architecture")
     lora_loading_path = str(model.get("lora_loading_path", ""))
     if not lora_loading_path.startswith(("s3://", "gs://", "abfss://", "azure://")):
         errors.append("model.lora_loading_path must be a controlled remote URI")
@@ -156,6 +160,17 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
         errors.append("generation.repetition_penalty must be at least 1")
     if generation.get("no_repeat_ngram_size", 0) < 0:
         errors.append("generation.no_repeat_ngram_size must be non-negative")
+    if memory:
+        if memory.get("enabled") is not True:
+            errors.append("memory.enabled must be true when memory configuration is present")
+        if memory.get("protocol_version") != "memory-grounded-v1":
+            errors.append("memory.protocol_version must be memory-grounded-v1")
+        if memory.get("default_status") != "confirmed":
+            errors.append("memory.default_status must be confirmed")
+        if memory.get("owner_scope_required") is not True:
+            errors.append("memory.owner_scope_required must be true")
+        if memory.get("allow_model_generated_writeback") is not False:
+            errors.append("memory.allow_model_generated_writeback must be false")
 
     for key in ("base_model_path", "adapter_path", "checkpoint_manifest_path"):
         value = model.get(key)
@@ -186,6 +201,13 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
     declared_base = str(adapter_metadata.get("base_model_name_or_path", ""))
     if declared_base and Path(declared_base).resolve() != base_path:
         raise InferenceContractError("adapter base_model_name_or_path does not match model.base_model_path")
+    try:
+        adapter_architecture = validate_adapter_architecture(adapter_path, expected=str(model["expected_architecture"]))["model_architecture"]
+    except (LoRAContractError, OSError, ValueError) as exc:
+        # Keep the read-only config checker useful on machines without the
+        # serving dependencies, while surfacing the immutable key-tree result
+        # to the governed readiness step below.
+        adapter_architecture = f"invalid:{type(exc).__name__}:{exc}"
     return {
         "config": config,
         "values": values,
@@ -197,7 +219,76 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
         "model_manifest_sha256": sha256_file(manifest_path),
         "adapter_config_sha256": sha256_file(adapter_config),
         "adapter_weights_sha256": sha256_file(adapter_weights),
+        "adapter_architecture": adapter_architecture,
     }
+
+
+def validate_model_adapter_compatibility(preflight: dict[str, Any]) -> dict[str, Any]:
+    """Validate that the base class, adapter key tree and serving engine agree.
+
+    This is a startup/readiness check, not merely a file check.  It deliberately
+    rejects the current historical text-only adapter when the official vLLM
+    Qwen3.5 conditional-generation path is selected.
+    """
+
+    values = preflight["values"]
+    model = values["model"]
+    expected = str(model["expected_architecture"])
+    base_config_path = Path(preflight["base_model_path"]) / "config.json"
+    try:
+        base_config = json.loads(base_config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise InferenceContractError(f"cannot inspect base model config: {exc}") from exc
+    expected_class = {
+        "qwen3_5_causal_lm": "Qwen3_5ForCausalLM",
+        "qwen3_5_conditional_generation": "Qwen3_5ForConditionalGeneration",
+    }[expected]
+    if expected_class not in list(base_config.get("architectures") or []):
+        raise InferenceContractError(
+            f"base model architecture mismatch: expected {expected_class}, observed {base_config.get('architectures')}"
+        )
+    if str(preflight.get("adapter_architecture", "")).startswith("invalid:"):
+        raise InferenceContractError(str(preflight["adapter_architecture"]))
+    if preflight.get("adapter_architecture") != expected:
+        raise InferenceContractError(
+            f"adapter architecture mismatch: expected {expected}, observed {preflight.get('adapter_architecture')}"
+        )
+    if model.get("engine") == "ray-serve-llm-vllm" and expected != "qwen3_5_conditional_generation":
+        raise InferenceContractError(
+            "ray-serve-llm-vllm requires Qwen3_5ForConditionalGeneration; "
+            "use the same class for training or re-export the adapter"
+        )
+    return {"expected_architecture": expected, "base_architecture": expected_class, "adapter_architecture": preflight["adapter_architecture"]}
+
+
+def run_adapter_effectiveness_probe(preflight: dict[str, Any]) -> list[dict[str, Any]]:
+    """Load the exact model class and prove Base-vs-LoRA differences."""
+
+    compatibility = validate_model_adapter_compatibility(preflight)
+    expected = compatibility["expected_architecture"]
+    loaded = load_model_and_tokenizer(ModelConfig(
+        model_id=str(preflight["values"]["model"]["id"]),
+        local_path=str(preflight["base_model_path"]),
+        dtype=str(preflight["values"]["model"]["dtype"]),
+        device=str(preflight["values"]["model"]["device"]),
+        max_input_tokens=int(preflight["values"]["model"]["max_input_tokens"]),
+        trust_remote_code=False,
+        enable_thinking=False,
+        text_only=expected == "qwen3_5_causal_lm",
+        architecture=expected,
+    ))
+    adapted = load_adapter(loaded.model, str(preflight["adapter_path"]))
+    adapted.eval()
+    probes = probes_from_tokenizer(loaded.tokenizer, [
+        ("readiness-1", [{"role": "user", "content": "请用一句话回答：今天心情如何？"}]),
+        ("readiness-2", [{"role": "user", "content": "请简短回复：谢谢你。"}]),
+        ("readiness-3", [{"role": "user", "content": "请自然地说：晚安。"}]),
+    ], max_length=int(preflight["values"]["model"]["max_input_tokens"]))
+    try:
+        results = assert_adapter_effective(adapted, probes, tokenizer=loaded.tokenizer, min_changed_probes=1)
+    except AdapterEffectError as exc:
+        raise InferenceContractError(str(exc)) from exc
+    return [result.__dict__ for result in results]
 
 
 def build_serving_manifest(preflight: dict[str, Any], submission_id: str, code_revision: str) -> dict[str, Any]:
@@ -218,6 +309,8 @@ def build_serving_manifest(preflight: dict[str, Any], submission_id: str, code_r
         "base_model_path": str(preflight["base_model_path"]),
         "adapter_path": str(preflight["adapter_path"]),
         "engine": model["engine"],
+        "expected_architecture": model["expected_architecture"],
+        "adapter_architecture": preflight.get("adapter_architecture"),
         "protocol": model["protocol"],
         "governance": values["governance"],
         "code_revision": code_revision,

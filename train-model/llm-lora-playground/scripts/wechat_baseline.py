@@ -62,6 +62,7 @@ def load_rows(path: Path, count: int) -> list[dict[str, Any]]:
 
 def model_config(config: Any) -> ModelConfig:
     model = config.values["model"]
+    architecture = str(model.get("architecture", "qwen3_5_conditional_generation"))
     return ModelConfig(
         model_id=model["id"],
         local_path=os.environ.get("QWEN35_MODEL_PATH", model["local_path"]),
@@ -70,6 +71,8 @@ def model_config(config: Any) -> ModelConfig:
         max_input_tokens=int(model["max_input_tokens"]),
         trust_remote_code=bool(model.get("trust_remote_code", False)),
         enable_thinking=bool(model["enable_thinking"]),
+        text_only=architecture == "qwen3_5_causal_lm",
+        architecture=architecture,
     )
 
 

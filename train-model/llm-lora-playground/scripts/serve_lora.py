@@ -17,6 +17,8 @@ from llm_lora_playground.inference_service import (  # noqa: E402
     build_serving_manifest,
     create_deployment,
     validate_inference_config,
+    validate_model_adapter_compatibility,
+    run_adapter_effectiveness_probe,
     write_serving_manifest,
     validate_inference_binding,
 )
@@ -48,6 +50,10 @@ def _require_job_boundary() -> None:
 def run(config_path: Path) -> int:
     _require_job_boundary()
     preflight = validate_inference_config(config_path)
+    compatibility = validate_model_adapter_compatibility(preflight)
+    # Readiness must prove the adapter affects the exact model class used by
+    # serving.  A successful download/registration alone is insufficient.
+    probe_results = run_adapter_effectiveness_probe(preflight)
     expected_digest = os.environ.get("RAY_INFERENCE_CONFIG_DIGEST")
     if expected_digest and expected_digest != preflight["config_digest"]:
         raise RuntimeError("inference config digest does not match the submission binding")
@@ -60,6 +66,8 @@ def run(config_path: Path) -> int:
         raise RuntimeError("submission identity does not match the Galatea binding")
     manifest = build_serving_manifest(preflight, submission_id, os.environ.get("CODE_REVISION", code_revision(PROJECT_ROOT)))
     manifest["governance_binding"] = binding
+    manifest["model_compatibility"] = compatibility
+    manifest["adapter_effectiveness_probes"] = probe_results
     manifest_path = write_serving_manifest(manifest, Path(str(preflight["values"]["output_root"])), submission_id)
     print(json.dumps({"status": "starting", "submission_id": submission_id, "manifest": str(manifest_path), "config_digest": preflight["config_digest"], "model_manifest_sha256": preflight["model_manifest_sha256"]}, ensure_ascii=False, sort_keys=True), flush=True)
 
@@ -97,7 +105,8 @@ def main() -> int:
     try:
         if args.check_config:
             preflight = validate_inference_config(args.config.resolve())
-            print(json.dumps({"status": "ok", "config_digest": preflight["config_digest"], "model_manifest_sha256": preflight["model_manifest_sha256"], "checkpoint_step": preflight["checkpoint"].step}, ensure_ascii=False, sort_keys=True))
+            compatibility = validate_model_adapter_compatibility(preflight)
+            print(json.dumps({"status": "ok", "config_digest": preflight["config_digest"], "model_manifest_sha256": preflight["model_manifest_sha256"], "checkpoint_step": preflight["checkpoint"].step, "model_compatibility": compatibility}, ensure_ascii=False, sort_keys=True))
             return 0
         if not args.run:
             parser.error("one of --check-config or --run is required")

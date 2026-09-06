@@ -1,0 +1,7 @@
+schema_version: wechat-persona-config-v1
+project: wechat-persona
+task: local_prototype
+runtime: {enabled: false, require_quality_evidence_status: accepted, require_human_review: true, require_not_withdrawn: true, ai_identity_label: "AI 生成内容"}
+model: {model_id: required, model_revision: required, adapter_id: required, protocol_version: wechat-persona-style-v1}
+memory: {enabled_by_default: false, owner_scope_required: true, allow_log_persistence: false}
+run: {role: prototype, promotable: false}

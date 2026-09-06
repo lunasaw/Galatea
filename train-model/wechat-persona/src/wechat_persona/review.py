@@ -1,0 +1,64 @@
+"""Append-only human review transitions over redacted candidates."""
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+
+class ReviewError(ValueError): pass
+STATUSES = {"keep", "redact_keep", "reject", "uncertain"}
+
+
+def _content_hash(row: dict[str, Any]) -> str:
+    content = "\n".join(str(item.get("content", "")) for item in row.get("messages", []))
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def apply_review(row: dict[str, Any], status: str, *, reviewer_id: str | None = None, reason: str | None = None, edited_messages: list[dict[str, Any]] | None = None, reviewed_at: str | None = None) -> dict[str, Any]:
+    if status not in STATUSES: raise ReviewError("invalid review status")
+    if not reviewer_id: raise ReviewError("reviewer_id is required")
+    result = {**row, "metadata": {**dict(row.get("metadata") or {})}}
+    if edited_messages is not None: result["messages"] = edited_messages
+    meta = result["metadata"]; meta.update({"review_status": status, "reviewer_id": reviewer_id, "reviewed_at": reviewed_at or datetime.now(timezone.utc).isoformat(), "review_reason": reason, "content_sha256": _content_hash(row)})
+    if status == "redact_keep":
+        if not edited_messages: raise ReviewError("redact_keep requires edited_messages")
+        if not reason: raise ReviewError("redact_keep requires a reason")
+        meta["redacted_content_sha256"] = _content_hash(result)
+    if status == "reject" and not reason:
+        raise ReviewError("reject requires a classified reason")
+    return result
+
+
+def export_approved(rows: Iterable[dict[str, Any]], *, split: str) -> list[dict[str, Any]]:
+    if split not in {"train", "validation", "test"}: raise ReviewError("invalid split")
+    result = []
+    for row in rows:
+        meta = dict(row.get("metadata") or {})
+        if meta.get("review_status") not in {"keep", "redact_keep"}: continue
+        if not meta.get("reviewer_id") or not meta.get("reviewed_at"): raise ReviewError("approved row is not fully reviewed")
+        copy = {**row, "metadata": {**meta, "split": split}}
+        result.append(copy)
+    return result
+
+
+def append_review_event(path: Path, reviewed_row: dict[str, Any]) -> dict[str, Any]:
+    """Append an ID/hash-only review event; candidate text is never logged."""
+    meta = dict(reviewed_row.get("metadata") or {})
+    if meta.get("review_status") not in STATUSES or not meta.get("reviewer_id"):
+        raise ReviewError("review event requires a completed decision")
+    event = {
+        "sample_id": str(reviewed_row.get("sample_id", "")),
+        "session_id": str(reviewed_row.get("session_id", "")),
+        "review_status": meta["review_status"],
+        "reviewer_id": meta["reviewer_id"],
+        "reviewed_at": meta.get("reviewed_at"),
+        "review_reason": meta.get("review_reason"),
+        "content_sha256": meta.get("redacted_content_sha256") or _content_hash(reviewed_row),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+    return event

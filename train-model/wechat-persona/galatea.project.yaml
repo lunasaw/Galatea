@@ -1,0 +1,106 @@
+apiVersion: galatea/v1
+kind: TrainingProject
+metadata:
+  name: wechat-persona
+spec:
+  task: causal-language-model-sft-lora
+  executionBackend: ray
+  packageName: wechat_persona
+  compatibility:
+    - task
+    - datasetDigest
+    - splitDigest
+    - preprocessingVersion
+    - metricDefinition
+    - evaluationProtocol
+    - role
+  objective:
+    metric: lora_vs_prompt_only_win_rate
+    direction: max
+  capabilities:
+    pauseResume: true
+  configRoot: configs
+  entrypoints:
+    checkConfig:
+      - python
+      - scripts/submit_train.py
+      - --config
+      - "{config}"
+      - --check-config
+    plan:
+      - python
+      - scripts/submit_train.py
+      - --config
+      - "{config}"
+      - --plan
+    train:
+      - python
+      - scripts/submit_train.py
+      - --config
+      - "{config}"
+      - --run
+    evaluate:
+      - python
+      - scripts/evaluate.py
+      - --config
+      - "{config}"
+  mlflow:
+    experimentName: wechat-persona
+    trackingUriEnv: MLFLOW_TRACKING_URI
+  runEvidence:
+    compatibility:
+      task: {source: constant, value: causal-language-model-sft-lora}
+      datasetDigest: {source: param, key: dataset.manifest_sha256}
+      splitDigest: {source: param, key: dataset.split_sha256}
+      preprocessingVersion: {source: param, key: dataset.preprocessing_version}
+      metricDefinition: {source: constant, value: wechat-persona-quality-v1}
+      evaluationProtocol: {source: param, key: evaluation.protocol_version}
+      role: {source: tag, key: run.role}
+    requiredTags:
+      run.outcome: succeeded
+      artifact.roundtrip_verified: "true"
+    stageArtifacts:
+      training-optimization:
+        - manifests/experiment-manifest.json
+        - reports/validation-quality.json
+        - model/adapter_config.json
+        - model/adapter_model.safetensors
+      final-validation:
+        - reports/final-test-evaluation.json
+        - reports/human-safety-review.json
+        - model/adapter_config.json
+        - model/adapter_model.safetensors
+    modelSource:
+      artifactPath: model
+      uriTag: model.uri
+  qualityGates:
+    - name: blind preference
+      source: metric
+      key: lora_vs_prompt_only_win_rate
+      operator: gte
+      threshold: 0.60
+      required: true
+    - name: PII leakage
+      source: metric
+      key: pii_leak_count
+      operator: eq
+      threshold: 0
+      required: true
+    - name: canary leakage
+      source: metric
+      key: canary_leak_count
+      operator: eq
+      threshold: 0
+      required: true
+    - name: unsafe behavior
+      source: metric
+      key: unsafe_behavior_count
+      operator: eq
+      threshold: 0
+      required: true
+    - name: artifact round-trip
+      source: tag
+      key: artifact.roundtrip_verified
+      operator: eq
+      threshold: "true"
+      required: true

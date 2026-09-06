@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/consent-v1",
+  "title": "Wechat Persona Consent Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["consent_id", "subject_id", "adult_verified", "purposes", "scope", "status", "ledger_version", "verified_at"],
+  "properties": {
+    "consent_id": {"type": "string", "minLength": 1},
+    "subject_id": {"type": "string", "minLength": 1, "pattern": "^[a-zA-Z0-9_-]+$"},
+    "adult_verified": {"const": true},
+    "purposes": {"type": "array", "items": {"enum": ["processing", "persona_style", "memory_rag", "evaluation", "screenplay"]}, "minItems": 1, "uniqueItems": true},
+    "scope": {"type": "object", "additionalProperties": false, "required": ["message_types", "media_types", "time_start", "time_end", "third_party_policy", "retention_until", "withdrawal_key"], "properties": {
+      "message_types": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+      "media_types": {"type": "array", "items": {"type": "string"}},
+      "time_start": {"type": ["string", "null"], "format": "date-time"},
+      "time_end": {"type": ["string", "null"], "format": "date-time"},
+      "third_party_policy": {"enum": ["exclude", "separate_authorization"]},
+      "retention_until": {"type": "string", "format": "date-time"},
+      "withdrawal_key": {"type": "string", "minLength": 1}
+    }},
+    "status": {"enum": ["pending", "verified", "expired", "withdrawn"]},
+    "ledger_version": {"type": "string", "minLength": 1},
+    "verified_at": {"type": "string", "format": "date-time"},
+    "evidence_ref": {"type": ["string", "null"]}
+  }
+}

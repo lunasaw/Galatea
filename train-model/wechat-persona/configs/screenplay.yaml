@@ -1,0 +1,6 @@
+schema_version: wechat-persona-config-v1
+project: wechat-persona
+task: screenplay_generation
+runtime: {enabled: false, require_quality_evidence_status: accepted, require_human_review: true, require_not_withdrawn: true}
+screenplay: {duration_seconds: 240, rewrite_policy: rewrite, allow_voice: false, allow_face: false, allow_auto_message: false}
+run: {role: prototype, promotable: false}

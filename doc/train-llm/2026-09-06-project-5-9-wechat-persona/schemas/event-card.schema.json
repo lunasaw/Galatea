@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/event-card-v1",
+  "title": "Screenplay Event Card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "relationship_stage", "scene", "character_goals", "emotional_turn", "source_refs", "review_status", "rewrite_policy"],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "time_range": {"type": ["object", "null"], "additionalProperties": false, "properties": {"start": {"type": "string", "format": "date-time"}, "end": {"type": "string", "format": "date-time"}}},
+    "relationship_stage": {"enum": ["acquaintance", "familiar", "ambiguous", "committed", "unknown"]},
+    "scene": {"type": "string", "minLength": 1},
+    "character_goals": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "emotional_turn": {"type": "string", "minLength": 1},
+    "conflict": {"type": ["string", "null"]},
+    "resolution": {"type": ["string", "null"]},
+    "source_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "source_fact_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "review_status": {"enum": ["uncertain", "approved", "edited", "rejected", "deleted"]},
+    "rewrite_policy": {"enum": ["rewrite", "paraphrase_only", "quote_with_explicit_authorization"]},
+    "notes": {"type": "string"}
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/message-v1",
+  "title": "Normalized Redacted Message",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["message_id", "source_record_index", "timestamp", "speaker_role", "message_kind", "text_redacted", "source_hash", "parse_status"],
+  "properties": {
+    "message_id": {"type": "string", "minLength": 1},
+    "source_record_index": {"type": "integer", "minimum": 0},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "speaker_role": {"enum": ["self", "target", "other", "unknown"]},
+    "message_kind": {"enum": ["text", "emoji", "image", "voice", "video", "file", "quote", "link", "system", "payment", "call", "other"]},
+    "text_redacted": {"type": ["string", "null"]},
+    "source_ref": {"type": ["string", "null"]},
+    "media_refs": {"type": "array", "items": {"type": "string"}},
+    "reply_to": {"type": ["string", "null"]},
+    "source_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "parse_status": {"enum": ["ok", "partial", "failed"]},
+    "redaction_categories": {"type": "array", "items": {"type": "string"}}
+  }
+}

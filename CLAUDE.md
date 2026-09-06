@@ -229,8 +229,9 @@ capabilities. `configPath` is project-relative below the declared `configRoot`, 
 Lifecycle/evidence results with `operationStatus` report execution, quality, governance, and
 preprocessing/migration integrity independently. Readiness fails closed when required integrity evidence
 is absent, unknown, inapplicable for an applicable role, or failed. A Ray success never implies quality or
-approval. Promotion is never automatic and always requires an explicit `galatea_promote_model` call with
-current final-validation evidence and one-time approval. With Harness approval policy `never`, governed
+authorization. Promotion is never automatic and always requires an explicit `galatea_promote_model` call with
+current final-validation evidence. Harness `danger-full-access` authorizes governed actions without a prompt;
+other permission presets require one-time approval. With approval policy `never` outside full access, governed
 submit, resume, and promotion fail closed; retrying cannot bypass disabled prompts.
 
 Credentials are injected by the Harness process. Plugin configuration stores only the name of an

@@ -1,0 +1,17 @@
+name: wechat-persona-ray-py312
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12.12
+  - pip
+  - pip:
+      - PyYAML==6.0.3
+      - jsonschema==4.25.1
+      - mlflow==3.14.0
+      - torch==2.11.0
+      - transformers==5.16.1
+      - peft==0.20.0
+      - datasets==5.0.1
+      - trl==0.25.1
+      - ray[default,serve,llm]==2.58.0
+      - sentence-transformers==5.1.2

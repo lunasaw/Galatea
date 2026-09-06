@@ -75,17 +75,23 @@ Notebook 不是正式训练依赖，只用于检查、提交和查看结果；�
 
 ## 1. 环境
 
-从仓库根目录创建项目环境：
+从仓库根目录在每个 Ray 节点预装项目环境（只做一次）：
 
 ```bash
 source /data/conda/etc/profile.d/conda.sh
-conda env create --file train-model/ray-cats-and-dogs/conda.yaml
-conda activate ray-cats-and-dogs-py312
+export RAY_CONDA_HOME=/data/conda
+export CONDA_DEFAULT_CHANNELS=
+export CONDA_PKGS_DIRS=/data/conda/pkgs
+export PIP_CACHE_DIR=/var/cache/ray/pip
+/data/conda/bin/conda env create \
+  --file train-model/ray-cats-and-dogs/conda.yaml \
+  --prefix /data/conda/envs/ray-cats-and-dogs-py312
+/data/conda/envs/ray-cats-and-dogs-py312/bin/python \
+  train-model/ray-cats-and-dogs/job/warmup.py
+conda activate /data/conda/envs/ray-cats-and-dogs-py312
 python -m pip install -e train-model/ray-cats-and-dogs
-python -m ipykernel install --user \
-  --name ray-cats-and-dogs-py312 \
+python -m ipykernel install --user --name ray-cats-and-dogs-py312 \
   --display-name "Python (ray-cats-and-dogs)"
-python -m pip check
 ```
 
 共享平台环境已经包含相同版本的 Ray、MLflow 和 PyTorch CUDA 13 时，也可以先用它做配置检查：
@@ -206,17 +212,16 @@ python train-model/ray-cats-and-dogs/scripts/train.py \
 
 ## 5. 通过 Ray Job 提交
 
-正式或长时间训练建议交给 Ray Jobs API，而不是依赖终端或 Notebook Kernel：
+正式或长时间训练建议通过不可变 release 交给 Ray Jobs API，而不是依赖终端或 Notebook Kernel：
 
 ```bash
-ray job submit \
-  --address http://127.0.0.1:8265 \
-  --runtime-env-json='{"working_dir":"train-model/ray-cats-and-dogs","py_modules":["train-model/ray-cats-and-dogs/src/ray_cats_dogs"],"excludes":["notebooks/**","tests/**"]}' \
-  -- python scripts/train.py --config configs/smoke.yaml
+/data/conda/envs/attend-ray-py312/bin/python \
+  train-model/ray-cats-and-dogs/job/ci.py \
+  --mode train --config configs/smoke.yaml
 ```
 
-Notebook 提交使用同一个 `build_runtime_env(PROJECT_ROOT)`：`working_dir` 上传配置和入口，
-`py_modules` 把真正的包目录 `src/ray_cats_dogs` 加入 Python 导入路径。Driver 会把上传后
+发布器使用固定的预装 Conda 前缀；`working_dir` 上传配置和入口，`py_modules` 把真正的包目录
+`src/ray_cats_dogs` 加入 Python 导入路径。Driver 会把上传后
 生成的 Runtime URI 显式传给 Ray Train Worker。Ray 2.53 的 Train Controller 只保留内部
 环境变量，因此 Worker 函数和 MLflow Callback 会按值序列化给 Controller；不依赖训练
 节点预先执行 `pip install -e`，也不依赖所有节点共享源码绝对路径。

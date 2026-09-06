@@ -93,3 +93,46 @@ test('Trial stages cannot read final test data and promotion requires matching f
     approval: { valid: true, stage: 'final-validation', artifactId: 'evidence-9', evidenceDigest: 'sha256:current' },
   }), { allowed: true, reasons: [] })
 })
+
+test('full-access authorization remains bound to the current evidence', () => {
+  const evidence = { stage: 'readiness' as const, artifactId: 'ready-9', digest: 'sha256:current' }
+  assert.deepEqual(authorizeTransition({
+    to: 'training-optimization',
+    evidence,
+    authorization: {
+      kind: 'full-access',
+      permissionPreset: 'danger-full-access',
+      stage: 'readiness',
+      artifactId: 'ready-9',
+      evidenceDigest: 'sha256:current',
+    },
+  }), { allowed: true, reasons: [] })
+  assert.deepEqual(authorizeTransition({
+    to: 'training-optimization',
+    evidence,
+    authorization: {
+      kind: 'full-access',
+      permissionPreset: 'danger-full-access',
+      stage: 'readiness',
+      artifactId: 'ready-9',
+      evidenceDigest: 'sha256:stale',
+    },
+  }), {
+    allowed: false,
+    reasons: ['full-access authorization evidence digest does not match current evidence'],
+  })
+  assert.deepEqual(authorizeTransition({
+    to: 'training-optimization',
+    evidence,
+    authorization: {
+      kind: 'full-access',
+      permissionPreset: 'workspace-write',
+      stage: 'readiness',
+      artifactId: 'ready-9',
+      evidenceDigest: 'sha256:current',
+    } as never,
+  }), {
+    allowed: false,
+    reasons: ['full-access authorization does not identify the full-access permission preset'],
+  })
+})

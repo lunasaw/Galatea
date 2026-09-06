@@ -97,6 +97,7 @@ async function harness() {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(ApprovalService, { policy: 'ask' })
+  ctx.provide('permissionPresets', { current: () => 'workspace-write' } as never)
   return ctx
 }
 
@@ -104,7 +105,12 @@ describe('dsh-galatea Cordis plugin', () => {
   it('classifies known shell bypasses as governance violations', () => {
     expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'python scripts/train.py --config configs/baseline.yaml' })).toMatch(/formal training/)
     expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'ray job submit -- python scripts/train.py' })).toMatch(/direct Ray/)
+    expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'python scripts/submit_train.py --config configs/ray-job-smoke.yaml --run' })).toMatch(/direct Ray/)
+    expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'python job/submit_train.py --config configs/ray-job-smoke.yaml' })).toMatch(/direct Ray/)
+    expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'python scripts/wechat_full_baseline.py --data private.jsonl' })).toMatch(/direct Ray/)
+    expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'python scripts/train_lora.py --config configs/ray-job-smoke.yaml --run' })).toMatch(/formal training/)
     expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'python scripts/train.py --plan' })).toBeUndefined()
+    expect(GalateaPlugin.trainingCommandViolation('bash', { command: 'python scripts/train_lora.py --config configs/ray-job-smoke.yaml --plan' })).toBeUndefined()
   })
 
   it('survives the real Loader export path, registers every tool, and disposes them', async () => {
@@ -112,7 +118,7 @@ describe('dsh-galatea Cordis plugin', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(GalateaPlugin) as Parameters<Context['plugin']>[0]
     expect(unwrapped).toBe(GalateaPlugin)
-    expect(GalateaPlugin.inject).toEqual(['tools', 'approval', 'sessionProjections', 'systemPrompt'])
+    expect(GalateaPlugin.inject).toEqual(['tools', 'approval', 'permissionPresets', 'sessionProjections', 'systemPrompt'])
 
     const ctx = await harness()
     const fiber = await ctx.plugin(unwrapped, await projectConfig())

@@ -27,6 +27,8 @@ DEFAULT_BUCKET = "training-data"
 DEFAULT_ENDPOINT_URL = "http://127.0.0.1:9000"
 DEFAULT_PREFIX = "ray-runtime/ray-handwritten-digits"
 DEFAULT_RAY_ADDRESS = "http://127.0.0.1:8265"
+DEFAULT_RUNTIME_MODE = "conda"
+RUNTIME_MODES = ("conda", "pip")
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 AWS_ENV_KEYS = {
     "AWS_ACCESS_KEY_ID",
@@ -222,12 +224,69 @@ def _normalize_s3_location(bucket: str, prefix: str) -> tuple[str, str]:
     return normalized_bucket, normalized_prefix
 
 
+def _read_requirements(path: Path) -> list[str]:
+    if not path.is_file():
+        raise FileNotFoundError(f"pip requirements file does not exist: {path}")
+    packages = [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if not packages:
+        raise ValueError(f"pip requirements file is empty: {path}")
+    return packages
+
+
+def build_runtime_environment(
+    project_root: Path,
+    *,
+    runtime_mode: str = DEFAULT_RUNTIME_MODE,
+    pip_requirements: Path | None = None,
+    pip_packages: Sequence[str] = (),
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Build the project dependency portion of a Ray runtime environment."""
+
+    if runtime_mode not in RUNTIME_MODES:
+        raise ValueError(f"unsupported runtime mode: {runtime_mode}")
+    root = project_root.resolve()
+    import yaml
+
+    if runtime_mode == "conda":
+        if pip_requirements is not None or pip_packages:
+            raise ValueError("pip requirements or packages are only valid in pip mode")
+        environment_path = root / "conda.yaml"
+        if not environment_path.is_file():
+            raise FileNotFoundError(f"project Conda environment does not exist: {environment_path}")
+        environment = yaml.safe_load(environment_path.read_text(encoding="utf-8"))
+        if not isinstance(environment, dict) or not isinstance(environment.get("dependencies"), list):
+            raise ValueError(f"project Conda environment is invalid: {environment_path}")
+        return (
+            {"conda": environment},
+            {"runtime_mode": "conda", "environment_source": "conda.yaml", "environment_sha256": _sha256(environment_path)},
+        )
+
+    if pip_requirements is None and not pip_packages:
+        raise ValueError("pip mode requires explicit pip requirements or packages")
+    packages = (_read_requirements(pip_requirements) if pip_requirements else []) + list(pip_packages)
+    if not packages:
+        raise ValueError("pip mode requires explicit pip requirements or packages")
+    source = str(pip_requirements) if pip_requirements else "pip-packages"
+    digest = _sha256(pip_requirements) if pip_requirements else hashlib.sha256(_canonical_json({"packages": packages})).hexdigest()
+    return (
+        {"pip": {"packages": packages, "pip_check": True}},
+        {"runtime_mode": "pip", "environment_source": source, "environment_sha256": digest},
+    )
+
+
 def build_release(
     project_root: Path,
     output_root: Path,
     bucket: str = DEFAULT_BUCKET,
     prefix: str = DEFAULT_PREFIX,
     setup_timeout_seconds: int = 600,
+    runtime_mode: str = DEFAULT_RUNTIME_MODE,
+    pip_requirements: Path | None = None,
+    pip_packages: Sequence[str] = (),
 ) -> BuiltRelease:
     """Build a content-addressed working directory, wheel, and runtime env."""
 
@@ -238,6 +297,12 @@ def build_release(
     bucket, prefix = _normalize_s3_location(bucket, prefix)
     if setup_timeout_seconds <= 0:
         raise ValueError("setup timeout must be positive")
+    dependency_runtime_env, environment_identity = build_runtime_environment(
+        project_root,
+        runtime_mode=runtime_mode,
+        pip_requirements=pip_requirements,
+        pip_packages=pip_packages,
+    )
 
     with tempfile.TemporaryDirectory(prefix="ray-handwritten-digits-release-") as temporary:
         stage = Path(temporary)
@@ -260,6 +325,7 @@ def build_release(
         }
         release_identity = {
             "build_environment": build_environment,
+            "environment": environment_identity,
             "git": git_identity,
             "packages": package_identity,
         }
@@ -284,6 +350,7 @@ def build_release(
     runtime_env = {
         "working_dir": f"s3://{bucket}/{working_dir_key}",
         "py_modules": [f"s3://{bucket}/{wheel_key}"],
+        **dependency_runtime_env,
         "config": {"setup_timeout_seconds": setup_timeout_seconds},
     }
 
@@ -295,6 +362,7 @@ def build_release(
         "project": "ray-handwritten-digits",
         "release_id": release_id,
         "build_environment": build_environment,
+        **environment_identity,
         "git": git_identity,
         "runtime_env": runtime_env,
         "s3": {"bucket": bucket, "prefix": release_prefix},
@@ -442,6 +510,15 @@ def load_release_manifest(path: Path) -> dict[str, Any]:
     runtime_env = manifest.get("runtime_env")
     if not isinstance(runtime_env, dict):
         raise ValueError(f"release manifest has no runtime_env: {path}")
+    runtime_mode = manifest.get("runtime_mode")
+    if runtime_mode is not None:
+        if runtime_mode not in RUNTIME_MODES:
+            raise ValueError(f"release manifest has unsupported runtime_mode: {path}")
+        digest = manifest.get("environment_sha256")
+        if not isinstance(digest, str) or len(digest) != 64:
+            raise ValueError(f"release manifest has invalid environment_sha256: {path}")
+        if runtime_mode not in runtime_env:
+            raise ValueError(f"release manifest runtime_env does not match runtime_mode: {path}")
 
     from ray.runtime_env import RuntimeEnv
 
@@ -497,6 +574,10 @@ def submit_release(
         "release_id": str(manifest["release_id"]),
         "working_dir_sha256": str(manifest["files"]["working_dir"]["sha256"]),
     }
+    if manifest.get("runtime_mode"):
+        metadata["runtime_mode"] = str(manifest["runtime_mode"])
+    if manifest.get("environment_sha256"):
+        metadata["environment_sha256"] = str(manifest["environment_sha256"])
     client = JobSubmissionClient(address)
 
     def existing_submission() -> dict[str, Any] | None:
@@ -587,6 +668,9 @@ def _add_ci_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env-file", type=Path, default=DEFAULT_AWS_ENV_FILE)
     parser.add_argument("--endpoint-url")
     parser.add_argument("--setup-timeout-seconds", type=int, default=600)
+    parser.add_argument("--runtime-mode", choices=RUNTIME_MODES, default=DEFAULT_RUNTIME_MODE)
+    parser.add_argument("--pip-requirements", type=Path)
+    parser.add_argument("--pip-package", dest="pip_packages", action="append", default=[])
 
 
 def _add_cd_arguments(
@@ -596,6 +680,7 @@ def _add_cd_arguments(
 ) -> None:
     if require_manifest:
         parser.add_argument("--manifest", type=Path, required=True)
+        parser.add_argument("--runtime-mode", choices=RUNTIME_MODES)
     parser.add_argument(
         "--address",
         default=_default_ray_jobs_address(),
@@ -626,6 +711,9 @@ def build_and_publish_release(
     env_file: Path,
     endpoint_url: str | None,
     setup_timeout_seconds: int,
+    runtime_mode: str = DEFAULT_RUNTIME_MODE,
+    pip_requirements: Path | None = None,
+    pip_packages: Sequence[str] = (),
     dry_run: bool,
 ) -> tuple[BuiltRelease, dict[str, Any]]:
     """Build a release and optionally upload its immutable files to MinIO."""
@@ -636,6 +724,9 @@ def build_and_publish_release(
         bucket=bucket,
         prefix=prefix,
         setup_timeout_seconds=setup_timeout_seconds,
+        runtime_mode=runtime_mode,
+        pip_requirements=pip_requirements,
+        pip_packages=pip_packages,
     )
     statuses: dict[str, str] = {}
     resolved_endpoint = endpoint_url
@@ -651,6 +742,9 @@ def build_and_publish_release(
     result = {
         "dry_run": dry_run,
         "endpoint_url": resolved_endpoint if not dry_run else None,
+        "runtime_mode": release.manifest.get("runtime_mode", DEFAULT_RUNTIME_MODE),
+        "environment_source": release.manifest.get("environment_source", "conda.yaml"),
+        "environment_sha256": release.manifest.get("environment_sha256"),
         "manifest_path": str(release.manifest_path),
         "release_id": release.manifest["release_id"],
         "runtime_env_path": str(release.runtime_env_path),
@@ -668,11 +762,20 @@ def deploy_release_manifest(
     mode: str,
     overrides: Sequence[str] = (),
     force: bool = False,
+    runtime_mode: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Validate a release manifest and optionally submit it to Ray Jobs."""
 
     manifest = load_release_manifest(manifest_path)
+    if (
+        runtime_mode is not None
+        and manifest.get("runtime_mode") is not None
+        and manifest.get("runtime_mode") != runtime_mode
+    ):
+        raise ValueError(
+            f"manifest runtime_mode is {manifest.get('runtime_mode')!r}, not {runtime_mode!r}"
+        )
     resolved_submission_id = submission_id or generate_submission_id(config, mode)
     entrypoint = build_training_entrypoint(
         config,
@@ -684,6 +787,9 @@ def deploy_release_manifest(
         "address": address,
         "dry_run": dry_run,
         "entrypoint": entrypoint,
+        "runtime_mode": manifest.get("runtime_mode"),
+        "environment_source": manifest.get("environment_source"),
+        "environment_sha256": manifest.get("environment_sha256"),
         "runtime_env": manifest["runtime_env"],
         "submission_id": resolved_submission_id,
     }
@@ -720,6 +826,9 @@ def publish_main(arguments: Sequence[str] | None = None) -> int:
         env_file=parsed.env_file,
         endpoint_url=parsed.endpoint_url,
         setup_timeout_seconds=parsed.setup_timeout_seconds,
+        runtime_mode=parsed.runtime_mode,
+        pip_requirements=parsed.pip_requirements,
+        pip_packages=parsed.pip_packages,
         dry_run=parsed.dry_run,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -747,6 +856,7 @@ def cd_main(arguments: Sequence[str] | None = None) -> int:
         mode=parsed.mode,
         overrides=parsed.overrides,
         force=parsed.force,
+        runtime_mode=getattr(parsed, "runtime_mode", None),
         dry_run=parsed.dry_run,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -791,6 +901,9 @@ def ci_main(arguments: Sequence[str] | None = None) -> int:
         env_file=parsed.env_file,
         endpoint_url=parsed.endpoint_url,
         setup_timeout_seconds=parsed.setup_timeout_seconds,
+        runtime_mode=parsed.runtime_mode,
+        pip_requirements=parsed.pip_requirements,
+        pip_packages=parsed.pip_packages,
         dry_run=parsed.dry_run,
     )
     cd_result: dict[str, Any] | None = None

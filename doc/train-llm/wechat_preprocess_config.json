@@ -1,0 +1,53 @@
+{
+  "source": {
+    "path": "<authorized_input>",
+    "format": "json",
+    "timezone": "Asia/Shanghai"
+  },
+  "speakers": {
+    "self_id": "wxid_mbe6rrdlp6gz21",
+    "target_id": "wxid_2z5ez5fbgq5w22",
+    "unknown_policy": "exclude"
+  },
+  "task": {
+    "mode": "conversational_sft",
+    "target_role": "target",
+    "context_turns": 8,
+    "context_max_chars": 1200,
+    "assistant_only_loss": true
+  },
+  "privacy": {
+    "consent_scope": "user_authorized_local_processing",
+    "redaction_version": "redaction-v1",
+    "remove_contact_info": true,
+    "remove_credentials": true,
+    "remove_precise_location": true,
+    "remove_third_party_private_data": true,
+    "media_policy": "semantic_placeholder_only"
+  },
+  "filter": {
+    "exclude_kinds": ["system", "payment", "call", "file"],
+    "exclude_recalled": true,
+    "exclude_empty_and_null": true,
+    "max_target_chars": 300,
+    "max_target_chars_for_manual_review": 1000,
+    "min_context_messages": 1
+  },
+  "session": {
+    "inactivity_gap_minutes": 120,
+    "max_duration_minutes": 720,
+    "merge_gap_seconds": 120,
+    "max_context_turns": 8
+  },
+  "candidate": {
+    "target_count": 5000,
+    "allow_short_replies": true,
+    "near_duplicate_threshold": 0.9
+  },
+  "split": {
+    "strategy": "chronological_session",
+    "train_ratio": 0.8,
+    "validation_ratio": 0.1,
+    "test_ratio": 0.1
+  }
+}

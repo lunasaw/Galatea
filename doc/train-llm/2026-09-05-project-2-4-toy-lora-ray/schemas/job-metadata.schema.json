@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galatea.local/schemas/llm-lora-ray-job-metadata-v2.schema.json",
+  "title": "Governed Ray Job metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "ray_job_id", "ray_submission_id", "mlflow_run_id", "project",
+    "run_kind", "role", "config_digest", "dataset_manifest_digest", "split_digest",
+    "preprocessing_version", "code_revision", "environment_digest", "attempt_id",
+    "requested_resources", "release_id", "readiness_digest", "execution_identity",
+    "execution_mode", "promotable", "status", "created_at", "updated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "llm-lora-ray-job-v2"},
+    "ray_job_id": {"type": "string", "minLength": 1},
+    "ray_submission_id": {"type": "string", "minLength": 1},
+    "mlflow_run_id": {"type": "string", "minLength": 1},
+    "project": {"const": "llm-lora-playground"},
+    "run_kind": {"type": "string", "minLength": 1},
+    "role": {"enum": ["smoke", "trial", "champion"]},
+    "config_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "dataset_manifest_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "split_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "preprocessing_version": {"type": "string", "minLength": 1},
+    "code_revision": {"type": "string", "minLength": 1},
+    "environment_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "parent_attempt_id": {"type": ["string", "null"]},
+    "retry_of": {"type": "string", "minLength": 1},
+    "resumed_from": {"type": "string", "minLength": 1},
+    "checkpoint_uri": {"type": "string", "minLength": 1},
+    "checkpoint_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "release_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "readiness_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "execution_identity": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "execution_mode": {"const": "governed-ray-job"},
+    "promotable": {"type": "boolean"},
+    "requested_resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["num_gpus", "cpus", "memory_gb"],
+      "properties": {
+        "num_gpus": {"const": 1},
+        "cpus": {"type": "number", "exclusiveMinimum": 0},
+        "memory_gb": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "status": {"enum": ["submitted", "running", "completed", "failed", "interrupted", "blocked"]},
+    "failure_reason": {"type": "string", "maxLength": 600},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

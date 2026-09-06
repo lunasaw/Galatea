@@ -125,21 +125,22 @@ Release 包含内容寻址的 `working-dir.zip`、Wheel 和 Runtime Environment�
 1. 调用 `galatea_list_projects`，再用 `galatea_select_project` 为当前 Session 选择注册项目。
 2. 调用 `galatea_inspect_project` 检查声明、服务身份和审批策略。
 3. 调用 `galatea_plan_run` 运行只读 preflight，验证完整性并生成 readiness Evidence Digest。
-4. 调用 `galatea_submit_job`；Tool 重算计划，并对当前 Evidence Digest 请求一次性审批。
+4. 调用 `galatea_submit_job`；Tool 重算计划，并对当前 Evidence Digest 取得授权：完全权限直接授权，
+   其他权限请求一次性审批。
 5. 用 `galatea_observe_job`、`galatea_compare_runs` 和 `galatea_build_stage_evidence` 观察 Trial，
    形成候选 Run 的 training-optimization Evidence Digest。
 6. 提交 `role=champion` 时必须同时提供候选 Run；插件重新读取候选 Evidence，并在当前调用中
-   分别请求 readiness 与候选 training-optimization 的一次性审批。
+   分别取得 readiness 与候选 training-optimization 授权。
 7. Champion 完成后调用 `galatea_verify_candidate`，验证最终报告、模型和质量门禁。
-8. 只有用户明确要求时才显式调用 `galatea_promote_model`；Tool 重算最终验证证据并请求一次性
-   推广审批。
+8. 只有用户明确要求时才显式调用 `galatea_promote_model`；Tool 重算最终验证证据，并按当前权限
+   直接授权或请求一次性推广审批。
 
 `configPath` 必须相对当前项目 `projectRoot`，且解析后位于项目清单的 `configRoot` 下；
 `releaseManifestPath` 必须相对当前项目 `releaseRoot`。不要传绝对路径。MLflow Artifact 路径则
 相对对应 Run 的 Artifact 根，不相对本地文件系统。
 
 安装插件、选择项目、计划、观察或分析都不会自动启动昂贵训练，也不会自动创建 Model Version 或
-修改 Registry Alias。提交和推广必须由明确 Tool 调用触发，并满足各自审批门禁。
+修改 Registry Alias。提交和推广必须由明确 Tool 调用触发，并满足各自授权门禁。
 
 ### 5.1 独立状态与完整性 fail closed
 
@@ -156,14 +157,17 @@ Release 包含内容寻址的 `working-dir.zip`、Wheel 和 Runtime Environment�
 `unknown`/`failed`，或角色适用的必需检查报告 `not-applicable`，都会阻止 readiness 和后续提交。
 只有清单中明确标为非阻断的 improvement backlog 作为 advisory 返回。
 
-### 5.2 审批提示禁用
+### 5.2 完全权限与审批提示
 
-先查看 `galatea_inspect_project` 的 `approval.policy` 和 `promptsEnabled`。若 Session 策略为
-`never`，审批提示已禁用，`galatea_submit_job`、`galatea_resume_job`、`galatea_promote_model`
-无法取得 `allowed-once`，会以 `approval-required` fail closed；无需审批请求的 Tool 仍按各自语义
-可用。注意 `galatea_patch_config` 会修改并校验工作区 YAML，`galatea_stop_job` 会停止指定 Job；
-它们当前不请求这三个受治理 Tool 使用的一次性阶段审批，不能统称为只读。重复调用受治理 Tool 不会
-绕过策略；需要提交、恢复或推广时，应由管理员/用户在 Harness 层启用审批后再调用。
+先查看 `galatea_inspect_project` 的 `approval.permissionPreset`、`policy`、`promptsEnabled`、
+`requiredForGovernedActions`、`governedActionsAvailable` 和 `authorizationMode`。若当前有效 preset 是
+`danger-full-access`（UI 的“完全权限”），`galatea_submit_job`、`galatea_resume_job` 和
+`galatea_promote_model` 对当前证据直接取得 full-access 授权，不弹审批。插件仍会重算并匹配 Evidence
+Digest，Champion 仍需候选证据，推广仍需显式调用且质量门禁必须通过。
+
+若 `approval.policy=never` 但 preset 不是 `danger-full-access`，审批提示虽已禁用，却没有完全权限；
+上述 Tool 仍以 `approval-required` fail closed，重复调用不能绕过。注意 `galatea_patch_config` 会修改并
+校验工作区 YAML，`galatea_stop_job` 会停止指定 Job；它们当前不走上述三类阶段授权，不能统称为只读。
 
 ### 5.3 Ray 日志游标
 
@@ -179,7 +183,7 @@ Release 包含内容寻址的 `working-dir.zip`、Wheel 和 Runtime Environment�
 | 现象 | 处理 |
 | --- | --- |
 | 插件启动时报 Token 环境变量未设置 | 注入实际 Token，或移除对应 `GALATEA_*_TOKEN_ENV` |
-| `approval-required` | 若提示已启用，重试实际状态变更 Tool 以对当前 Evidence Digest 发起新的单次请求；若 `approval.policy=never`，先在 Harness 层启用审批，重复调用本身不能绕过策略 |
+| `approval-required` | 若提示已启用，重试实际状态变更 Tool 以对当前 Evidence Digest 发起新的单次请求；若 `approval.policy=never` 且不是完全权限，需切换到“完全权限”或在 Harness 层启用审批，重复调用不能绕过策略 |
 | `conflict` | 检查 Ray Submission ID、停止操作的 `idempotencyKey` 或推广幂等键是否与已有身份一致 |
 | `unsupported` 暂停/恢复 | 项目没有声明并验证跨 Job Checkpoint 恢复，保留原 Job 证据后新建 Attempt |
 | Artifact `not-found`/`integrity-error` | 通过 MLflow Artifact API 检查 Run 和声明路径，不读取 MinIO 服务端目录 |
@@ -200,7 +204,8 @@ MLflow Run 与 Artifact 不由插件 fiber 删除。
 - `GALATEA_RESUME_ATTEMPT`
 
 插件先用 MLflow Artifact API 校验 Checkpoint，再为“原 Job + Checkpoint + 配置 + Release”生成
-新的 readiness Evidence Digest。只有恢复 Tool 的当前审批请求返回 `allowed-once`，才提交新的
+新的 readiness Evidence Digest。恢复 Tool 只有在完全权限直接授权或当前审批请求返回
+`allowed-once` 后，才提交新的
 Ray Job。当前配置的 `ray-cats-and-dogs` 和 `ray-handwritten-digits` 都未声明这项能力，因此仍安全返回
 `unsupported`。
 

@@ -22,7 +22,14 @@ import { GalateaController } from './tools/controller.ts'
 import { createGalateaTools } from './tools/index.ts'
 
 export const name = 'dsh-galatea'
-export const inject = ['tools', 'approval', 'sessionProjections', 'systemPrompt']
+export const inject = ['tools', 'approval', 'permissionPresets', 'sessionProjections', 'systemPrompt']
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Harness permission-preset read surface required by this plugin. */
+    permissionPresets: { current(session: Agent['session']): string }
+  }
+}
 
 /** Return a deterministic denial reason for shell attempts that bypass Ray governance. */
 export function trainingCommandViolation(toolName: string, argumentsValue: unknown): string | undefined {
@@ -32,10 +39,12 @@ export function trainingCommandViolation(toolName: string, argumentsValue: unkno
   if (typeof command !== 'string') return undefined
   if (/\bray\s+(?:job|jobs)\s+submit\b/i.test(command)
     || /(?:^|[\s/])job\/(?:cd|submit)\.py\b[^;&|]*\b(?:--mode\s+)?train\b/i.test(command)
+    || /(?:^|[\s/])(?:scripts|job)[\\/]submit_train\.py\b/i.test(command)
+    || /(?:^|[\s/])scripts[\\/]wechat_full_baseline\.py\b/i.test(command)
     || /\bpython(?:3(?:\.\d+)?)?\s+-m\s+ray_[A-Za-z0-9_.]+(?:\.train|\.job_release)\b/i.test(command)) {
     return 'direct Ray Jobs submission is disabled; use galatea_plan_run then galatea_submit_job'
   }
-  const trainingSegments = command.split(/&&|\|\||[;|]/).filter(segment => /scripts[\\/]train\.py\b/i.test(segment))
+  const trainingSegments = command.split(/&&|\|\||[;|]/).filter(segment => /scripts[\\/](?:train|train_lora)\.py\b/i.test(segment))
   if (trainingSegments.some(segment => !/--(?:check-config|plan)\b/i.test(segment))) {
     return 'formal training scripts may not run through a shell; use galatea_plan_run then galatea_submit_job'
   }
@@ -146,6 +155,11 @@ function approvalPolicy(agent: Agent | undefined, configured: Config['approvalPo
   return configured ?? 'unknown'
 }
 
+function permissionPreset(ctx: Context, agent: Agent | undefined): string {
+  if (agent === undefined) return 'unknown'
+  return ctx.permissionPresets.current(agent.session)
+}
+
 function configuredProjects(config: Config): readonly ConfiguredProjectEntry[] {
   if (config.projects !== undefined && config.projects.length > 0) return config.projects
   if (config.projectRoot === undefined || config.releaseRoot === undefined) {
@@ -234,7 +248,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       'Treat Ray execution, model quality, integrity evidence, and governance approval as independent states.',
       'Before Champion, require the project plan to prove declared preprocessing parity and contamination checks.',
       'Use status-only Job observations after the first log read and continue with nextLogCursor; fetch full logs only on failure or terminal evidence collection.',
-      'Approval-disabled sessions cannot submit, resume, or promote through governed tools. Never promote automatically.',
+      'The danger-full-access permission preset authorizes governed actions without an approval prompt. Other presets require one-time evidence-bound approval; approval policy never without full access remains blocked. Never promote automatically.',
     ].join('\n'),
   })
 
@@ -269,6 +283,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     },
     approvalPolicy: agent => approvalPolicy(agent, config.approvalPolicy),
+    permissionPreset: agent => permissionPreset(ctx, agent),
     approval: ctx.approval,
   })) {
     ctx.tools.register(tool)

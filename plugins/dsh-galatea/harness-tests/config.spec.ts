@@ -14,7 +14,7 @@ describe('dsh-galatea bundle overlay', () => {
         {
           id: 'dsh-galatea',
           name: 'dsh-galatea',
-          inject: ['tools', 'approval', 'sessionProjections', 'systemPrompt'],
+          inject: ['tools', 'approval', 'permissionPresets', 'sessionProjections', 'systemPrompt'],
           config: {
             projects: [
               {
@@ -31,6 +31,11 @@ describe('dsh-galatea bundle overlay', () => {
                 id: 'ray-kaggle-house-prices',
                 projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/ray-kaggle-house-prices',
                 releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/ray-kaggle-house-prices-release',
+              },
+              {
+                id: 'llm-lora-playground',
+                projectRoot: '/data/ai/chenzhangyue/code/galatea/train-model/llm-lora-playground',
+                releaseRoot: '/data/ai/chenzhangyue/code/galatea/platform-data/llm-lora-playground-release',
               },
             ],
             defaultProject: 'ray-cats-and-dogs',

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/review-candidate-v1",
+  "title": "Redacted Review Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sample_id", "session_id", "messages", "metadata"],
+  "properties": {
+    "sample_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "messages": {"type": "array", "minItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["role", "content"], "properties": {"role": {"enum": ["system", "user", "assistant"]}, "content": {"type": "string", "minLength": 1}}}, "contains": {"type": "object", "required": ["role"], "properties": {"role": {"const": "assistant"}}}, "minContains": 1},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["review_status", "content_sha256"], "properties": {
+      "review_status": {"enum": ["keep", "redact_keep", "reject", "uncertain"]},
+      "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+      "split": {"enum": ["train", "validation", "test"]},
+      "review_reason": {"type": ["string", "null"]},
+      "reviewer_id": {"type": ["string", "null"]},
+      "reviewed_at": {"type": ["string", "null"], "format": "date-time"},
+      "redacted_content_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+    }}
+  }
+}

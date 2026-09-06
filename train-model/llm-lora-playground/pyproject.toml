@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-lora-playground"
+version = "0.1.0"
+description = "Qwen3.5 project-0+1 inference baseline"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "PyYAML==6.0.3",
+    "mlflow==3.14.0",
+    "torch==2.11.0",
+    "transformers==5.16.1",
+    "accelerate==1.14.0",
+    "datasets==5.0.1",
+    "peft==0.20.0",
+    "ray[default,serve,llm]==2.58.0",
+    "boto3==1.43.89",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

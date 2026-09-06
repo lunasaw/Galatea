@@ -21,8 +21,10 @@ Keep platform concerns separate from workload concerns:
   tests, and usage documentation. New workloads belong here.
 - `tests/` contains repository-level and cross-project tests. Keep project-only tests close to the project
   when that makes ownership clearer.
-- `.codex/skills/` contains repository-scoped Codex workflows. `mlflow-optimize-models` is a generic
-  MLflow analysis and optimization Skill, not a Cats vs Dogs-specific tuner.
+- `.codex/skills/` contains repository-scoped Codex workflows. Use `governed-training-workflow` for
+  dataset preparation, baselines, smoke training, experiments, fine-tuning, evaluation, Trial/Champion
+  selection, and promotion. `mlflow-optimize-models` remains a generic MLflow analysis and optimization
+  Skill, not a Cats vs Dogs-specific tuner.
 - `requirements.txt` defines shared platform-service dependencies. Model and workload dependencies belong
   in `train-model/<project-name>/conda.yaml` or an equivalent project environment file.
 - `doc/` contains deployment and operations guides for JupyterLab, MLflow, Ray, MinIO, and proxying.
@@ -73,7 +75,16 @@ systemd-analyze verify systemd/*.service
 Each project must make the following behavior explicit:
 
 - Keep data loading, model construction, training, evaluation, and promotion separable and configurable.
-- Provide a parameterized non-notebook entry point for formal or long-running training.
+- Declare the execution backend and provide one parameterized, non-notebook governed entry point for every
+  Training Run, including smoke, baseline, experiment, Trial, tuning, retraining, and Champion runs.
+- Treat any optimizer/parameter update, complete epoch or material fitting pass, checkpoint/adapter/model
+  output, or durable training/comparison MLflow evidence as a Training Run. If classification is ambiguous,
+  treat it as a Training Run and fail closed.
+- Separate read-only check/plan entry points from the governed training Driver. Direct shell execution,
+  generic Ray submission, notebooks, and local wrappers must not be able to bypass the declared backend.
+- Keep experimental and production-candidate execution architecture identical. Dataset identity, role,
+  authorization, resource budget, final-test access, and promotability may vary; the data loader,
+  preprocessing, training, evaluation, checkpoint, tracking, and Artifact paths must remain shared.
 - Record immutable dataset identity, content or manifest digest, split identity, preprocessing version,
   code revision, random seed, environment, resources, and complete hyperparameters.
 - Distinguish training, validation, and final test metrics by name and meaning. Declare the primary
@@ -82,6 +93,8 @@ Each project must make the following behavior explicit:
 - Store checkpoints, models, predictions, reports, and recovery metadata through the configured artifact
   service; do not treat a notebook kernel or local temporary path as durable state.
 - Make retries idempotent. A retry must not overwrite another Run or publish a partially trained model.
+- Compare baselines and candidates on the same frozen split, prompt/input contract, generation or inference
+  protocol, metric definitions, and execution architecture.
 - Require an explicit review or promotion action before changing a production model alias.
 
 The contract applies to classification, regression, detection, segmentation, ranking, recommendation,
@@ -112,13 +125,23 @@ for the project. The Skill must remain reusable across frameworks and experiment
 
 ## Ray and Notebook Execution
 
-- Use notebooks for exploration, visualization, single-batch checks, and short smoke tests.
-- Choose execution by scope: bounded quick checks and low-risk exploratory experiments may run locally;
-  formal, distributed, long-running, or resource-intensive work should prefer a parameterized Ray Job,
-  Ray Train entry point, or another recoverable script-based workflow.
+- Use notebooks and local processes for exploration, visualization, schema/config checks, read-only plans,
+  forward-only component fixtures, and bounded inference-only smoke checks. These actions must not update
+  parameters, produce real checkpoints/adapters, create durable training evidence, or read final test data.
+- For a project declaring `spec.executionBackend: ray`, every Training Run must execute through the
+  project's fixed, parameterized Ray Job or Ray Train entry point. A Galatea-integrated project must first
+  use an immutable Release and an evidence-bound Galatea plan/authorization. This requirement applies to
+  smoke, baseline, experimental-only, private, synthetic, non-promotable, Trial, tuning, retraining, and
+  Champion runs; expected duration and dataset size do not create an exception.
+- `experimental_only`, `formal_training_eligible=false`, `human_review_completed=false`, owner approval,
+  and `promotable=false` govern evidence use and promotion. They never authorize local training, a generic
+  `ray job submit`, a direct Driver invocation, or fabricated runtime metadata.
 - If project structure, fixed entrypoint, dependencies, release, data identity, or split contract is invalid,
   block execution and repair the contract; do not bypass the failure with a local command. Local results must
   not be represented as governed Ray or final-validation evidence.
+- Enforce the execution boundary in project code and tests: check/plan entry points fail closed on training,
+  the Driver rejects missing Release/readiness/execution bindings, and any legacy local full-data baseline or
+  training route is disabled.
 - Declare CPU, GPU, memory, and placement requirements rather than assuming all local resources are free.
 - Preserve Run IDs and checkpoint locations in job metadata so failed jobs can be diagnosed or resumed.
 - Seed randomized work and document any operation that cannot be made deterministic.
@@ -166,10 +189,11 @@ Run the current repository unit tests with:
   -s tests -p 'test_*.py'
 ```
 
-For project changes, follow the project's README and verify data loading, split integrity, a small training
-step, evaluation semantics, MLflow logging, and artifact recovery as applicable. Run changed notebooks from
-a clean kernel. Keep smoke-test budgets deliberately small and disable automatic parameter searches unless
-the search itself is under test.
+For project changes, follow the project's README and verify data loading, split integrity, training-boundary
+enforcement, evaluation semantics, MLflow logging, and artifact recovery as applicable. Run changed notebooks
+from a clean kernel. Any real optimizer step or checkpoint smoke for a Ray/Galatea project must use its governed
+entry point; local tests should use forward-only or mocked component fixtures. Keep governed smoke budgets
+deliberately small and disable automatic parameter searches unless the search itself is under test.
 
 For the current Cats vs Dogs example, configure a non-source copy with `EPOCHS = 1` and
 `RUN_AUTO_TUNING = False`, then execute it without overwriting the source notebook:

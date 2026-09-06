@@ -24,6 +24,18 @@ cd /data/ai/chenzhangyue/code/galatea/train-model/ray-handwritten-digits
 默认 CD 模式为 `check-config`，会提交 Ray Job 验证 Runtime Env 和配置，但不会启动训练。
 只有显式传入 `--mode train` 才会训练。
 
+正式发布默认使用项目根目录的 `conda.yaml`，其内容会进入 Ray Job 的
+`runtime_env.conda`，并在 `release.json` 记录模式、来源和 SHA-256。pip 仅用于显式的
+兼容性 Smoke：
+
+```bash
+python job/ci.py --runtime-mode pip \
+  --pip-requirements /path/to/requirements-ray-smoke.txt --no-cd
+```
+
+也可重复传入 `--pip-package '<package>==<version>'`；pip 与 Conda 不会同时出现在顶层
+Runtime Env。Ray 节点应设置 `RAY_CONDA_HOME=/data/conda`。
+
 ## 当前环境默认值
 
 | 配置 | 默认值 |

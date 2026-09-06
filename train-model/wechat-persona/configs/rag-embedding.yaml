@@ -1,0 +1,9 @@
+schema_version: wechat-persona-config-v1
+project: wechat-persona
+task: memory_rag
+dataset: {dataset_id: fixture-wechat-persona, source_sha256: "0000000000000000000000000000000000000000000000000000000000000000", manifest_sha256: "0000000000000000000000000000000000000000000000000000000000000000", split_sha256: "0000000000000000000000000000000000000000000000000000000000000000", consent_scope: memory_rag, preprocessing_version: wechat-persona-preprocess-v1}
+model: {model_id: none, model_revision: none, tokenizer_revision: embedding-local-v1}
+rag: {backend: embedding, index_version: embedding-v1, embedding_model_revision: local-fixed-v1, pooling: mean, owner_scope_required: true, exclude_high_sensitivity: true}
+execution: {backend: local-readonly, resources: {cpus: 2, memory_gb: 4, num_gpus: 0, placement: local}}
+run: {role: evaluation, promotable: false}
+evaluation: {protocol_version: wechat-persona-rag-v1, objective_metric: recall_at_5, objective_direction: max, test_access: untouched}

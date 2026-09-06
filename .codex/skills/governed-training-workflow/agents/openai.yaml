@@ -1,0 +1,4 @@
+interface:
+  display_name: "Governed Training Workflow"
+  short_description: "Enforce data-to-production training governance"
+  default_prompt: "Use $governed-training-workflow to plan or audit this data-to-model training workflow."

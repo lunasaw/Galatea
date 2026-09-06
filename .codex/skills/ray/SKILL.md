@@ -24,10 +24,16 @@ version: 2.47.0
 
 ## Execution routing and blocking rules
 
-Ray is preferred for formal, distributed, long-running, resource-intensive, or recoverable workloads, but it
-is not mandatory for every quick local check. Use local execution for read-only inspection, configuration
-validation, bounded smoke tests, and low-risk experiments that are expected to finish quickly. Use the
-project's declared Ray Job path for formal Trials/Champions and durable MLflow or competition evidence.
+Use the repository `governed-training-workflow` classification for training projects. Local execution is
+limited to read-only inspection, configuration/schema validation, planning, forward-only component fixtures,
+and explicitly inference-only smoke checks that do not update parameters, create real checkpoints/adapters,
+read final test data, or produce durable training evidence.
+
+When a project declares `spec.executionBackend: ray`, every Training Run must use its fixed Ray Job/Train
+path. This includes smoke, baseline, experimental-only, private, synthetic, non-promotable, Trial, tuning,
+retraining, and Champion runs. Expected duration, dataset size, and governance labels are not exceptions.
+For a Galatea-integrated project, require the immutable Release and evidence-bound Galatea plan/authorization
+before submission; do not substitute a generic `ray job submit` or invoke the Driver directly.
 
 Before execution, verify the project layout, fixed entrypoint, dependencies, runtime environment/release,
 data identity, split identity, and resource declaration. If any contract is missing, stale, or inconsistent,

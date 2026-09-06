@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galatea.local/schemas/llm-lora-training-run-v2.schema.json",
+  "title": "Governed LoRA training Run manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "project", "run_kind", "role", "run_id", "mlflow_run_id",
+    "attempt_id", "status", "config_digest", "dataset_manifest_digest", "dataset",
+    "split_digest", "split_counts", "split", "test_access", "model", "code_revision",
+    "environment_digest", "seed", "resources", "objective_metric", "objective_mode",
+    "governance", "metrics", "checkpoint", "artifacts", "execution"
+  ],
+  "properties": {
+    "schema_version": {"const": "llm-lora-training-run-v2"},
+    "project": {"const": "llm-lora-playground"},
+    "run_kind": {"type": "string", "minLength": 1},
+    "role": {"enum": ["smoke", "trial", "champion"]},
+    "run_id": {"type": "string", "minLength": 1},
+    "mlflow_run_id": {"type": "string", "minLength": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "status": {"const": "completed"},
+    "config_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "dataset_manifest_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "dataset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dataset_id", "content_sha256", "preprocessing_version", "sample_count"],
+      "properties": {
+        "dataset_id": {"type": "string", "minLength": 1},
+        "content_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "preprocessing_version": {"type": "string", "minLength": 1},
+        "sample_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "split_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "split_counts": {"$ref": "#/$defs/split_counts"},
+    "split": {
+      "type": "object", "additionalProperties": false,
+      "required": ["strategy", "manifest_sha256", "counts"],
+      "properties": {
+        "strategy": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "counts": {"$ref": "#/$defs/split_counts"}
+      }
+    },
+    "test_access": {"enum": ["untouched", "enabled_once"]},
+    "test_evaluation_id": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      ]
+    },
+    "model": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "revision", "dtype", "device", "max_sequence_length"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "dtype": {"const": "bfloat16"},
+        "device": {"const": "cuda:0"},
+        "max_sequence_length": {"type": "integer", "minimum": 1}
+      }
+    },
+    "code_revision": {"type": "string", "minLength": 1},
+    "environment_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "seed": {"type": "integer"},
+    "resources": {"$ref": "#/$defs/resources"},
+    "objective_metric": {"const": "validation_loss"},
+    "objective_mode": {"const": "min"},
+    "governance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["promotable", "formal_training_eligible", "human_review_completed", "quality_evidence_status"],
+      "properties": {
+        "promotable": {"type": "boolean"},
+        "formal_training_eligible": {"type": "boolean"},
+        "human_review_completed": {"type": "boolean"},
+        "quality_evidence_status": {"type": ["string", "null"]}
+      }
+    },
+    "metrics": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "number"}},
+    "checkpoint": {"type": "object"},
+    "artifacts": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "ray_job_id", "ray_submission_id", "release_id", "readiness_digest", "execution_identity"],
+      "properties": {
+        "mode": {"const": "governed-ray-job"},
+        "ray_job_id": {"type": "string", "minLength": 1},
+        "ray_submission_id": {"type": "string", "minLength": 1},
+        "release_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "readiness_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "execution_identity": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"test_access": {"const": "untouched"}}},
+      "then": {"properties": {"test_evaluation_id": {"type": "null"}}}
+    },
+    {
+      "if": {"properties": {"test_access": {"const": "enabled_once"}}},
+      "then": {"properties": {"test_evaluation_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}}
+    }
+  ],
+  "$defs": {
+    "split_counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["train", "validation", "test"],
+      "properties": {
+        "train": {"type": "integer", "minimum": 1},
+        "validation": {"type": "integer", "minimum": 1},
+        "test": {"type": "integer", "minimum": 1}
+      }
+    },
+    "resources": {
+      "type": "object", "additionalProperties": false,
+      "required": ["num_gpus", "cpus", "memory_gb"],
+      "properties": {
+        "num_gpus": {"const": 1},
+        "cpus": {"type": "number", "exclusiveMinimum": 0},
+        "memory_gb": {"type": "number", "exclusiveMinimum": 0}
+      }
+    }
+  }
+}

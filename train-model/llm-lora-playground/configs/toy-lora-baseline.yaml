@@ -1,0 +1,78 @@
+run_kind: baseline
+execution:
+  backend: ray_job
+  worker_count: 1
+run:
+  role: trial
+  log_model: false
+  promotable: false
+evaluation:
+  evaluate_test: false
+  protocol_version: validation-loss-assistant-only-v2
+  compare_base: true
+  generation_batch_size: 8
+  memory_challenge_set: memory-grounded-v1
+memory:
+  enabled: true
+  protocol_version: memory-grounded-v1
+  default_status: confirmed
+  owner_scope_required: true
+  allow_model_generated_writeback: false
+model:
+  id: Qwen/Qwen3.5-0.8B
+  architecture: qwen3_5_conditional_generation
+  local_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
+  revision_policy: resolve_remote_commit_before_run
+  revision: null
+  dtype: bfloat16
+  device: cuda:0
+  max_sequence_length: 512
+  trust_remote_code: false
+  enable_thinking: false
+data:
+  uri: platform-data/llm-baselines/toy-lora/v1/dataset.jsonl
+  dataset_id: toy-lora-synthetic-toy-v1
+  preprocessing_version: toy-sft-v1
+  split_strategy: scenario_group
+  split_seed: 42
+  split_ratios: [0.8, 0.1, 0.1]
+  content_sha256: 101ba8e8b937699fda1bf5b0200422f9052c8e0845436627f539ebb69d6348be
+  split_sha256: b700f84b00a9c063d30c5095a252909b598a1828576615e73d7d319e042c53fa
+  sample_count: 400
+  assistant_only_loss: true
+  packing: false
+lora:
+  rank: 8
+  alpha: 16
+  dropout: 0.05
+  target_modules: [q_proj, v_proj]
+  bias: none
+training:
+  epochs: 1
+  max_steps: null
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0002
+  warmup_ratio: 0.03
+  scheduler: cosine
+  max_grad_norm: 1.0
+  optimizer: adamw_torch
+  seed: 42
+  eval_steps: 25
+  save_steps: 25
+resources:
+  num_gpus: 1
+  cpus: 4
+  memory_gb: 8
+objective_metric: validation_loss
+objective_mode: min
+prompt:
+  use_tokenizer_chat_template: true
+generation:
+  max_new_tokens: 128
+tracking:
+  tracking_uri_env: MLFLOW_TRACKING_URI
+  experiment_name_env: MLFLOW_EXPERIMENT_NAME
+  default_experiment_name: llm-lora-playground
+  artifact_root: platform-data/llm-baselines
+output_root: platform-data/llm-baselines/toy-lora/training

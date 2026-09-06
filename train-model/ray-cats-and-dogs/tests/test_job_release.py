@@ -18,6 +18,7 @@ from ray_cats_dogs.job_release import (  # noqa: E402
     BuiltRelease,
     build_release,
     build_training_entrypoint,
+    build_runtime_environment,
     ci_main,
     create_working_dir_archive,
     deploy_release_manifest,
@@ -26,6 +27,7 @@ from ray_cats_dogs.job_release import (  # noqa: E402
     load_release_manifest,
     publish_release,
     submit_release,
+    verify_preinstalled_environment,
 )
 
 
@@ -117,6 +119,133 @@ class JobReleaseTest(unittest.TestCase):
             self.assertFalse(
                 any(key.endswith("must-not-upload.txt") for key in client.keys)
             )
+
+    def test_runtime_environment_defaults_to_dynamic_conda_yaml(self) -> None:
+        runtime_env, metadata = build_runtime_environment(PROJECT_ROOT, runtime_mode="conda")
+
+        self.assertIn("conda", runtime_env)
+        self.assertNotIn("pip", runtime_env)
+        self.assertEqual("conda", metadata["runtime_mode"])
+        self.assertEqual("conda.yaml", metadata["environment_source"])
+        self.assertEqual(64, len(metadata["environment_sha256"]))
+        self.assertEqual(
+            ["python=3.12.12", "pip"],
+            runtime_env["conda"]["dependencies"][:2],
+        )
+
+    def test_preinstalled_runtime_environment_uses_absolute_prefix(self) -> None:
+        runtime_env, metadata = build_runtime_environment(
+            PROJECT_ROOT,
+            runtime_mode="preinstalled",
+            conda_prefix="/opt/conda/envs/ray-cats-dogs",
+        )
+        self.assertEqual(
+            {"conda": "/opt/conda/envs/ray-cats-dogs"}, runtime_env
+        )
+        self.assertEqual("preinstalled", metadata["runtime_mode"])
+        self.assertEqual(
+            "/opt/conda/envs/ray-cats-dogs", metadata["environment_prefix"]
+        )
+
+    def test_preinstalled_prefix_must_be_absolute(self) -> None:
+        with self.assertRaisesRegex(ValueError, "absolute path"):
+            build_runtime_environment(
+                PROJECT_ROOT,
+                runtime_mode="preinstalled",
+                conda_prefix="relative/env",
+            )
+
+    def test_verify_preinstalled_environment_runs_probe_and_pip_check(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = Path(directory) / "env"
+            python = prefix / "bin" / "python"
+            python.parent.mkdir(parents=True)
+            python.write_text("", encoding="utf-8")
+            probe = Mock(
+                returncode=0,
+                stdout='{"python":"3.12.12","ray":"2.53.0","torch":"2.11.0","torch_cuda":"13.0","mlflow":"3.14.0"}\n',
+                stderr="",
+            )
+            pip_check = Mock(returncode=0, stdout="", stderr="")
+            with patch(
+                "ray_cats_dogs.job_release.subprocess.run",
+                side_effect=(probe, pip_check),
+            ) as run:
+                result = verify_preinstalled_environment(PROJECT_ROOT, prefix)
+
+        self.assertEqual("passed", result["pip_check"])
+        self.assertEqual("2.53.0", result["ray_version"])
+        self.assertEqual(2, run.call_count)
+        self.assertEqual([str(python), "-m", "pip", "check"], run.call_args_list[1].args[0])
+
+    def test_runtime_environment_pip_mode_requires_explicit_requirements(self) -> None:
+        with self.assertRaisesRegex(ValueError, "pip requirements or packages"):
+            build_runtime_environment(PROJECT_ROOT, runtime_mode="pip")
+
+    def test_runtime_environment_pip_mode_is_not_mixed_with_conda(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            requirements = Path(directory) / "requirements.txt"
+            requirements.write_text("transformers==4.57.6\naccelerate==1.10.1\n", encoding="utf-8")
+            runtime_env, metadata = build_runtime_environment(
+                PROJECT_ROOT,
+                runtime_mode="pip",
+                pip_requirements=requirements,
+            )
+
+        self.assertNotIn("conda", runtime_env)
+        self.assertEqual(
+            {"packages": ["transformers==4.57.6", "accelerate==1.10.1"], "pip_check": True},
+            runtime_env["pip"],
+        )
+        self.assertEqual("pip", metadata["runtime_mode"])
+        self.assertEqual(str(requirements), metadata["environment_source"])
+
+    def test_release_manifest_records_environment_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            release = build_release(PROJECT_ROOT, Path(directory))
+
+        self.assertEqual("preinstalled", release.manifest["runtime_mode"])
+        self.assertEqual("conda.yaml", release.manifest["environment_source"])
+        self.assertEqual(64, len(release.manifest["environment_sha256"]))
+        self.assertEqual(
+            "/data/conda/envs/ray-cats-and-dogs-py312",
+            release.manifest["runtime_env"]["conda"],
+        )
+
+    def test_preinstalled_release_manifest_uses_path_without_validating_missing_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            release = build_release(
+                PROJECT_ROOT,
+                Path(directory),
+                runtime_mode="preinstalled",
+                conda_prefix="/opt/conda/envs/ray-cats-dogs",
+            )
+            manifest = load_release_manifest(release.manifest_path)
+
+        self.assertEqual("preinstalled", manifest["runtime_mode"])
+        self.assertEqual(
+            "/opt/conda/envs/ray-cats-dogs", manifest["environment_prefix"]
+        )
+        self.assertEqual(
+            "/opt/conda/envs/ray-cats-dogs", manifest["runtime_env"]["conda"]
+        )
+
+    def test_preinstalled_manifest_rejects_prefix_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            release = build_release(
+                PROJECT_ROOT,
+                Path(directory),
+                runtime_mode="preinstalled",
+                conda_prefix="/opt/conda/envs/ray-cats-dogs",
+            )
+            manifest = json.loads(release.manifest_path.read_text(encoding="utf-8"))
+            manifest["runtime_env"]["conda"] = "/other/prefix"
+            release.manifest_path.write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                load_release_manifest(release.manifest_path)
 
     def test_aws_environment_file_does_not_override_explicit_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -225,6 +354,11 @@ class JobReleaseTest(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
         self.assertFalse(publish_mock.call_args.kwargs["dry_run"])
+        self.assertEqual("preinstalled", publish_mock.call_args.kwargs["runtime_mode"])
+        self.assertEqual(
+            "/data/conda/envs/ray-cats-and-dogs-py312",
+            publish_mock.call_args.kwargs["conda_prefix"],
+        )
         self.assertEqual(release.manifest_path, deploy_mock.call_args.args[0])
         self.assertEqual("check-config", deploy_mock.call_args.kwargs["mode"])
         self.assertFalse(deploy_mock.call_args.kwargs["dry_run"])

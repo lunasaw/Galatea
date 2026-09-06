@@ -11,6 +11,7 @@ import {
   authorizeTransition,
   type ApprovalReference,
   type ExecutionRole,
+  type GovernanceAuthorization,
   type LifecycleStage,
 } from '../policies/lifecycle.ts'
 import { evaluatePlanIntegrity, deriveIntegrityAdvisories, type PlanIntegrityEvaluation } from '../policies/integrity.ts'
@@ -140,11 +141,26 @@ interface RunPlan {
   readonly advisories?: string[]
   readonly operationStatus?: OperationStatus
   readonly evidence: StageEvidence
+  readonly promotable: boolean
 }
 
 interface ResumePlan extends RunPlan {
   readonly originalSubmissionId: string
   readonly checkpoint: CheckpointReference
+}
+
+interface InferencePlan {
+  readonly [key: string]: JsonValue
+  readonly role: 'trial'
+  readonly attempt: string
+  readonly configPath: string
+  readonly releaseManifestPath: string
+  readonly releaseId: string
+  readonly runtimeEnv: Readonly<Record<string, JsonValue>>
+  readonly identity: string
+  readonly plan: Readonly<Record<string, JsonValue>>
+  readonly evidence: StageEvidence
+  readonly promotable: false
 }
 
 interface CheckpointReference {
@@ -162,6 +178,26 @@ function object(value: unknown, path: string): Record<string, unknown> {
 function nonEmpty(value: unknown, path: string): string {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${path} must be a non-empty string`)
   return value
+}
+
+function nonNegativeFiniteNumber(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new TypeError(`${path} must be a finite non-negative number`)
+  }
+  return value
+}
+
+function rayEntrypointResources(plan: RunPlan['plan']): {
+  readonly entrypointNumCpus: number
+  readonly entrypointNumGpus: number
+  readonly entrypointMemory: number
+} {
+  const requested = object(plan['requestedResources'], 'run plan requestedResources')
+  return {
+    entrypointNumCpus: nonNegativeFiniteNumber(requested['cpus'], 'requested_resources.cpus'),
+    entrypointNumGpus: nonNegativeFiniteNumber(requested['num_gpus'], 'requested_resources.num_gpus'),
+    entrypointMemory: nonNegativeFiniteNumber(requested['memory_gb'], 'requested_resources.memory_gb') * 1024 ** 3,
+  }
 }
 
 function checkpointReference(value: unknown): CheckpointReference {
@@ -413,8 +449,13 @@ export class GalateaController {
     }
   }
 
-  async inspectProject(input: { readonly approvalPolicy?: string; readonly signal?: AbortSignal } = {}): Promise<ToolResult<Record<string, JsonValue>>> {
+  async inspectProject(input: {
+    readonly approvalPolicy?: string
+    readonly permissionPreset?: string
+    readonly signal?: AbortSignal
+  } = {}): Promise<ToolResult<Record<string, JsonValue>>> {
     try {
+      const fullAccess = input.permissionPreset === 'danger-full-access'
       const structure = await validateProjectStructure(this.projectRoot, this.manifest, this.manifestPath)
       const [experiment, ray] = await Promise.all([
         this.mlflow.getExperimentByName(this.manifest.spec.mlflow.experimentName, input.signal),
@@ -442,6 +483,20 @@ export class GalateaController {
         approval: {
           policy: input.approvalPolicy ?? 'unknown',
           promptsEnabled: input.approvalPolicy === 'never' ? false : input.approvalPolicy === 'ask' ? true : null,
+          permissionPreset: input.permissionPreset ?? 'unknown',
+          requiredForGovernedActions: !fullAccess,
+          governedActionsAvailable: fullAccess || input.approvalPolicy === 'ask'
+            ? true
+            : input.approvalPolicy === 'never'
+              ? false
+              : null,
+          authorizationMode: fullAccess
+            ? 'full-access'
+            : input.approvalPolicy === 'ask'
+              ? 'approval'
+              : input.approvalPolicy === 'never'
+                ? 'blocked'
+                : 'unknown',
         },
         operationStatus: operationStatus('project', 'not-applicable', 'not-evaluated', 'not-required'),
       }, `Project ${this.manifest.metadata.name} satisfies the declared Galatea contract.`)
@@ -530,6 +585,7 @@ export class GalateaController {
       const config = object(plan['config'], 'project plan config')
       const run = object(config['run'], 'project plan config.run')
       if (run['role'] !== input.role) throw new Error(`requested role ${input.role} does not match resolved config role ${String(run['role'])}`)
+      if (typeof run['promotable'] !== 'boolean') throw new Error('project plan config.run.promotable must be a boolean')
       const evaluation = object(config['evaluation'], 'project plan config.evaluation')
       const rayConfig = object(config['ray'], 'project plan config.ray')
       if (Object.keys(rayConfig).length === 0) throw new Error('project plan must declare Ray configuration')
@@ -554,6 +610,7 @@ export class GalateaController {
       const identityMaterial = {
         project: this.manifest.metadata.name,
         role: input.role,
+        promotable: run['promotable'],
         attempt: input.attempt,
         configPath,
         configDigest: plan['config_digest'] ?? null,
@@ -576,6 +633,7 @@ export class GalateaController {
       }
       return success({
         role: input.role,
+        promotable: run['promotable'],
         attempt: input.attempt,
         configPath,
         releaseManifestPath: input.releaseManifestPath,
@@ -611,8 +669,10 @@ export class GalateaController {
     readonly releaseManifestPath: string
     readonly role: ExecutionRole
     readonly attempt: string
+    readonly authorization?: GovernanceAuthorization
     readonly approval?: ApprovalReference
     readonly candidateRunId?: string
+    readonly candidateAuthorization?: GovernanceAuthorization
     readonly candidateApproval?: ApprovalReference
     readonly signal?: AbortSignal
   }): Promise<ToolResult<Record<string, JsonValue>>> {
@@ -621,6 +681,7 @@ export class GalateaController {
     const transition = authorizeTransition({
       to: 'training-optimization',
       evidence: planned.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       ...(input.approval === undefined ? {} : { approval: input.approval }),
     })
     if (!transition.allowed) {
@@ -653,6 +714,7 @@ export class GalateaController {
       const candidateTransition = authorizeTransition({
         to: 'final-validation',
         evidence: candidateEvidence,
+        ...(input.candidateAuthorization === undefined ? {} : { authorization: input.candidateAuthorization }),
         ...(input.candidateApproval === undefined ? {} : { approval: input.candidateApproval }),
       })
       if (!candidateTransition.allowed) {
@@ -664,7 +726,9 @@ export class GalateaController {
           nextAction: 'Approve the current training-optimization evidence before submitting the Champion Job.',
         })
       }
-    } else if (input.candidateRunId !== undefined || input.candidateApproval !== undefined) {
+    } else if (input.candidateRunId !== undefined
+      || input.candidateAuthorization !== undefined
+      || input.candidateApproval !== undefined) {
       return failure({
         category: 'invalid-input',
         message: 'candidate approval applies only to champion submission',
@@ -673,6 +737,7 @@ export class GalateaController {
       })
     }
     try {
+      const entrypointResources = rayEntrypointResources(planned.data.plan)
       const executionIdentity = input.role === 'champion' && candidateEvidence !== undefined
         ? evidenceDigest({
             readinessIdentity: planned.data.identity,
@@ -698,10 +763,11 @@ export class GalateaController {
           'galatea.submission.id': submissionId,
           'galatea.readiness.digest': planned.data.evidence.digest,
           'galatea.execution.mode': 'governed-ray-job',
-          'galatea.promotable': 'true',
+          'galatea.promotable': String(planned.data.promotable),
           ...(input.candidateRunId === undefined ? {} : { candidate_run_id: input.candidateRunId }),
           ...(candidateEvidence === undefined ? {} : { candidate_evidence_digest: candidateEvidence.digest }),
         },
+        ...entrypointResources,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
       return success({
@@ -717,6 +783,146 @@ export class GalateaController {
           'approved-for-execution',
         ),
       }, result.reused ? `Reused Ray Job ${result.submissionId}.` : `Submitted Ray Job ${result.submissionId}.`)
+    } catch (error: unknown) {
+      return normalizeError(error)
+    }
+  }
+
+  async planInference(input: {
+    readonly configPath: string
+    readonly releaseManifestPath: string
+    readonly attempt: string
+    readonly signal?: AbortSignal
+  }): Promise<ToolResult<InferencePlan>> {
+    try {
+      nonEmpty(input.attempt, 'attempt')
+      const structure = await validateProjectStructure(this.projectRoot, this.manifest, this.manifestPath)
+      const configPath = await this.configPath(input.configPath)
+      const release = await this.release(input.releaseManifestPath)
+      const entrypoint = this.manifest.spec.entrypoints.inferenceCheck
+      if (entrypoint === undefined) throw new Error('project does not declare an inferenceCheck entrypoint')
+      const argv = entrypoint.map(argument => argument === '{config}' ? configPath : argument)
+      const checked = await this.process.run({ projectRoot: this.projectRoot, argv, env: { LD_LIBRARY_PATH: '/data/conda/envs/ray-llm-py312/lib:/data/conda/envs/ray-llm-py312/lib/python3.12/site-packages/nvidia/cuda_runtime/lib' }, ...(input.signal === undefined ? {} : { signal: input.signal }) })
+      if (checked.exitCode !== 0) throw new Error(`project inference preflight failed with exit code ${String(checked.exitCode)}`)
+      const check = jsonObject(JSON.parse(checked.stdout), 'project inference preflight')
+      if (check['status'] !== 'ok') throw new Error('project inference preflight did not return status=ok')
+      const configDigest = nonEmpty(check['config_digest'], 'project inference preflight.config_digest')
+      const manifestDigest = nonEmpty(check['model_manifest_sha256'], 'project inference preflight.model_manifest_sha256')
+      const identity = evidenceDigest({
+        project: this.manifest.metadata.name,
+        operation: 'inference',
+        role: 'trial',
+        promotable: false,
+        attempt: input.attempt,
+        configPath,
+        configDigest,
+        modelManifestDigest: manifestDigest,
+        release: { id: release.release_id, files: release.files, runtimeEnv: release.runtime_env },
+        structure,
+      })
+      const evidence: StageEvidence = {
+        stage: 'readiness',
+        artifactId: `${this.manifest.metadata.name}:inference:${input.attempt}`,
+        digest: evidenceDigest({ identity, operation: 'inference-readiness' }),
+      }
+      return success({
+        role: 'trial',
+        promotable: false,
+        attempt: input.attempt,
+        configPath,
+        releaseManifestPath: input.releaseManifestPath,
+        releaseId: release.release_id,
+        runtimeEnv: release.runtime_env,
+        identity,
+        plan: {
+          operation: 'inference',
+          executionBackend: this.manifest.spec.executionBackend,
+          requestedResources: { num_gpus: 1, cpus: 4, memory_gb: 8 },
+          configDigest,
+          modelManifestDigest: manifestDigest,
+          inference: check,
+          projectStructure: structure,
+        },
+        evidence,
+      }, 'Prepared inference readiness evidence.', { evidenceDigest: evidence.digest })
+    } catch (error: unknown) {
+      return normalizeError(error)
+    }
+  }
+
+  async submitInference(input: {
+    readonly configPath: string
+    readonly releaseManifestPath: string
+    readonly attempt: string
+    readonly authorization?: GovernanceAuthorization
+    readonly signal?: AbortSignal
+  }): Promise<ToolResult<Record<string, JsonValue>>> {
+    const planned = await this.planInference(input)
+    if (!planned.ok) return planned
+    const transition = authorizeTransition({
+      to: 'training-optimization',
+      evidence: planned.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
+    })
+    if (!transition.allowed) {
+      return failure({
+        category: 'approval-required',
+        message: transition.reasons.join('; '),
+        retryable: false,
+        stateChanged: false,
+        nextAction: 'Approve the current inference readiness evidence before submitting the Ray Serve Job.',
+      })
+    }
+    try {
+      const entrypoint = this.manifest.spec.entrypoints.inference
+      if (entrypoint === undefined) throw new Error('project does not declare an inference entrypoint')
+      const executionIdentity = planned.data.identity
+      const submissionId = deterministicSubmissionId(this.manifest.metadata.name, 'inference', executionIdentity)
+      const runtimeEnv = runtimeEnvWith(planned.data.runtimeEnv, {
+        GALATEA_PROJECT: this.manifest.metadata.name,
+        GALATEA_RELEASE_ID: planned.data.releaseId,
+        GALATEA_READINESS_DIGEST: planned.data.evidence.digest,
+        GALATEA_EXECUTION_IDENTITY: executionIdentity,
+        GALATEA_SUBMISSION_ID: submissionId,
+        GALATEA_EXECUTION_MODE: 'governed-ray-serve-inference',
+        GALATEA_INFERENCE_AUTHORIZED: 'true',
+        RAY_JOB_SUBMISSION_ID: submissionId,
+        RAY_INFERENCE_SUBMISSION_ID: submissionId,
+      })
+      const result = await this.ray.submit({
+        submissionId,
+        idempotencyKey: executionIdentity,
+        entrypoint: renderEntrypoint(entrypoint, planned.data.configPath),
+        runtimeEnv,
+        metadata: {
+          project: this.manifest.metadata.name,
+          role: 'trial',
+          attempt: input.attempt,
+          release_id: planned.data.releaseId,
+          evidence_digest: planned.data.evidence.digest,
+          'galatea.execution.identity': executionIdentity,
+          'galatea.project': this.manifest.metadata.name,
+          'galatea.release.id': planned.data.releaseId,
+          'galatea.submission.id': submissionId,
+          'galatea.readiness.digest': planned.data.evidence.digest,
+          'galatea.execution.mode': 'governed-ray-serve-inference',
+          'galatea.promotable': 'false',
+        },
+        entrypointNumCpus: 2,
+        entrypointNumGpus: 0,
+        entrypointMemory: 2 * 1024 ** 3,
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+      })
+      const response: Record<string, JsonValue> = {
+        submissionId: result.submissionId,
+        reused: result.reused,
+        ...(result.status === undefined ? {} : { status: result.status }),
+        idempotencyKey: executionIdentity,
+        readinessEvidenceDigest: planned.data.evidence.digest,
+        modelManifestDigest: planned.data.plan['modelManifestDigest'] ?? null,
+        operationStatus: operationStatus('job', result.status === undefined ? 'queued' : executionFromRay(result.status), 'not-evaluated', 'approved-for-execution'),
+      }
+      return success(response, result.reused ? `Reused Ray inference Job ${result.submissionId}.` : `Submitted Ray inference Job ${result.submissionId}.`)
     } catch (error: unknown) {
       return normalizeError(error)
     }
@@ -920,6 +1126,7 @@ export class GalateaController {
     readonly releaseManifestPath: string
     readonly checkpoint: { readonly runId: string; readonly path: string; readonly digest: string }
     readonly attempt: string
+    readonly authorization?: GovernanceAuthorization
     readonly approval?: ApprovalReference
     readonly signal?: AbortSignal
   }): Promise<ToolResult<Record<string, JsonValue>>> {
@@ -929,6 +1136,7 @@ export class GalateaController {
     const transition = authorizeTransition({
       to: 'training-optimization',
       evidence: planned.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       ...(input.approval === undefined ? {} : { approval: input.approval }),
     })
     if (!transition.allowed) {
@@ -941,6 +1149,7 @@ export class GalateaController {
       })
     }
     try {
+      const entrypointResources = rayEntrypointResources(planned.data.plan)
       const entrypoint = this.manifest.spec.capabilities.resumeEntrypoint
       if (entrypoint === undefined) throw new Error('project resume entrypoint is missing')
       const checkpoint = planned.data.checkpoint
@@ -977,8 +1186,9 @@ export class GalateaController {
           'galatea.submission.id': submissionId,
           'galatea.readiness.digest': planned.data.evidence.digest,
           'galatea.execution.mode': 'governed-ray-job',
-          'galatea.promotable': 'true',
+          'galatea.promotable': String(planned.data.promotable),
         },
+        ...entrypointResources,
         ...(input.signal === undefined ? {} : { signal: input.signal }),
       })
       return success({
@@ -1334,6 +1544,7 @@ export class GalateaController {
     readonly runId: string
     readonly alias: string
     readonly idempotencyKey: string
+    readonly authorization?: GovernanceAuthorization
     readonly approval?: ApprovalReference
     readonly signal?: AbortSignal
   }): Promise<ToolResult<Record<string, JsonValue>>> {
@@ -1342,6 +1553,7 @@ export class GalateaController {
     const transition = authorizeTransition({
       to: 'promotion',
       evidence: verified.data.evidence,
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       ...(input.approval === undefined ? {} : { approval: input.approval }),
     })
     if (!transition.allowed) {

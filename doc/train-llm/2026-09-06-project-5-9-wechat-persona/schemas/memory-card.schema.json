@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/memory-card-v1",
+  "title": "Removable Relationship Memory Card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["memory_id", "owner_scope", "content", "source_session_ids", "created_at", "confidence", "status", "sensitivity", "extractor_version"],
+  "properties": {
+    "memory_id": {"type": "string", "minLength": 1},
+    "owner_scope": {"type": "string", "minLength": 1},
+    "content": {"type": "string", "minLength": 1},
+    "source_session_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true},
+    "source_message_ids": {"type": "array", "items": {"type": "string"}},
+    "created_at": {"type": "string", "format": "date-time"},
+    "valid_from": {"type": ["string", "null"], "format": "date-time"},
+    "valid_to": {"type": ["string", "null"], "format": "date-time"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "status": {"enum": ["candidate", "confirmed", "superseded", "deleted"]},
+    "sensitivity": {"enum": ["normal", "sensitive", "high"]},
+    "fact_key": {"type": ["string", "null"]},
+    "attributes": {"type": "object"},
+    "extractor_version": {"type": "string", "minLength": 1},
+    "human_review": {"type": ["object", "null"]},
+    "lineage_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

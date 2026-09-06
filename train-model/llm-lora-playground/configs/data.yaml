@@ -1,0 +1,17 @@
+dataset:
+  root: /data/ai/chenzhangyue/code/data
+  root_env: WECHAT_DATA_ROOT
+  dataset_id: wechat_aa807aaad90dc4463964
+  pipeline_version: wechat-preprocess-v1.2
+  source_sha256: 63ce0e55db1dcefa69366db39bd752103edfb5ebf68aa1a2a10166ebc3891219
+  config_sha256: 9a1d4a01e2926c9f6cd99e220609eb30c50a5d7582d45ccbfbd2cf3515fa3af1
+  candidate_file: work/05_candidates/candidates.jsonl
+split:
+  strategy: chronological_session
+  selected_split: validation
+  expected_session_count: 137
+  expected_candidate_count: 759
+  fixture_count: 20
+fixture:
+  prompt_policy_version: redacted-context-v1
+  remove_final_assistant_target: true

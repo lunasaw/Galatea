@@ -1,0 +1,17 @@
+schema_version: wechat-persona-config-v1
+project: wechat-persona
+task: data_engineering
+dataset:
+  dataset_id: fixture-wechat-persona
+  source_root_env: WECHAT_PERSONA_RAW_ROOT
+  source_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+  manifest_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+  split_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+  consent_scope: processing
+  preprocessing_version: wechat-persona-preprocess-v1
+  schema_version: message-v1
+execution:
+  backend: local-data-engineering
+  resources: {cpus: 2, memory_gb: 4, num_gpus: 0, placement: local}
+run: {role: check, promotable: false}
+evaluation: {protocol_version: wechat-persona-eval-v1, objective_metric: lora_vs_prompt_only_win_rate, objective_direction: max, test_access: untouched}

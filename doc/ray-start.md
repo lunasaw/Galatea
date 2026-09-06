@@ -105,6 +105,15 @@ systemctl enable --now ray-head.service
 迁移主机或更换网卡时，先更新 Unit 中的 `--node-ip-address`，再验证和安装；不要让部署脚本
 猜测生产地址。
 
+Unit 同时设置 `RAY_CONDA_HOME=/data/conda`、`CONDA_PKGS_DIRS=/data/conda/pkgs` 和
+`PIP_CACHE_DIR=/var/cache/ray/pip`。正式 Job 应使用节点预装的固定环境路径，让 Ray 只检查
+环境是否存在；各项目的 `conda.yaml` 仍是权威来源。`runtime_env.conda` 动态映射只作为首次
+部署/预热 fallback，pip 只作为显式兼容性 Smoke 覆盖，不能把共享环境中的包版本当作项目依赖契约。
+
+每个节点在部署窗口执行项目的 `job/warmup.py`（或等价校验），确认 `ray`、`torch`、`mlflow`
+导入和 `pip check` 通过后，才允许提交正式 Trial/Champion。这样首次安装不再位于 Ray Job 的
+启动关键路径；`RAY_JOB_START_TIMEOUT_SECONDS` 只能作为一次冷启动的临时保护，不应永久依赖。
+
 Dashboard 当前按既有行为监听 `0.0.0.0:8265`。它必须由防火墙、受控私网或认证代理保护；
 如果只从本机提交 Job，应改为 `--dashboard-host=127.0.0.1`。
 

@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { createGalateaTools, GALATEA_TOOL_NAMES } from '../src/tools/index.ts'
 
-function controller() {
+function expectedAuthorization(
+  fullAccess: boolean,
+  stage: string,
+  artifactId: string,
+  evidenceDigest: string,
+) {
+  return fullAccess
+    ? { kind: 'full-access', permissionPreset: 'danger-full-access', stage, artifactId, evidenceDigest }
+    : { valid: true, stage, artifactId, evidenceDigest }
+}
+
+function controller(fullAccess = false) {
   return {
     async inspectProject() { return { ok: true, data: { project: 'demo' }, summary: 'ok' } },
     async patchConfig() { return { ok: true, data: { changed: true }, summary: 'ok' } },
@@ -12,20 +23,14 @@ function controller() {
         summary: 'ok',
       }
     },
-    async submitJob(input: { approval?: unknown; candidateApproval?: unknown }) {
-      expect(input.approval).toEqual({
-        valid: true,
-        stage: 'readiness',
-        artifactId: 'ready-1',
-        evidenceDigest: 'sha256:ready',
-      })
-      if (input.candidateApproval !== undefined) {
-        expect(input.candidateApproval).toEqual({
-          valid: true,
-          stage: 'training-optimization',
-          artifactId: 'trial-2',
-          evidenceDigest: 'sha256:candidate',
-        })
+    async submitJob(input: { authorization?: unknown; candidateAuthorization?: unknown }) {
+      expect(input.authorization).toEqual(expectedAuthorization(
+        fullAccess, 'readiness', 'ready-1', 'sha256:ready',
+      ))
+      if (input.candidateAuthorization !== undefined) {
+        expect(input.candidateAuthorization).toEqual(expectedAuthorization(
+          fullAccess, 'training-optimization', 'trial-2', 'sha256:candidate',
+        ))
       }
       return { ok: true, data: { submissionId: 'job-1' }, summary: 'ok' }
     },
@@ -39,13 +44,10 @@ function controller() {
         summary: 'ok',
       }
     },
-    async resumeJob(input: { approval?: unknown }) {
-      expect(input.approval).toEqual({
-        valid: true,
-        stage: 'readiness',
-        artifactId: 'resume-1',
-        evidenceDigest: 'sha256:resume',
-      })
+    async resumeJob(input: { authorization?: unknown }) {
+      expect(input.authorization).toEqual(expectedAuthorization(
+        fullAccess, 'readiness', 'resume-1', 'sha256:resume',
+      ))
       return { ok: true, data: { submissionId: 'job-2' }, summary: 'ok' }
     },
     async compareRuns(input: { referenceRunId: string; experimentIds?: unknown }) {
@@ -66,13 +68,10 @@ function controller() {
         summary: 'ok',
       }
     },
-    async promoteModel(input: { approval?: unknown }) {
-      expect(input.approval).toEqual({
-        valid: true,
-        stage: 'final-validation',
-        artifactId: 'champion-1',
-        evidenceDigest: 'sha256:final',
-      })
+    async promoteModel(input: { authorization?: unknown }) {
+      expect(input.authorization).toEqual(expectedAuthorization(
+        fullAccess, 'final-validation', 'champion-1', 'sha256:final',
+      ))
       return { ok: true, data: { version: '1' }, summary: 'ok' }
     },
   }
@@ -180,6 +179,68 @@ describe('dsh-galatea Harness tools', () => {
       expect(request.signal).toBe(signal)
       expect(request.reason).toMatch(/Evidence digest: sha256:/)
     }
+  })
+
+  it('uses evidence-bound full-access authorization without requesting approval', async () => {
+    const ctx = context()
+    ctx.approval.request = async () => { throw new Error('full access must not request approval') }
+    const tools = createGalateaTools({
+      controller: controller(true) as never,
+      permissionPreset: () => 'danger-full-access',
+      approvalPolicy: () => 'never',
+      approval: ctx.approval as never,
+    })
+    const plan = tools.find(tool => tool.name === 'galatea_plan_run')!
+    const submit = tools.find(tool => tool.name === 'galatea_submit_job')!
+    await plan.execute({
+      configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
+    }, { signal, agent } as never)
+    expect(await submit.execute({
+      configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
+    }, { signal, agent, callId } as never)).toMatchObject({ ok: true })
+    await plan.execute({
+      configPath: 'configs/champion.yaml', releaseManifestPath: 'release/release.json', role: 'champion', attempt: 'champion-1',
+    }, { signal, agent } as never)
+    expect(await submit.execute({
+      configPath: 'configs/champion.yaml',
+      releaseManifestPath: 'release/release.json',
+      role: 'champion',
+      attempt: 'champion-1',
+      candidateRunId: 'trial-2',
+    }, { signal, agent, callId } as never)).toMatchObject({ ok: true })
+    expect(await tools.find(tool => tool.name === 'galatea_resume_job')!.execute({
+      originalSubmissionId: 'job-1',
+      configPath: 'configs/trial.yaml',
+      releaseManifestPath: 'release/release.json',
+      checkpoint: { runId: 'trial-1', path: 'checkpoints/state.json', digest: 'sha256:checkpoint' },
+      attempt: 'resume-1',
+    }, { signal, agent, callId } as never)).toMatchObject({ ok: true })
+    expect(await tools.find(tool => tool.name === 'galatea_promote_model')!.execute({
+      runId: 'champion-1', alias: 'champion', idempotencyKey: 'promote-1',
+    }, { signal, agent, callId } as never)).toMatchObject({ ok: true })
+    expect(ctx.requested).toEqual([])
+  })
+
+  it('does not treat approval policy never alone as full access', async () => {
+    const ctx = context()
+    ctx.approval.request = async (input: unknown) => {
+      ctx.requested.push(input)
+      return 'unavailable'
+    }
+    const tools = createGalateaTools({
+      controller: controller() as never,
+      permissionPreset: () => 'custom',
+      approvalPolicy: () => 'never',
+      approval: ctx.approval as never,
+    })
+    await tools.find(tool => tool.name === 'galatea_plan_run')!.execute({
+      configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
+    }, { signal, agent } as never)
+    const result = await tools.find(tool => tool.name === 'galatea_submit_job')!.execute({
+      configPath: 'configs/trial.yaml', releaseManifestPath: 'release/release.json', role: 'trial', attempt: 'a1',
+    }, { signal, agent, callId } as never)
+    expect(result).toMatchObject({ ok: false, error: { category: 'approval-required' } })
+    expect(ctx.requested).toHaveLength(1)
   })
 
   it('fails closed for every non-grant outcome and approval errors', async () => {

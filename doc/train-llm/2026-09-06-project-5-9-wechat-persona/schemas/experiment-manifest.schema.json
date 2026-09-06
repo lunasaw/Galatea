@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/experiment-manifest-v1",
+  "title": "Governed WeChat Persona Experiment Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project", "task", "run_role", "governance_status", "dataset", "model", "evaluation", "execution", "artifacts"],
+  "properties": {
+    "schema_version": {"const": "wechat-persona-experiment-v1"},
+    "project": {"const": "wechat-persona"},
+    "task": {"enum": ["data_engineering", "memory_rag", "causal-language-model-sft-lora", "capacity_comparison", "local_prototype", "screenplay_generation"]},
+    "run_role": {"enum": ["check", "plan", "smoke", "trial", "baseline", "champion", "evaluation", "prototype"]},
+    "governance_status": {"enum": ["diagnostic_only", "experimental_only", "formal_training_eligible", "candidate_frozen", "accepted", "blocked", "withdrawn"]},
+    "dataset": {"type": "object", "additionalProperties": false, "required": ["dataset_id", "source_sha256", "manifest_sha256", "split_sha256", "consent_scope", "preprocessing_version"], "properties": {
+      "dataset_id": {"type": "string", "minLength": 1},
+      "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+      "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+      "split_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+      "consent_scope": {"type": "string", "minLength": 1},
+      "preprocessing_version": {"type": "string", "minLength": 1},
+      "counts": {"type": "object"}
+    }},
+    "model": {"type": "object", "additionalProperties": false, "required": ["model_id", "model_revision", "tokenizer_revision"], "properties": {
+      "model_id": {"type": "string", "minLength": 1},
+      "model_revision": {"type": "string", "minLength": 1},
+      "tokenizer_revision": {"type": "string", "minLength": 1},
+      "adapter_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+    }},
+    "evaluation": {"type": "object", "additionalProperties": false, "required": ["protocol_version", "objective_metric", "objective_direction", "generation_config_digest", "test_access"], "properties": {
+      "protocol_version": {"type": "string", "minLength": 1},
+      "objective_metric": {"type": "string", "minLength": 1},
+      "objective_direction": {"enum": ["min", "max"]},
+      "generation_config_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+      "candidate_freeze_id": {"type": ["string", "null"]},
+      "test_evaluation_id": {"type": ["string", "null"]},
+      "test_access": {"enum": ["untouched", "authorized_once", "invalidated"]}
+    }},
+    "execution": {"type": "object", "additionalProperties": false, "required": ["backend", "release_id", "readiness_digest", "code_revision", "environment_digest", "seed", "resources"], "properties": {
+      "backend": {"const": "ray"},
+      "release_id": {"type": "string", "minLength": 1},
+      "readiness_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+      "ray_submission_id": {"type": ["string", "null"]},
+      "ray_job_id": {"type": ["string", "null"]},
+      "mlflow_run_id": {"type": ["string", "null"]},
+      "attempt_id": {"type": "string", "minLength": 1},
+      "retry_of": {"type": ["string", "null"]},
+      "resumed_from": {"type": ["string", "null"]},
+      "code_revision": {"type": "string", "minLength": 1},
+      "environment_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+      "seed": {"type": "integer"},
+      "resources": {"type": "object"}
+    }},
+    "artifacts": {"type": "object", "additionalProperties": false, "required": ["manifest_uri", "report_uri", "roundtrip_verified"], "properties": {
+      "manifest_uri": {"type": "string", "minLength": 1},
+      "report_uri": {"type": "string", "minLength": 1},
+      "adapter_uri": {"type": ["string", "null"]},
+      "roundtrip_verified": {"type": "boolean"}
+    }}
+  }
+}

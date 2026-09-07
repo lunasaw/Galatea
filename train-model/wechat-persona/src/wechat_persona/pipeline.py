@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from ._common import digest
+from ._common import digest, parse_datetime
 from .consent import verify_consent
 from .datasets import build_review_candidates
 from .importers import import_messages
@@ -50,7 +50,40 @@ def run_import_pipeline(
     dataset_root = root / dataset_id
     if dataset_root.exists():
         raise FileExistsError("dataset version already exists; refusing overwrite")
-    normalized = [normalize_message(row, index=index, timezone_name=timezone_name, speaker_map=speaker_map) for index, row in enumerate(raw_rows)]
+    normalized_all: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_rows):
+        row = normalize_message(raw, index=index, timezone_name=timezone_name, speaker_map=speaker_map)
+        # Keep the consent-routing flag ephemeral; it is removed before any
+        # message artifact is written and is not part of message-v1.
+        row["_third_party"] = bool(raw.get("third_party", False))
+        normalized_all.append(row)
+    scope = verified.get("scope") or {}
+    scope_start = parse_datetime(scope.get("time_start"), timezone_name) if scope.get("time_start") else None
+    scope_end = parse_datetime(scope.get("time_end"), timezone_name) if scope.get("time_end") else None
+    allowed_message_types = {str(item).casefold() for item in (scope.get("message_types") or [])}
+    allowed_media_types = {str(item).casefold() for item in (scope.get("media_types") or [])}
+    filtered: list[dict[str, Any]] = []
+    excluded = {"message_type": 0, "time_scope": 0, "third_party": 0}
+    for row in normalized_all:
+        kind = str(row.get("message_kind") or "").casefold()
+        if kind == "text":
+            type_allowed = "text" in allowed_message_types
+        else:
+            type_allowed = kind in allowed_message_types or kind in allowed_media_types
+        if not type_allowed:
+            excluded["message_type"] += 1
+            continue
+        timestamp = parse_datetime(row.get("timestamp"), timezone_name)
+        if (scope_start and (timestamp is None or timestamp < scope_start)) or (scope_end and (timestamp is None or timestamp > scope_end)):
+            excluded["time_scope"] += 1
+            continue
+        if row.get("_third_party") and scope.get("third_party_policy") == "exclude":
+            excluded["third_party"] += 1
+            continue
+        filtered.append(row)
+    # ``third_party`` is an internal consent-routing flag, not part of the
+    # public message-v1 artifact schema. Strip it before durable output.
+    normalized = [{key: value for key, value in row.items() if key != "_third_party"} for row in filtered]
     leaks = sum(scan_redacted_text(row.get("text_redacted"))["hard_leak_count"] for row in normalized)
     if leaks:
         raise PipelineError("pii_scan_failed")
@@ -72,5 +105,5 @@ def run_import_pipeline(
     _write_jsonl(dataset_root / "manifests/lineage.jsonl", lineage)
     _write_json(dataset_root / "manifests/source_manifest.json", {**source_manifest, "dataset_id": dataset_id, "consent_digest": verified["consent_digest"], "authorization_status": "verified"})
     _write_json(dataset_root / "manifests/split_manifest.json", split_manifest)
-    _write_json(dataset_root / "reports/privacy_report.json", {"status": "pass", "hard_leak_count": 0, "message_count": len(normalized)})
+    _write_json(dataset_root / "reports/privacy_report.json", {"status": "pass", "hard_leak_count": 0, "message_count": len(normalized), "excluded_by_consent": excluded})
     return {**plan, "dataset_root": dataset_root}

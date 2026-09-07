@@ -38,6 +38,21 @@ class ImporterTests(unittest.TestCase):
             with self.assertRaises(ImportErrorSafe):
                 detect_importer(link, allowed_root=root)
 
+    def test_native_wechat_shape_maps_to_generic_contract(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "wechat.json"
+            path.write_text(json.dumps({"messages": [{
+                "id": "m1", "createTime": 1788543550,
+                "senderUsername": "sender", "isSent": True,
+                "renderType": "text", "content": "hello",
+            }]}), encoding="utf-8")
+            records, _ = import_messages(path, timezone_name="Asia/Shanghai", allowed_root=root)
+            self.assertEqual(records[0]["timestamp"], 1788543550)
+            self.assertEqual(records[0]["speaker"], "sender")
+            self.assertEqual(records[0]["text"], "hello")
+            self.assertTrue(records[0]["is_sent"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -130,9 +130,35 @@ class JsonImporter:
             if isinstance(item, dict) and isinstance(item.get("messages"), list):
                 for nested in item["messages"]:
                     if not isinstance(nested, dict): raise ImportErrorSafe(f"json message {index} is not object")
-                    yield {"source_record_index": index, **nested}
+                    if any(key in nested for key in ("createTime", "senderUsername", "renderType", "isSent")):
+                        yield {
+                            "source_record_index": index,
+                            "timestamp": nested.get("createTime"),
+                            "speaker": nested.get("senderUsername"),
+                            "text": nested.get("content") or nested.get("title") or "",
+                            "kind": nested.get("renderType") or "text",
+                            "message_id": nested.get("id"),
+                            "reply_to": nested.get("quoteServerId"),
+                            "is_sent": nested.get("isSent"),
+                            "third_party": bool(nested.get("from")),
+                        }
+                    else:
+                        yield {"source_record_index": index, **nested}
             elif isinstance(item, dict):
-                yield {"source_record_index": index, **item}
+                if any(key in item for key in ("createTime", "senderUsername", "renderType", "isSent")):
+                    yield {
+                        "source_record_index": index,
+                        "timestamp": item.get("createTime"),
+                        "speaker": item.get("senderUsername"),
+                        "text": item.get("content") or item.get("title") or "",
+                        "kind": item.get("renderType") or "text",
+                        "message_id": item.get("id"),
+                        "reply_to": item.get("quoteServerId"),
+                        "is_sent": item.get("isSent"),
+                        "third_party": bool(item.get("from")),
+                    }
+                else:
+                    yield {"source_record_index": index, **item}
             else: raise ImportErrorSafe(f"json message {index} is not object")
 
 

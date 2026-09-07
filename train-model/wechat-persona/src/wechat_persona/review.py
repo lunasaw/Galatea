@@ -62,3 +62,18 @@ def append_review_event(path: Path, reviewed_row: dict[str, Any]) -> dict[str, A
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
     return event
+
+
+def append_reviewed_row(path: Path, reviewed_row: dict[str, Any]) -> None:
+    """Persist the redacted reviewed row separately from the hash-only event log.
+
+    The event log intentionally contains no message text.  This companion file is
+    the controlled content record needed to reconstruct ``reviewed-jsonl`` for
+    ``redact_keep`` decisions; it must never be the original candidates file.
+    """
+    meta = dict(reviewed_row.get("metadata") or {})
+    if meta.get("review_status") not in STATUSES or not meta.get("reviewer_id"):
+        raise ReviewError("reviewed row requires a completed decision")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(reviewed_row, ensure_ascii=False, separators=(",", ":")) + "\n")

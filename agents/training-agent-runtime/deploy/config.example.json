@@ -1,0 +1,15 @@
+{
+  "state_root": "/var/lib/training-agent",
+  "project_id": "registered-project",
+  "campaign_id": "campaign-001",
+  "workspace": "/var/lib/training-agent/workspaces/campaign-001",
+  "skill_path": "/opt/galatea-training-skills/skills/training-campaign/SKILL.md",
+  "runtime_lock": "/etc/training-agent/runtime-lock.json",
+  "codex_bin": "/opt/training-agent/bin/codex",
+  "turn_timeout_seconds": 300,
+  "mcp": {
+    "transport": "http",
+    "url": "https://galatea.example.invalid/mcp",
+    "token_env": "GALATEA_MCP_TOKEN"
+  }
+}

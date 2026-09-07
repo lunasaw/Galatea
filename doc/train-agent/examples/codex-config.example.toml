@@ -1,0 +1,38 @@
+# 目标配置样例。Galatea新增工具尚未实现；部署时以tools/list核对。
+# 安装于专用Agent账号，不自动覆写开发者的现有Codex配置。
+# Token来自专用运行账号的受限MCP身份，由supervisor启动worker时提供，不写入本文件。
+# Python CodexConfig.env会合并继承环境；环境白名单必须在启动worker前建立。
+# MCP每次调用校验项目、Campaign、动作、批准范围和取消标记。
+# 下列清单仅为首版；部署时必须与实际tools/list一致，不包含未来上传/构建/推广能力。
+sandbox_mode = "workspace-write"
+approval_policy = "never"
+
+[mcp_servers.galatea]
+url = "https://galatea.example.internal/mcp"
+bearer_token_env_var = "GALATEA_MCP_TOKEN"
+required = true
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+enabled_tools = [
+  "galatea_get_capabilities",
+  "galatea_list_projects",
+  "galatea_inspect_project",
+  "galatea_get_campaign",
+  "galatea_list_operations",
+  "galatea_get_operation",
+  "galatea_plan_run",
+  "galatea_submit_job",
+  "galatea_observe_job",
+  "galatea_stop_job",
+  "galatea_cancel_campaign",
+  "galatea_query_runs",
+  "galatea_get_metric_history",
+  "galatea_get_artifact",
+  "galatea_compare_runs",
+  "galatea_freeze_candidate",
+  "galatea_verify_candidate",
+]
+disabled_tools = ["galatea_promote_model"]
+
+# approval_policy=never只是不等待交互审批，服务端仍必须验证Campaign授权。
+# 生产推广使用独立身份/受信用户流程，不通过训练Agent自动扩大allowlist。

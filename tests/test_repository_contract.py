@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import unittest
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -12,8 +15,14 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 class RepositoryContractTest(unittest.TestCase):
     """验证跨项目的 Runtime 和目录边界没有回退。"""
 
-    def test_deepseek_harness_is_the_only_runtime_entrypoint(self) -> None:
-        self.assertFalse((REPOSITORY_ROOT / "agent").exists())
+    def test_independent_runtime_entrypoints_coexist_with_harness(self) -> None:
+        for root, module in (("services/galatea-mcp", "galatea_mcp.cli"),
+                             ("agents/training-agent-runtime", "training_agent.cli")):
+            result = subprocess.run([sys.executable, "-m", module, "--help"],
+                env={**os.environ, "PYTHONPATH": str(REPOSITORY_ROOT / root / "src")},
+                capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("register", result.stdout)
         plugin = REPOSITORY_ROOT / "plugins" / "dsh-galatea"
         self.assertTrue((plugin / "package.json").is_file())
         self.assertTrue((plugin / "cordis.patch.yml").is_file())

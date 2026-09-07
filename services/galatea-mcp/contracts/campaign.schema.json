@@ -1,0 +1,134 @@
+{
+  "$defs": {
+    "Budget": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Cpu Seconds",
+          "type": "integer"
+        },
+        "gpu_seconds": {
+          "minimum": 0,
+          "title": "Gpu Seconds",
+          "type": "integer"
+        },
+        "max_trials": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Max Trials",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cpu_seconds",
+        "gpu_seconds",
+        "max_trials"
+      ],
+      "title": "Budget",
+      "type": "object"
+    },
+    "Slot": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "baseline",
+            "trial",
+            "champion",
+            "evaluate"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "config_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "title": "Config Ids",
+          "type": "array"
+        },
+        "release_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "title": "Release Ids",
+          "type": "array"
+        },
+        "max_attempts": {
+          "default": 1,
+          "maximum": 3,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step_id",
+        "role",
+        "config_ids",
+        "release_ids"
+      ],
+      "title": "Slot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "campaign_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+      "title": "Campaign Id",
+      "type": "string"
+    },
+    "project_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "request_revision": {
+      "exclusiveMinimum": 0,
+      "title": "Request Revision",
+      "type": "integer"
+    },
+    "expires_at": {
+      "exclusiveMinimum": 0,
+      "title": "Expires At",
+      "type": "integer"
+    },
+    "approved_by": {
+      "minLength": 1,
+      "title": "Approved By",
+      "type": "string"
+    },
+    "slots": {
+      "items": {
+        "$ref": "#/$defs/Slot"
+      },
+      "maxItems": 103,
+      "minItems": 3,
+      "title": "Slots",
+      "type": "array"
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget"
+    }
+  },
+  "required": [
+    "campaign_id",
+    "project_id",
+    "request_revision",
+    "expires_at",
+    "approved_by",
+    "slots",
+    "budget"
+  ],
+  "title": "CampaignSpec",
+  "type": "object"
+}

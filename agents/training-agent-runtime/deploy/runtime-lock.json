@@ -1,0 +1,18 @@
+{
+  "schema_version": "training-agent.runtime-lock/v1",
+  "acceptance_status": "pending",
+  "sdk_distribution": "openai-codex",
+  "sdk_version": "0.0.0.dev0",
+  "sdk_source_declared_version": "0.0.0-dev",
+  "sdk_source_revision": "459a79e",
+  "sdk_release_artifact_sha256": null,
+  "runtime_distribution": "openai-codex-cli-bin",
+  "runtime_version": "0.147.0",
+  "runtime_version_output": null,
+  "runtime_artifact_sha256": null,
+  "protocol_version": "galatea.tools/v1",
+  "mcp_sdk_version": "1.26.0",
+  "skill_bundle_sha256": null,
+  "config_sha256": null,
+  "note": "Source API inspected. No published SDK/runtime pair or real model call acceptance claimed. Populate verified immutable artifacts and exact version output, then approve in deployment change control."
+}

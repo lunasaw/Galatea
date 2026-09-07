@@ -1,0 +1,21 @@
+apiVersion: galatea/v1
+kind: TrainingProject
+metadata:
+  name: ray-tabular-regression
+spec:
+  task: tabular-regression
+  executionBackend: ray
+  packageName: ray_tabular_regression
+  objective: {metric: val_rmse, direction: min}
+  configRoot: configs
+  entrypoints:
+    checkConfig: [python, scripts/check_plan.py, --config, "{config}"]
+    plan: [python, scripts/check_plan.py, --config, "{config}"]
+    train: [python, scripts/driver.py]
+    evaluate: [python, scripts/driver.py]
+  isolation:
+    trainerViews: [train, validation]
+    evaluatorViews: [test]
+    evaluatorRequiresDistinctClusterAndAccount: true
+  artifacts: [model/model.json, reports/evidence.json]
+

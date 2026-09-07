@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Galatea Agent Turn proposal v1",
+  "description": "Shape contract for a Python Codex proposal. Runner must validate action combinations, positive revisions, reference ownership and MCP-verified delivery evidence. decision_seq is assigned by the single Runner; schema validity does not authorize any action or require a database.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["galatea.agent-turn/v1"]},
+    "campaign_id": {"type": "string"},
+    "request_revision": {"type": "integer"},
+    "decision_seq": {"type": "integer"},
+    "action": {"type": "string", "enum": ["wait_external", "continue", "request_input", "request_approval", "complete", "blocked"]},
+    "operation_ids": {"type": "array", "items": {"type": "string"}},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "proposed_outcome": {"type": ["string", "null"], "enum": ["accepted", "best-effort", "blocked", "cancelled", null]},
+    "reason": {"type": "string"},
+    "user_input_request": {"type": ["string", "null"]},
+    "report_ref": {"type": ["string", "null"]}
+  },
+  "required": ["schema_version", "campaign_id", "request_revision", "decision_seq", "action", "operation_ids", "evidence_refs", "proposed_outcome", "reason", "user_input_request", "report_ref"]
+}

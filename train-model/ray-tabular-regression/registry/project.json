@@ -1,0 +1,32 @@
+{
+  "project_id": "ray-tabular-regression",
+  "root": "/opt/galatea/releases/ray-tabular-regression",
+  "task": "tabular-regression",
+  "objective": {"metric": "val_rmse", "direction": "min"},
+  "metric_definition": "rmse-on-unscaled-target-v1",
+  "evaluation_protocol": "frozen-json-rows-standardize-train-only-v1",
+  "experiment_id": "REPLACE_WITH_MLFLOW_EXPERIMENT_ID",
+  "dataset": {
+    "dataset_id": "approved-tabular-regression-v1",
+    "manifest_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+    "split_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+    "preprocessing": "standardize-from-train-v1",
+    "holdout_identity": "6666666666666666666666666666666666666666666666666666666666666666",
+    "holdout_untouched": true,
+    "views": {
+      "train": {"bucket": "REPLACE_APPROVED_TRAIN_BUCKET", "key": "datasets/tabular/v1/train.json", "version_id": "REPLACE_VERSION", "sha256": "4444444444444444444444444444444444444444444444444444444444444444", "size_bytes": 1},
+      "validation": {"bucket": "REPLACE_APPROVED_TRAIN_BUCKET", "key": "datasets/tabular/v1/validation.json", "version_id": "REPLACE_VERSION", "sha256": "5555555555555555555555555555555555555555555555555555555555555555", "size_bytes": 1},
+      "test": {"bucket": "REPLACE_EVALUATOR_ONLY_BUCKET", "key": "datasets/tabular/v1/test.json", "version_id": "REPLACE_VERSION", "sha256": "6666666666666666666666666666666666666666666666666666666666666666", "size_bytes": 1}
+    }
+  },
+  "releases": {
+    "trainer-v1": {"path": "REPLACE_TRAINER_RELEASE_URI", "sha256": "7777777777777777777777777777777777777777777777777777777777777777", "code_revision": "REPLACE_GIT_REVISION", "environment_digest": "8888888888888888888888888888888888888888888888888888888888888888", "entrypoint": ["python", "scripts/driver.py"], "deadline_enforced": true},
+    "evaluator-v1": {"path": "REPLACE_EVALUATOR_RELEASE_URI", "sha256": "9999999999999999999999999999999999999999999999999999999999999999", "code_revision": "REPLACE_SAME_GIT_REVISION", "environment_digest": "8888888888888888888888888888888888888888888888888888888888888888", "entrypoint": ["python", "scripts/driver.py"], "deadline_enforced": true}
+  },
+  "configs": {
+    "baseline": {"path": "configs/baseline.json", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "seed": 42, "resources": {"cpus": 1, "gpus": 0, "memory_bytes": 536870912, "workers": 1, "seconds": 300, "cleanup_seconds": 30}}
+  },
+  "evaluation_isolated": true,
+  "quality_gates": [{"metric": "test_rmse", "direction": "min", "threshold": 1.0}],
+  "artifact_paths": ["model/model.json", "reports/evidence.json"]
+}

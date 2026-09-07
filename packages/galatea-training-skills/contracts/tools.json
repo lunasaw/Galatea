@@ -1,0 +1,509 @@
+{
+  "protocol_version": "galatea.tools/v1",
+  "tools": [
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_cancel_campaign"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "run_ids": {
+            "items": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "run_ids"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_compare_runs"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "evidence_digest": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "run_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "run_id",
+          "evidence_digest"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_freeze_candidate"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_ref": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "run_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "run_id",
+          "artifact_ref"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_get_artifact"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_get_campaign"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "protocol_version": {
+            "const": "galatea.tools/v1"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "galatea_get_capabilities"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "cursor": {
+            "maxLength": 2048,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "metric": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "run_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "run_id",
+          "metric"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_get_metric_history"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "operation_id"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_get_operation"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_inspect_project"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "cursor": {
+            "maxLength": 2048,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_list_operations"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "maxLength": 2048,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "galatea_list_projects"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "operation_id"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_observe_job"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt": {
+            "maximum": 3,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "config_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "release_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "baseline",
+              "trial",
+              "champion",
+              "evaluate"
+            ]
+          },
+          "step_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "step_id",
+          "attempt",
+          "release_id",
+          "config_id",
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_plan_run"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "cursor": {
+            "maxLength": 2048,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "baseline",
+              "trial",
+              "champion",
+              "evaluate"
+            ]
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_query_runs"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "operation_id",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_stop_job"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "plan_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "plan_id",
+          "idempotency_key"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_submit_job"
+    },
+    {
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "candidate_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          },
+          "project_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "campaign_id",
+          "candidate_id"
+        ],
+        "type": "object"
+      },
+      "name": "galatea_verify_candidate"
+    }
+  ]
+}

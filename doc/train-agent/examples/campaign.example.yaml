@@ -1,0 +1,88 @@
+# 需求草案示例；不是当前已实现的API，也不是有效算力/数据/推广授权。
+# 这是后续真实LoRA扩展场景；首版只用已注册workload与预建Release/配置。
+# 所有阈值和预算仅用于评审；实际授权由受信入口登记到MCP任务清单，无需授权数据库。
+api_version: galatea.campaign/v1
+campaign_id: customer-support-sft-example
+project_id: llm-lora-playground
+source: python-codex
+request_revision: 1
+status: draft
+authorization:
+  training_authorized: false
+  authorization_source_ref: null
+  production_promotion_authorized: false
+task:
+  kind: causal-lm-sft
+  description: 改善客服业务回答的正确性与格式，交付可离线加载的LoRA适配器
+  base_model_id: approved-small-causal-lm
+  base_model_revision: null  # 由批准模型目录解析并冻结后才可执行
+data:
+  source_upload_id: null
+  dataset_id: null
+  manifest_digest: null
+  intended_use: training-and-evaluation
+  classification: confidential
+  model_provider_raw_data_egress: false
+  split:
+    strategy: conversation-group-holdout
+    group_key: conversation_id
+    seed: 42
+    ratios: {train: 0.8, validation: 0.1, test: 0.1}
+    freeze_before_search: true
+evaluation:
+  protocol_id: customer-support-rubric-v1
+  primary:
+    metric: validation_task_success_rate
+    direction: max
+    target: 0.85
+  holdout:
+    holdout_identity: null  # 受信登记的固定测试人口身份；换Campaign/别名不能重置使用记录
+    max_information_revealing_evaluations: 1
+    metric: test_task_success_rate
+    threshold: 0.85
+  gates:
+    - {metric: test_fact_error_rate, operator: lte, threshold: 0.02}
+    - {evidence: artifact_roundtrip, operator: equals, expected: passed}
+    - {evidence: inference_contract, operator: equals, expected: passed}
+  evaluator:
+    kind: frozen-task-evaluator
+    revision: null  # 正式执行前冻结实现、rubric和校准报告
+strategy:
+  approved_release_ids: []  # 必须先构建并登记，不能凭项目名直接训练
+  approved_config_ids: []
+  baselines: [base, prompt-only]
+  allowed_methods: [lora-sft]
+  allow_workload_code_changes: false
+  allow_new_dependencies: false
+budget:
+  execution_accounting: conservative_maximum  # 每次计算按批准最大资源时长占用，不当实际账单
+  accelerator_hours_total: 8.0
+  final_retrain_and_evaluation_reserve_hours: 2.0
+  max_accelerators_per_job: 1
+  max_cpus_per_job: 4
+  max_memory_gib_per_job: 16
+  max_build_cpu_hours: 0.5
+  max_data_processing_cpu_hours: 1.0
+  max_storage_gib: 20
+  max_external_evaluator_calls: 0
+  max_parallel_trials: 1  # 首版还限定整个Runner一个活跃Campaign
+  max_trials: 6
+  max_job_runtime_seconds: 7200
+  max_campaign_wallclock_seconds: 86400
+  max_agent_turns: 20
+  max_agent_turn_runtime_seconds: 300
+  max_agent_input_output_tokens: 300000
+  agent_token_budget_mode: observed  # 达到观测阈值后停止新Turn；不保证单Turn实时硬上限
+  # 要求hard模式时，必须具备已验收的提供商/预算网关能力，否则预检拒绝。
+  metering_includes: [build, data-processing, baseline-inference, training, retries, final-retrain, evaluation]
+stop:
+  min_meaningful_validation_improvement: 0.005
+  patience_completed_compatible_trials: 3
+  max_infrastructure_retries_per_operation: 2
+  max_identical_contract_failures: 1
+  on_budget_exhausted: deliver-best-effort
+  on_cancel: stop-active-operations
+delivery:
+  format: peft-adapter
+  include: [base-model-reference, tokenizer-and-template, inference-example, evaluation-report, lineage]
+  production_alias: null

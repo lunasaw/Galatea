@@ -645,6 +645,10 @@ platform-data/llm-private/wechat-persona/
 
 第二次实施计划才覆盖 `wechat-persona`，届时先确认实际导出文件格式和授权范围，再选择 importer，不预先为未知格式写大量代码。
 
+项目 5–9 的完整技术方案、实现任务、运行手册、验收清单和 schema 见
+[`2026-09-06-project-5-9-wechat-persona/README.md`](2026-09-06-project-5-9-wechat-persona/README.md)。该方案只定义后续实施边界，
+不改变当前真实微信数据的 `formal_training_eligible=false`、`manual_review_pending` 或其他阻断状态。
+
 ## 19. 完成定义
 
 这条路线的完成不是“模型能说几句甜话”，而是同时达到：

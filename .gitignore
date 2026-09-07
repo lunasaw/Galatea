@@ -1,5 +1,6 @@
 /platform-data/
 /outputs/
+/packages/galatea-training-skills/dist/
 /mlflow.db
 .ipynb_checkpoints
 __pycache__/

@@ -1,0 +1,348 @@
+{
+  "$defs": {
+    "Configuration": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "seed": {
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "resources": {
+          "$ref": "#/$defs/Resources"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "seed",
+        "resources"
+      ],
+      "title": "Configuration",
+      "type": "object"
+    },
+    "Dataset": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "manifest_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "split_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Split Digest",
+          "type": "string"
+        },
+        "preprocessing": {
+          "title": "Preprocessing",
+          "type": "string"
+        },
+        "holdout_identity": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Holdout Identity",
+          "type": "string"
+        },
+        "holdout_untouched": {
+          "title": "Holdout Untouched",
+          "type": "boolean"
+        },
+        "views": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ObjectRef"
+          },
+          "title": "Views",
+          "type": "object"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "manifest_digest",
+        "split_digest",
+        "preprocessing",
+        "holdout_identity",
+        "holdout_untouched",
+        "views"
+      ],
+      "title": "Dataset",
+      "type": "object"
+    },
+    "Gate": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "min",
+            "max"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric",
+        "direction",
+        "threshold"
+      ],
+      "title": "Gate",
+      "type": "object"
+    },
+    "ObjectRef": {
+      "additionalProperties": false,
+      "properties": {
+        "bucket": {
+          "title": "Bucket",
+          "type": "string"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "version_id": {
+          "title": "Version Id",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bucket",
+        "key",
+        "version_id",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ObjectRef",
+      "type": "object"
+    },
+    "Objective": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "title": "Metric",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "min",
+            "max"
+          ],
+          "title": "Direction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "metric",
+        "direction"
+      ],
+      "title": "Objective",
+      "type": "object"
+    },
+    "Release": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "code_revision": {
+          "title": "Code Revision",
+          "type": "string"
+        },
+        "environment_digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Environment Digest",
+          "type": "string"
+        },
+        "entrypoint": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entrypoint",
+          "type": "array"
+        },
+        "deadline_enforced": {
+          "title": "Deadline Enforced",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "code_revision",
+        "environment_digest",
+        "entrypoint",
+        "deadline_enforced"
+      ],
+      "title": "Release",
+      "type": "object"
+    },
+    "Resources": {
+      "additionalProperties": false,
+      "properties": {
+        "cpus": {
+          "exclusiveMinimum": 0,
+          "title": "Cpus",
+          "type": "integer"
+        },
+        "gpus": {
+          "minimum": 0,
+          "title": "Gpus",
+          "type": "integer"
+        },
+        "memory_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Memory Bytes",
+          "type": "integer"
+        },
+        "workers": {
+          "exclusiveMinimum": 0,
+          "title": "Workers",
+          "type": "integer"
+        },
+        "seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "cleanup_seconds": {
+          "default": 30,
+          "minimum": 0,
+          "title": "Cleanup Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cpus",
+        "gpus",
+        "memory_bytes",
+        "workers",
+        "seconds"
+      ],
+      "title": "Resources",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "root": {
+      "title": "Root",
+      "type": "string"
+    },
+    "task": {
+      "title": "Task",
+      "type": "string"
+    },
+    "objective": {
+      "$ref": "#/$defs/Objective"
+    },
+    "metric_definition": {
+      "title": "Metric Definition",
+      "type": "string"
+    },
+    "evaluation_protocol": {
+      "title": "Evaluation Protocol",
+      "type": "string"
+    },
+    "experiment_id": {
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "dataset": {
+      "$ref": "#/$defs/Dataset"
+    },
+    "releases": {
+      "patternProperties": {
+        "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$": {
+          "$ref": "#/$defs/Release"
+        }
+      },
+      "title": "Releases",
+      "type": "object"
+    },
+    "configs": {
+      "patternProperties": {
+        "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$": {
+          "$ref": "#/$defs/Configuration"
+        }
+      },
+      "title": "Configs",
+      "type": "object"
+    },
+    "evaluation_isolated": {
+      "title": "Evaluation Isolated",
+      "type": "boolean"
+    },
+    "quality_gates": {
+      "items": {
+        "$ref": "#/$defs/Gate"
+      },
+      "title": "Quality Gates",
+      "type": "array"
+    },
+    "artifact_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifact Paths",
+      "type": "array"
+    }
+  },
+  "required": [
+    "project_id",
+    "root",
+    "task",
+    "objective",
+    "metric_definition",
+    "evaluation_protocol",
+    "experiment_id",
+    "dataset",
+    "releases",
+    "configs",
+    "evaluation_isolated",
+    "quality_gates",
+    "artifact_paths"
+  ],
+  "title": "Project",
+  "type": "object"
+}

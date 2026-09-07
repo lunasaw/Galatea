@@ -1,0 +1,50 @@
+schema_version: galatea.deployment-inventory/v1
+acceptance_status: pending
+release_id: REPLACE_RELEASE_ID
+recorded_at: null
+operator: null
+components:
+  mcp:
+    artifact: galatea_mcp-0.1.0-py3-none-any.whl
+    sha256: null
+    python: null
+    dependency_lock_sha256: null
+    config: /etc/galatea-mcp/config.json
+    config_sha256: null
+    registry_sha256: null
+    account: galatea-mcp
+    state_volume: /var/lib/galatea-mcp
+    listen: 127.0.0.1:8791
+    secret_file_ref: /etc/galatea-mcp/service.env
+    signing_key_ref: /etc/galatea-mcp/execution-private.pem
+  runner:
+    artifact: training_agent_runtime-0.1.0-py3-none-any.whl
+    sha256: null
+    python: null
+    dependency_lock_sha256: null
+    config: /etc/training-agent/config.json
+    runtime_lock: /etc/training-agent/runtime-lock.json
+    account: training-agent
+    state_volume: /var/lib/training-agent
+    secret_file_ref: /etc/training-agent/runtime.env
+    codex_session_volume: REPLACE_DEDICATED_ACCOUNT_SESSION_PATH
+  skills:
+    artifact: galatea-training-skills.tar.gz
+    sha256: null
+    root: /opt/galatea-training-skills
+    entry: skills/training-campaign/SKILL.md
+  workload:
+    project_id: ray-tabular-regression
+    trainer_release_sha256: null
+    evaluator_release_sha256: null
+    environment_identity: null
+platform:
+  trainer_head_id: null
+  evaluator_head_id: null
+  mlflow_experiment_id: null
+  dataset_manifest_digest: null
+  split_digest: null
+  holdout_identity: null
+acceptance_record_ref: null
+# References only. Store real inventory on the protected deployment volume;
+# never put credentials, private endpoints, or dataset examples in this file.

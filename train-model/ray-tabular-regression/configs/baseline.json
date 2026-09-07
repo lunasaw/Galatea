@@ -1,0 +1,14 @@
+{
+  "features": ["feature_1", "feature_2", "feature_3"],
+  "target": "target",
+  "alpha": 1.0,
+  "seed": 42,
+  "resources": {
+    "cpus": 1,
+    "gpus": 0,
+    "memory_bytes": 536870912,
+    "workers": 1,
+    "seconds": 300,
+    "cleanup_seconds": 30
+  }
+}

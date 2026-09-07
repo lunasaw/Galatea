@@ -1,0 +1,13 @@
+{
+  "format_version": "galatea.skill-lock/v1",
+  "package_name": "galatea-training-skills",
+  "package_version": "0.1.0",
+  "protocol_version": "galatea.tools/v1",
+  "codex_version": {
+    "source_revision": "459a79e",
+    "python_sdk": "openai_codex",
+    "skill_input_required": true
+  },
+  "tools_sha256": "fd94a947b96ac10e828d3f79279ef92c35e46d0e4016c60a121a1ed48deea77a",
+  "agent_turn_schema_sha256": "86b0020ce292e615f34e8fbbf26af73dd15e5fb2b753af66148b661693e66bb5"
+}

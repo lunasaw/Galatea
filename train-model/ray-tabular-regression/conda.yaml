@@ -1,0 +1,12 @@
+name: ray-tabular-regression
+channels: [conda-forge]
+dependencies:
+  - python=3.11.11
+  - pip=24.3.1
+  - pip:
+      - boto3==1.40.0
+      - cryptography==45.0.6
+      - mlflow-skinny==3.14.0
+      - numpy==1.26.4
+      - PyYAML==6.0.2
+      - ray==2.48.0

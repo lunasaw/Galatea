@@ -1,0 +1,42 @@
+{
+  "schema_version": "galatea.deployment/v1",
+  "state_root": "/var/lib/galatea-mcp",
+  "registry_path": "/etc/galatea-mcp/projects.json",
+  "principal": {
+    "principal_id": "training-agent",
+    "project_ids": ["ray-tabular-regression"],
+    "campaign_ids": ["tabular-regression-example"],
+    "actions": ["*"]
+  },
+  "http_port": 8791,
+  "token_env": "GALATEA_SERVICE_TOKEN",
+  "platform": {
+    "trainer": {
+      "address": "https://trainer-ray.example.invalid",
+      "expected_head_id": "record-live-trainer-head-node-id",
+      "runtime_env": {},
+      "env_refs": {
+        "AWS_ACCESS_KEY_ID": "TRAINER_AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY": "TRAINER_AWS_SECRET_ACCESS_KEY",
+        "S3_ENDPOINT_URL": "TRAINER_S3_ENDPOINT_URL",
+        "MLFLOW_TRACKING_TOKEN": "TRAINER_MLFLOW_TRACKING_TOKEN"
+      }
+    },
+    "evaluator": {
+      "address": "https://evaluator-ray.example.invalid",
+      "expected_head_id": "record-live-evaluator-head-node-id",
+      "runtime_env": {},
+      "env_refs": {
+        "AWS_ACCESS_KEY_ID": "EVALUATOR_AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY": "EVALUATOR_AWS_SECRET_ACCESS_KEY",
+        "S3_ENDPOINT_URL": "EVALUATOR_S3_ENDPOINT_URL",
+        "MLFLOW_TRACKING_TOKEN": "EVALUATOR_MLFLOW_TRACKING_TOKEN"
+      }
+    },
+    "tracking_uri": "https://mlflow.example.invalid",
+    "s3_endpoint": "https://objects.example.invalid",
+    "s3_region": "us-east-1",
+    "signing_key_path": "/etc/galatea-mcp/execution-private.pem",
+    "artifact_download_root": "/var/lib/galatea-mcp/downloads"
+  }
+}

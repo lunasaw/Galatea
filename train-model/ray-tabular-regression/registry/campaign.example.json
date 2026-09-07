@@ -1,0 +1,14 @@
+{
+  "campaign_id": "tabular-regression-example",
+  "project_id": "ray-tabular-regression",
+  "request_revision": 1,
+  "expires_at": 4102444800,
+  "approved_by": "REPLACE_APPROVER",
+  "slots": [
+    {"step_id": "baseline", "role": "baseline", "config_ids": ["baseline"], "release_ids": ["trainer-v1"], "max_attempts": 1},
+    {"step_id": "champion", "role": "champion", "config_ids": ["baseline"], "release_ids": ["trainer-v1"], "max_attempts": 1},
+    {"step_id": "evaluate", "role": "evaluate", "config_ids": ["baseline"], "release_ids": ["evaluator-v1"], "max_attempts": 1}
+  ],
+  "budget": {"cpu_seconds": 990, "gpu_seconds": 0, "max_trials": 0}
+}
+

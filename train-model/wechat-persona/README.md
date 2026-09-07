@@ -21,6 +21,33 @@ python train-model/wechat-persona/scripts/review_app.py
 python -m unittest discover -s train-model/wechat-persona/tests -p 'test_*.py'
 ```
 
+## Human review export
+
+The importer writes `review/candidates.jsonl` with every candidate initially marked
+`uncertain`. Review decisions are append-only: keep the ID/hash-only event log separate
+from the controlled content record used only for `redact_keep` edits.
+
+```bash
+python train-model/wechat-persona/scripts/review_app.py \
+  --candidate <candidate.json> \
+  --event-log <controlled-events.jsonl> \
+  --reviewed-row-log <controlled-reviewed-rows.jsonl> \
+  --status redact_keep --reviewer-id <reviewer-id> \
+  --reason '<why it was edited>' --edited-candidate <edited.json>
+
+python train-model/wechat-persona/scripts/compile_reviewed.py \
+  --candidates <dataset>/review/candidates.jsonl \
+  --events <controlled-events.jsonl> \
+  --reviewed-rows <controlled-reviewed-rows.jsonl> \
+  --output <new-controlled-reviewed.jsonl>
+```
+
+The compiler requires exactly one review event per candidate, rejects missing or duplicate
+IDs, excludes `reject` and `uncertain`, requires reasons and edited content for
+`redact_keep`, and runs a second PII scan. It never edits the candidate file. If a smaller
+audited subset is desired, record the selection rule and selected IDs separately; an
+unselected candidate is not treated as reviewed.
+
 Writing data is always explicit and versioned. `import_chat.py --execute` requires a verified
 consent ledger, an allowed raw root, an explicit source and speaker mapping; it writes only
 redacted messages, sessions, uncertain review candidates, lineage, and aggregate reports.

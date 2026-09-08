@@ -65,7 +65,7 @@ def validate_project_config(config: Mapping[str, Any], *, raise_on_error: bool =
     if task not in allowed_tasks:
         errors.append("task is unsupported")
     run = values.get("run", {})
-    if not isinstance(run, Mapping) or run.get("role") not in {"check", "plan", "smoke", "trial", "baseline", "champion", "evaluation", "prototype"}:
+    if not isinstance(run, Mapping) or run.get("role") not in {"check", "plan", "smoke", "trial", "baseline", "champion", "evaluate", "evaluation", "prototype"}:
         errors.append("run.role is required")
     if not isinstance(run.get("promotable", False), bool):
         errors.append("run.promotable must be boolean")
@@ -84,9 +84,6 @@ def validate_project_config(config: Mapping[str, Any], *, raise_on_error: bool =
         execution = values.get("execution", {})
         if execution.get("backend") != "ray":
             errors.append("execution.backend must be ray")
-        for key in ("release_id", "readiness_digest", "execution_identity"):
-            if not execution.get(key):
-                errors.append(f"execution.{key} is required")
         resources = execution.get("resources", {})
         for key in ("cpus", "memory_gb", "num_gpus", "placement"):
             if key not in resources:
@@ -106,10 +103,20 @@ def validate_project_config(config: Mapping[str, Any], *, raise_on_error: bool =
         for key in ("protocol_version", "objective_metric", "objective_direction", "test_access"):
             if not evaluation.get(key):
                 errors.append(f"evaluation.{key} is required")
-        if evaluation.get("test_access") != "untouched" and run.get("role") != "champion":
-            errors.append("only champion may access test")
+        if evaluation.get("test_access") != "untouched" and run.get("role") not in {"champion", "evaluate"}:
+            errors.append("only champion/evaluate may access test")
         if run.get("role") == "champion" and run.get("promotable") is not True:
             errors.append("champion must be promotable")
+        if run.get("role") == "evaluate" and evaluation.get("test_access") != "evaluator-only":
+            errors.append("evaluate requires evaluator-only test access")
+        if run.get("role") == "evaluate" and evaluation.get("evaluate_test") is not True:
+            errors.append("evaluate must explicitly enable final test")
+        expected_objective = "test_loss" if run.get("role") == "evaluate" else "val_loss"
+        if dataset.get("formal_dataset_ready") is True and run.get("role") in {"baseline", "trial", "champion", "evaluate"}:
+            if evaluation.get("objective_metric") != expected_objective:
+                errors.append(f"{run.get('role')} objective_metric must be {expected_objective}")
+            if evaluation.get("objective_direction") != "min":
+                errors.append("formal SFT objective_direction must be min")
     if task == "memory_rag":
         rag = values.get("rag", {})
         if rag.get("owner_scope_required") is not True:

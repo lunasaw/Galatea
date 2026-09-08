@@ -12,6 +12,9 @@ class SessionSplitTests(unittest.TestCase):
         sessions = sessionize(rows, inactivity_gap_minutes=60)
         self.assertEqual(len(sessions), 2)
         self.assertEqual(sessions[0]["message_ids"], ["m1", "m2"])
+        self.assertEqual(sessions[0]["turns"][0]["source_record_indices"], [0, 1])
+        self.assertEqual(sessions[0]["turns"][0]["message_contents"], ["a", "b"])
+        self.assertEqual(sessions[0]["session_rule_version"], "wechat-session-v2")
         split = deterministic_split(sessions, ratios=(0.8, 0.1, 0.1))
         seen = [sid for values in split["session_ids_by_split"].values() for sid in values]
         self.assertEqual(len(seen), len(set(seen)))

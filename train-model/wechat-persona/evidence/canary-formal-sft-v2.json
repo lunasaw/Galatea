@@ -1,0 +1,18 @@
+{
+  "match_count": 0,
+  "pattern_sha256": "86cb42812c81a3becd5bab3d3c3db5caee6e2251aaf5bdf47c601feab1521fd7",
+  "sample_counts": {
+    "test": 8225,
+    "train": 37410,
+    "validation": 9346
+  },
+  "scanned_sample_count": 54981,
+  "scanner_version": "wechat-canary-scanner-v1",
+  "schema_version": "wechat-canary-evidence-v1",
+  "split_file_sha256": {
+    "test": "f9005844050547db6f55cc80402b9c743719d84db99c894cbf2ec988494bbffb",
+    "train": "206238ab6e7773a9dc2769f23c24be19f82d07f4bae9b63b69858aa2923b5182",
+    "validation": "6ca67aed37716f30d2cc6e9ed70b47f25ab4ce147f840855be0e0b9a6bc3df7f"
+  },
+  "status": "pass"
+}

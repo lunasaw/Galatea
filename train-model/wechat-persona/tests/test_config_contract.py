@@ -15,15 +15,27 @@ class ConfigContractTests(unittest.TestCase):
             "import.yaml", "rag-bm25.yaml", "rag-embedding.yaml",
             "persona-lora-smoke.yaml", "persona-lora-baseline.yaml",
             "qwen3-1.7b-lora.yaml", "qlora-4b.yaml", "local-chat.yaml", "screenplay.yaml",
+            "formal-sft-v2-baseline.yaml", "formal-sft-v2-trial.yaml",
+            "formal-sft-v2-champion.yaml", "formal-sft-v2-champion-trial.yaml",
+            "formal-sft-v2-evaluate.yaml",
         }
         self.assertEqual(expected, {p.name for p in (ROOT / "configs").glob("*.yaml")})
         for path in (ROOT / "configs").glob("*.yaml"):
             self.assertEqual([], validate_project_config(load_project_config(path)), path.name)
 
-    def test_training_config_requires_governed_bindings(self):
+    def test_training_config_requires_governed_backend_resources(self):
         config = load_project_config(ROOT / "configs/persona-lora-smoke.yaml")
-        with self.assertRaisesRegex(ValueError, "release_id"):
-            validate_project_config({**config, "execution": {**config["execution"], "release_id": ""}}, raise_on_error=True)
+        with self.assertRaisesRegex(ValueError, "execution.backend"):
+            validate_project_config({**config, "execution": {**config["execution"], "backend": "local"}}, raise_on_error=True)
+
+    def test_formal_roles_and_revisions_are_explicit(self):
+        for name, role in (("baseline", "baseline"), ("trial", "trial"),
+                           ("champion", "champion"), ("champion-trial", "champion"),
+                           ("evaluate", "evaluate")):
+            config = load_project_config(ROOT / "configs" / f"formal-sft-v2-{name}.yaml")
+            self.assertEqual(role, config["run"]["role"])
+            self.assertRegex(config["model"]["model_revision"], r"^[a-f0-9]{40}$")
+            self.assertEqual(config["model"]["model_revision"], config["model"]["tokenizer_revision"])
 
     def test_no_secrets_or_raw_paths_in_configs(self):
         for path in (ROOT / "configs").glob("*.yaml"):

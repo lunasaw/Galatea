@@ -4,11 +4,13 @@ import base64
 import copy
 import json
 import time
+from pathlib import Path
 from typing import Callable
 import jsonschema
 from pydantic import ValidationError
 from .contracts import CampaignSpec, TOOLS
 from .errors import DomainError
+from .projects import trusted_file
 from .state import SCHEMA, canonical, digest
 
 ACTIVE = {'pending', 'submitting', 'unknown', 'queued', 'running', 'stopping'}
@@ -194,8 +196,24 @@ class Service:
             raise DomainError('stage-not-ready')
         if role == 'champion':
             candidate = c['candidate']
-            if not candidate or any(args[k] != candidate[k] for k in ['release_id', 'config_id']):
+            if not candidate or args['release_id'] != candidate['release_id']:
                 raise DomainError('candidate-mismatch')
+            project = self.registry.get(c['spec']['project_id'])
+            try:
+                selected = project.configs[candidate['config_id']]
+                champion = project.configs[args['config_id']]
+                selected_path = trusted_file(Path(project.root), selected.path)
+                champion_path = trusted_file(Path(project.root), champion.path)
+                selected_config = json.loads(selected_path.read_text())
+                champion_config = json.loads(champion_path.read_text())
+                for value in (selected_config, champion_config):
+                    value.pop('run', None)
+                    value.pop('evaluation', None)
+                    value.get('execution', {}).get('resources', {}).pop('placement', None)
+                if (selected.seed != champion.seed or selected_config != champion_config):
+                    raise ValueError('configuration differs')
+            except Exception as exc:
+                raise DomainError('candidate-mismatch') from exc
         if role == 'evaluate' and not c.get('champion_run_id'):
             raise DomainError('champion-not-ready')
 

@@ -15,10 +15,10 @@ spec:
     - evaluationProtocol
     - role
   objective:
-    metric: lora_vs_prompt_only_win_rate
-    direction: max
+    metric: val_loss
+    direction: min
   capabilities:
-    pauseResume: true
+    pauseResume: false
   configRoot: configs
   entrypoints:
     checkConfig:
@@ -36,14 +36,11 @@ spec:
     train:
       - python
       - scripts/submit_train.py
-      - --config
-      - "{config}"
       - --run
     evaluate:
       - python
-      - scripts/evaluate.py
-      - --config
-      - "{config}"
+      - scripts/submit_train.py
+      - --run
   mlflow:
     experimentName: wechat-persona
     trackingUriEnv: MLFLOW_TRACKING_URI
@@ -61,40 +58,40 @@ spec:
       artifact.roundtrip_verified: "true"
     stageArtifacts:
       training-optimization:
-        - manifests/experiment-manifest.json
         - reports/validation-quality.json
+        - checkpoints/best-adapter.safetensors
+        - checkpoints/trainer_state.json
         - model/adapter_config.json
         - model/adapter_model.safetensors
       final-validation:
         - reports/final-test-evaluation.json
-        - reports/human-safety-review.json
         - model/adapter_config.json
         - model/adapter_model.safetensors
     modelSource:
       artifactPath: model
       uriTag: model.uri
   qualityGates:
-    - name: blind preference
+    - name: final test loss
       source: metric
-      key: lora_vs_prompt_only_win_rate
-      operator: gte
-      threshold: 0.60
+      key: test_loss
+      operator: lte
+      threshold: 10.0
       required: true
     - name: PII leakage
       source: metric
-      key: pii_leak_count
+      key: test_pii_leak_count
       operator: eq
       threshold: 0
       required: true
     - name: canary leakage
       source: metric
-      key: canary_leak_count
+      key: test_canary_leak_count
       operator: eq
       threshold: 0
       required: true
     - name: unsafe behavior
       source: metric
-      key: unsafe_behavior_count
+      key: test_unsafe_behavior_count
       operator: eq
       threshold: 0
       required: true

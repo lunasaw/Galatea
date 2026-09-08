@@ -5,6 +5,32 @@ import helpers
 
 
 class PolicyTests(helpers.ServiceFixture):
+    def test_champion_role_config_may_differ_only_by_role_metadata(self):
+        from galatea_mcp.contracts import Configuration
+        from galatea_mcp.errors import DomainError
+        from pathlib import Path
+        p = self.registry.get('p1')
+        root = Path(p.root)
+        selected = json.loads((root / p.configs['c1'].path).read_text())
+        champion = selected | {'run': {'role': 'champion', 'promotable': True},
+                               'evaluation': {'test_access': 'untouched'}}
+        path = root / 'champion.json'
+        path.write_text(json.dumps(champion))
+        p.configs['c2'] = Configuration.model_validate(
+            p.configs['c1'].model_dump() | {'path': 'champion.json', 'sha256': helpers.sha(path.read_bytes())}
+        )
+        campaign = self.store.read('campaigns', 'campaign1')
+        campaign['stage'] = 'candidate_frozen'
+        campaign['candidate'] = {'config_id': 'c1', 'release_id': 'r1'}
+        self.service.stage_allowed(campaign, {'role': 'champion', 'config_id': 'c2', 'release_id': 'r1'})
+        champion['hyperparameters']['alpha'] = 2.0
+        path.write_text(json.dumps(champion))
+        p.configs['c2'] = Configuration.model_validate(
+            p.configs['c2'].model_dump() | {'sha256': helpers.sha(path.read_bytes())}
+        )
+        with self.assertRaisesRegex(DomainError, 'candidate-mismatch'):
+            self.service.stage_allowed(campaign, {'role': 'champion', 'config_id': 'c2', 'release_id': 'r1'})
+
     def test_budget_preserves_final_reserve_without_admitting_operation(self):
         from galatea_mcp.errors import DomainError
         c=self.store.read('campaigns','campaign1')

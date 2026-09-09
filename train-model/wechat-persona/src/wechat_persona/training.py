@@ -523,12 +523,16 @@ def _train_role(
     train = trainer.train()
     model.save_pretrained(adapter_dir, safe_serialization=True)
     tokenizer.save_pretrained(adapter_dir)
-    validation_losses = _example_losses(
-        model,
-        validation_data,
-        batch_size=int(config["training"].get("eval_batch_size", 4)),
-    )
-    adapted_validation_loss = sum(validation_losses) / len(validation_losses)
+    # Reuse the authoritative Trainer evaluation metric.  Re-running a second
+    # validation pass after training can produce small numerical differences
+    # and makes the MLflow metric disagree with the evidence report.
+    eval_history = [
+        entry for entry in trainer.state.log_history
+        if "eval_loss" in entry
+    ]
+    if not eval_history:
+        raise ValueError("Trainer did not produce validation metrics")
+    adapted_validation_loss = float(eval_history[-1]["eval_loss"])
     metrics = {
         "train_loss": float(train.training_loss),
         "val_loss": adapted_validation_loss,

@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -446,6 +447,42 @@ def _verify_fresh_adapter_load(model_directory: Path) -> None:
         raise ValueError("fresh-process adapter load verification failed")
 
 
+def _log_training_history(client: Any, run_id: str, history: Iterable[Mapping[str, Any]]) -> None:
+    """Persist step metrics in bounded MLflow batches."""
+
+    from mlflow.entities import Metric
+
+    batch: list[Any] = []
+    timestamp = int(time.time() * 1000)
+    for entry in history:
+        step = int(entry.get("step", 0))
+        for source, target in (
+            ("loss", "train_loss"),
+            ("learning_rate", "learning_rate"),
+            ("grad_norm", "gradient_norm"),
+        ):
+            if source in entry:
+                batch.append(Metric(target, float(entry[source]), timestamp, step))
+            if len(batch) >= 1000:
+                client.log_batch(run_id, metrics=batch, synchronous=True)
+                batch = []
+    if batch:
+        client.log_batch(run_id, metrics=batch, synchronous=True)
+
+
+def _artifact_parent(source: Path, remote: str) -> str:
+    """Return the upload parent after enforcing the exact remote filename."""
+
+    remote_path = Path(remote)
+    if remote_path.is_absolute() or ".." in remote_path.parts:
+        raise ValueError("artifact path must be relative and cannot traverse parents")
+    if source.name != remote_path.name:
+        raise ValueError(
+            f"artifact source name {source.name!r} does not match remote name {remote_path.name!r}"
+        )
+    return str(remote_path.parent)
+
+
 def _train_role(
     config: Mapping[str, Any],
     train_rows: list[dict[str, Any]],
@@ -484,7 +521,6 @@ def _train_role(
         data_collator=DataCollatorForSeq2Seq(tokenizer, padding=True),
     )
     train = trainer.train()
-    validation = trainer.evaluate()
     model.save_pretrained(adapter_dir, safe_serialization=True)
     tokenizer.save_pretrained(adapter_dir)
     validation_losses = _example_losses(
@@ -498,25 +534,19 @@ def _train_role(
         "val_loss": adapted_validation_loss,
         "val_perplexity": math.exp(min(adapted_validation_loss, 20.0)),
     }
-    for entry in trainer.state.log_history:
-        step = int(entry.get("step", 0))
-        for source, target in (
-            ("loss", "train_loss"),
-            ("learning_rate", "learning_rate"),
-            ("grad_norm", "gradient_norm"),
-        ):
-            if source in entry:
-                client.log_metric(run_id, target, float(entry[source]), step=step)
+    _log_training_history(client, run_id, trainer.state.log_history)
     report = output / "validation-quality.json"
     report.write_text(json.dumps({"metrics": metrics}, sort_keys=True) + "\n", encoding="utf-8")
     if not trainer.state.best_model_checkpoint:
         raise ValueError("best checkpoint was not produced")
     best_checkpoint = Path(trainer.state.best_model_checkpoint)
+    best_adapter = output / "best-adapter.safetensors"
+    shutil.copy2(best_checkpoint / "adapter_model.safetensors", best_adapter)
     return metrics, [
         (adapter_dir / "adapter_model.safetensors", "model/adapter_model.safetensors"),
         (adapter_dir / "adapter_config.json", "model/adapter_config.json"),
         (report, "reports/validation-quality.json"),
-        (best_checkpoint / "adapter_model.safetensors", "checkpoints/best-adapter.safetensors"),
+        (best_adapter, "checkpoints/best-adapter.safetensors"),
         (best_checkpoint / "trainer_state.json", "checkpoints/trainer_state.json"),
     ]
 
@@ -616,7 +646,7 @@ def run_training(
                 mlflow_client.log_metric(run_id, name, float(value))
             manifest: list[dict[str, Any]] = []
             for source, remote in artifacts:
-                parent = str(Path(remote).parent)
+                parent = _artifact_parent(source, remote)
                 mlflow_client.log_artifact(run_id, str(source), parent)
                 digest = _file_digest(source)
                 verify_artifact_roundtrip(

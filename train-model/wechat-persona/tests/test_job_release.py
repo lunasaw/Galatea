@@ -65,8 +65,10 @@ class JobReleaseTests(unittest.TestCase):
             )
             self.assertTrue(project.releases[release_id].deadline_enforced)
             self.assertTrue(project.releases[release_id].path.endswith(".zip"))
-            self.assertEqual(58560, campaign.budget.cpu_seconds)
-            self.assertEqual(14640, campaign.budget.gpu_seconds)
+            # Four governed slots (baseline, one trial, champion, evaluator)
+            # each carry the explicit three-hour execution budget.
+            self.assertEqual(173760, campaign.budget.cpu_seconds)
+            self.assertEqual(43440, campaign.budget.gpu_seconds)
             champion = next(slot for slot in campaign.slots if slot.role == "champion")
             self.assertEqual(
                 {"formal-sft-v2-champion", "formal-sft-v2-champion-trial"},

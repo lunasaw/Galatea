@@ -22,6 +22,6 @@ governance:
 model: {model_id: Qwen/Qwen3.5-0.8B, model_revision: 2fc06364715b967f1860aea9cf38778875588b17, tokenizer_revision: 2fc06364715b967f1860aea9cf38778875588b17, dtype: bfloat16}
 training: {max_steps: null, epochs: 1, batch_size: 1, eval_batch_size: 1, learning_rate: 0.00015, max_length: 1024, seed: 42}
 lora: {rank: 16, alpha: 32, dropout: 0.05, target_modules: [q_proj, v_proj]}
-execution: {backend: ray, resources: {cpus: 4, memory_gb: 16, num_gpus: 1, placement: single_gpu}}
+execution: {backend: ray, resources: {cpus: 4, memory_gb: 16, num_gpus: 1, placement: single_gpu, max_seconds: 10800}}
 run: {role: trial, promotable: false}
 evaluation: {protocol_version: wechat-persona-style-v1, objective_metric: val_loss, objective_direction: min, test_access: untouched, evaluate_test: false}

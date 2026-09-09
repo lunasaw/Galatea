@@ -47,6 +47,8 @@ EXCLUDED_PARTS = {
 }
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 ZERO_SHA = "0" * 64
+DEFAULT_EXECUTION_SECONDS = 10800
+DEFAULT_CLEANUP_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -265,6 +267,9 @@ def _config_registration(release: BuiltRelease, config_id: str) -> dict[str, Any
         raw = archive.read(path)
     config = json.loads(raw)
     resources = config["execution"]["resources"]
+    seconds = int(resources.get("max_seconds", DEFAULT_EXECUTION_SECONDS))
+    if seconds <= 0:
+        raise ValueError(f"{config_id} execution.resources.max_seconds must be positive")
     return {
         "path": path,
         "sha256": hashlib.sha256(raw).hexdigest(),
@@ -274,8 +279,8 @@ def _config_registration(release: BuiltRelease, config_id: str) -> dict[str, Any
             "gpus": int(resources["num_gpus"]),
             "memory_bytes": int(resources["memory_gb"]) * 1024 * 1024 * 1024,
             "workers": 1,
-            "seconds": 3600,
-            "cleanup_seconds": 60,
+            "seconds": seconds,
+            "cleanup_seconds": DEFAULT_CLEANUP_SECONDS,
         },
     }
 
@@ -374,6 +379,19 @@ def write_registration_materials(
         },
         {"step_id": "evaluate", "role": "evaluate", "config_ids": ["formal-sft-v2-evaluate"]},
     ]
+    # Reserve the worst-case cost of every admitted role: baseline, one trial,
+    # champion, and the one-shot evaluator.  The registry resource budget is
+    # derived from the exact immutable configuration values rather than a
+    # second hard-coded timeout constant.
+    role_costs = {
+        config_id: value["resources"]
+        for config_id, value in configs.items()
+    }
+    baseline = role_costs["formal-sft-v2-baseline"]
+    trial = role_costs["formal-sft-v2-trial"]
+    champion = role_costs["formal-sft-v2-champion"]
+    evaluator = role_costs["formal-sft-v2-evaluate"]
+    budget_resources = (baseline, trial, champion, evaluator)
     campaign = {
         "campaign_id": campaign_id,
         "project_id": PROJECT_NAME,
@@ -393,7 +411,13 @@ def write_registration_materials(
                 (slot["step_id"], slot["role"], slot["config_ids"])
             ]
         ],
-        "budget": {"cpu_seconds": 58560, "gpu_seconds": 14640, "max_trials": 1},
+        "budget": {
+            "cpu_seconds": sum(r["cpus"] * r["workers"] * (r["seconds"] + r["cleanup_seconds"])
+                                for r in budget_resources),
+            "gpu_seconds": sum(r["gpus"] * r["workers"] * (r["seconds"] + r["cleanup_seconds"])
+                                for r in budget_resources),
+            "max_trials": 1,
+        },
     }
     validate_registration_materials(projects, campaign)
     readme = """# wechat-persona MCP registration material

@@ -270,15 +270,59 @@ def _tokenize_rows(tokenizer: Any, rows: Iterable[Mapping[str, Any]], max_length
     return Dataset.from_list(encoded)
 
 
-def _example_losses(model: Any, dataset: Any) -> list[float]:
+def _example_losses(model: Any, dataset: Any, *, batch_size: int = 4) -> list[float]:
+    """Compute one causal-LM loss per example using padded inference batches.
+
+    The previous implementation launched one GPU forward pass per validation
+    row.  That made the post-training validation tail take several minutes and
+    could consume the governed execution deadline even after Trainer had
+    finished.  Batched logits are reduced per row so the metric remains the
+    same as the single-example cross-entropy while using the declared eval
+    batch size.
+    """
     import torch
+    import torch.nn.functional as F
 
     model.eval()
+    batch_size = max(1, int(batch_size))
+    pad_token_id = getattr(model.config, "pad_token_id", None)
+    if pad_token_id is None:
+        pad_token_id = getattr(model.config, "eos_token_id", 0)
     losses: list[float] = []
-    for row in dataset:
-        inputs = {key: torch.tensor([value], device=model.device) for key, value in row.items()}
+    rows = list(dataset)
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start : start + batch_size]
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(row["input_ids"], dtype=torch.long) for row in batch],
+            batch_first=True,
+            padding_value=int(pad_token_id),
+        ).to(model.device)
+        attention_mask = torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(row["attention_mask"], dtype=torch.long) for row in batch],
+            batch_first=True,
+            padding_value=0,
+        ).to(model.device)
+        labels = torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(row["labels"], dtype=torch.long) for row in batch],
+            batch_first=True,
+            padding_value=-100,
+        ).to(model.device)
         with torch.no_grad():
-            losses.append(float(model(**inputs).loss.detach().cpu()))
+            logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
+        shifted_logits = logits[:, :-1, :].contiguous()
+        shifted_labels = labels[:, 1:].contiguous()
+        token_losses = F.cross_entropy(
+            shifted_logits.float().view(-1, shifted_logits.shape[-1]),
+            shifted_labels.view(-1),
+            reduction="none",
+            ignore_index=-100,
+        ).view(shifted_labels.shape)
+        valid = shifted_labels.ne(-100)
+        counts = valid.sum(dim=1)
+        if torch.any(counts == 0):
+            raise ValueError("example has no supervised assistant tokens")
+        per_example = token_losses.sum(dim=1) / counts
+        losses.extend(float(value) for value in per_example.detach().cpu())
     return losses
 
 
@@ -443,7 +487,11 @@ def _train_role(
     validation = trainer.evaluate()
     model.save_pretrained(adapter_dir, safe_serialization=True)
     tokenizer.save_pretrained(adapter_dir)
-    validation_losses = _example_losses(model, validation_data)
+    validation_losses = _example_losses(
+        model,
+        validation_data,
+        batch_size=int(config["training"].get("eval_batch_size", 4)),
+    )
     adapted_validation_loss = sum(validation_losses) / len(validation_losses)
     metrics = {
         "train_loss": float(train.training_loss),

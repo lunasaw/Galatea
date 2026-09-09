@@ -13,9 +13,9 @@ class GalateaContractTests(unittest.TestCase):
 
     def test_fixed_ray_driver_and_objective(self):
         self.assertEqual("ray", self.spec["executionBackend"])
-        self.assertEqual("scripts/submit_train.py", self.spec["entrypoints"]["train"][1])
-        self.assertEqual({"metric": "lora_vs_prompt_only_win_rate", "direction": "max"}, self.spec["objective"])
-        self.assertTrue(self.spec["capabilities"]["pauseResume"])
+        self.assertEqual(["python", "scripts/submit_train.py", "--run"], self.spec["entrypoints"]["train"])
+        self.assertEqual({"metric": "val_loss", "direction": "min"}, self.spec["objective"])
+        self.assertFalse(self.spec["capabilities"]["pauseResume"])
 
     def test_compatibility_and_artifact_gate_are_explicit(self):
         self.assertEqual({"task", "datasetDigest", "splitDigest", "preprocessingVersion", "metricDefinition", "evaluationProtocol", "role"}, set(self.spec["compatibility"]))

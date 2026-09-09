@@ -11,8 +11,8 @@
     "adult_verified": {"const": true},
     "purposes": {"type": "array", "items": {"enum": ["processing", "persona_style", "memory_rag", "evaluation", "screenplay"]}, "minItems": 1, "uniqueItems": true},
     "scope": {"type": "object", "additionalProperties": false, "required": ["message_types", "media_types", "time_start", "time_end", "third_party_policy", "retention_until", "withdrawal_key"], "properties": {
-      "message_types": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-      "media_types": {"type": "array", "items": {"type": "string"}},
+      "message_types": {"type": "array", "items": {"enum": ["text", "emoji", "quote", "link", "system", "payment", "call", "other"]}, "minItems": 1, "uniqueItems": true},
+      "media_types": {"type": "array", "items": {"enum": ["image", "voice", "video", "file"]}, "uniqueItems": true},
       "time_start": {"type": ["string", "null"], "format": "date-time"},
       "time_end": {"type": ["string", "null"], "format": "date-time"},
       "third_party_policy": {"enum": ["exclude", "separate_authorization"]},
@@ -22,6 +22,6 @@
     "status": {"enum": ["pending", "verified", "expired", "withdrawn"]},
     "ledger_version": {"type": "string", "minLength": 1},
     "verified_at": {"type": "string", "format": "date-time"},
-    "evidence_ref": {"type": ["string", "null"]}
+    "evidence_ref": {"type": ["string", "null"], "minLength": 1}
   }
 }

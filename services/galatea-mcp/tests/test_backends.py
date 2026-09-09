@@ -48,6 +48,21 @@ class BackendTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception,'cluster'):
                 backend.observe(op)
 
+    def test_shared_serial_endpoint_uses_one_cluster_identity_for_both_roles(self):
+        from galatea_mcp.backends.ray import RayBackend
+        current = {'trainer': 'head1', 'evaluator': 'head1'}
+        backend = RayBackend({}, expected_heads=current.copy(), endpoint_mode='shared_serial_endpoint',
+                             probe=lambda: current.copy(), binding=lambda *args: {},
+                             runtime_envs={'trainer': {}, 'evaluator': {}})
+        self.assertEqual(backend.cluster_id, RayBackend(
+            {}, expected_heads=current.copy(), endpoint_mode='shared_serial_endpoint',
+            probe=lambda: current.copy(), binding=lambda *args: {},
+            runtime_envs={'trainer': {}, 'evaluator': {}}).cluster_id)
+        self.assertNotEqual(backend.cluster_id, RayBackend(
+            {}, expected_heads=current.copy(), endpoint_mode='separate_endpoints',
+            probe=lambda: current.copy(), binding=lambda *args: {},
+            runtime_envs={'trainer': {}, 'evaluator': {}}).cluster_id)
+
     def test_mlflow_reads_proxy_artifacts_and_rejects_unsafe_repository(self):
         from galatea_mcp.backends.mlflow import MLflowEvidence
         with tempfile.TemporaryDirectory() as tmp:
@@ -92,6 +107,38 @@ class BackendTests(unittest.TestCase):
             binding=json.loads(raw)
             self.assertEqual(set(binding['views']), {'train','validation'})
             self.assertNotIn('test',raw.decode())
+            self.assertEqual(binding['ray_topology'], 'separate_endpoints')
+            self.assertEqual(binding['credential_mode'], 'separate_role_credentials')
+
+    def test_shared_serial_binding_keeps_evaluator_view_isolated(self):
+        from galatea_mcp.backends.binding import BindingSigner
+        from galatea_mcp.contracts import Project
+        import tempfile
+        import json
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Project.model_validate(setup_registry(Path(tmp))['projects'][0])
+            signer = BindingSigner(
+                None,
+                tracking_uri='https://tracking.example',
+                role_env={},
+                ray_addresses={'trainer': 'http://ray', 'evaluator': 'http://ray'},
+                ray_topology='shared_serial_endpoint',
+                credential_mode='shared_read_only',
+            )
+            op = {
+                'role': 'evaluate', 'operation_id': 'op1', 'submission_id': 's1', 'metadata': {},
+                'config_id': 'c1', 'release_id': 'r1', 'campaign_id': 'c1', 'step_id': 'evaluate',
+                'attempt': 1, 'readiness_digest': 'a' * 64, 'deadline_at': 100,
+                'candidate_id': 'candidate1', 'champion_run_id': 'run1',
+                'champion_model_sha256': 'b' * 64,
+            }
+            binding = json.loads(signer(op, p, p.configs['c1'], p.releases['r1'])['GALATEA_EXECUTION_BINDING'])
+            self.assertEqual(binding['ray_topology'], 'shared_serial_endpoint')
+            self.assertEqual(binding['credential_mode'], 'shared_read_only')
+            self.assertEqual(binding['ray_address'], 'http://ray')
+            self.assertEqual(set(binding['views']), {'test'})
 
     def test_metric_history_is_one_bounded_tracking_api_page(self):
         from galatea_mcp.backends.mlflow import MLflowEvidence

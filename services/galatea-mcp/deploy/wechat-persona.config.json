@@ -1,0 +1,44 @@
+{
+  "schema_version": "galatea.deployment/v1",
+  "state_root": "/var/lib/galatea-mcp",
+  "registry_path": "/etc/galatea-mcp/projects.json",
+  "principal": {
+    "principal_id": "training-agent",
+    "project_ids": ["wechat-persona"],
+    "campaign_ids": ["wechat-persona-formal-sft-v2"],
+    "actions": ["*"]
+  },
+  "http_port": 8791,
+  "token_env": "GALATEA_SERVICE_TOKEN",
+  "platform": {
+    "ray_topology": "shared_serial_endpoint",
+    "credential_mode": "shared_read_only",
+    "trainer": {
+      "address": "http://127.0.0.1:8265",
+      "expected_head_id": "4101547912fa88d594a3c1db4a5c1147b553bb6fdf0680e2533494b5",
+      "runtime_env": {},
+      "env_refs": {
+        "AWS_ACCESS_KEY_ID": "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY": "AWS_SECRET_ACCESS_KEY",
+        "AWS_DEFAULT_REGION": "AWS_DEFAULT_REGION",
+        "S3_ENDPOINT_URL": "S3_ENDPOINT_URL"
+      }
+    },
+    "evaluator": {
+      "address": "http://127.0.0.1:8265",
+      "expected_head_id": "4101547912fa88d594a3c1db4a5c1147b553bb6fdf0680e2533494b5",
+      "runtime_env": {},
+      "env_refs": {
+        "AWS_ACCESS_KEY_ID": "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY": "AWS_SECRET_ACCESS_KEY",
+        "AWS_DEFAULT_REGION": "AWS_DEFAULT_REGION",
+        "S3_ENDPOINT_URL": "S3_ENDPOINT_URL"
+      }
+    },
+    "tracking_uri": "http://127.0.0.1:5000",
+    "s3_endpoint": "http://127.0.0.1:9000",
+    "s3_region": "us-east-1",
+    "signing_key_path": null,
+    "artifact_download_root": "/var/lib/galatea-mcp/downloads"
+  }
+}

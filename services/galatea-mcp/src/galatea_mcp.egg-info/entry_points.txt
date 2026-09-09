@@ -1,0 +1,2 @@
+[console_scripts]
+galatea-mcp = galatea_mcp.cli:main

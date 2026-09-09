@@ -1,0 +1,27 @@
+schema_version: wechat-persona-config-v1
+project: wechat-persona
+task: causal-language-model-sft-lora
+dataset:
+  dataset_id: wechat_35ad187b65c0ff1cb4e7
+  source_sha256: 63ce0e55db1dcefa69366db39bd752103edfb5ebf68aa1a2a10166ebc3891219
+  manifest_sha256: c8d31f053de74421552c9287b0c6915d85181e7765b8df1e7a44005917473cb6
+  split_sha256: 5c349dca8e87de306a86c6f459838dd70615c50edf5b7b24577549b093f54bbc
+  consent_scope: processing+persona_style+evaluation
+  consent_digest: c96dee7bcad9e52806d9f760cfe85524ae06b6af20e067f481e9f6af5bd16182
+  preprocessing_version: wechat-persona-data-v2+wechat-normalization-v1+wechat-session-v2+wechat-privacy-boundary-v1
+  formal_dataset_ready: true
+  counts: {train: 37410, validation: 9346, test: 8225}
+governance:
+  formal_training_eligible: true
+  human_review_completed: true
+  withdrawn: false
+  pii_scan_passed: true
+  canary_scan_passed: true
+  cross_split_session_count: 0
+  canary_scan_evidence: {scanner_version: wechat-canary-scanner-v1, report_sha256: 53d9e616d66738ccbed498157972d1df644a70f5bfaf12326183b11a93ac8cc4, scanned_sample_count: 54981, match_count: 0}
+model: {model_id: Qwen/Qwen3.5-0.8B, model_revision: 2fc06364715b967f1860aea9cf38778875588b17, tokenizer_revision: 2fc06364715b967f1860aea9cf38778875588b17, dtype: bfloat16}
+training: {max_steps: null, epochs: 1, batch_size: 1, eval_batch_size: 1, learning_rate: 0.00015, max_length: 1024, seed: 42}
+lora: {rank: 16, alpha: 32, dropout: 0.05, target_modules: [q_proj, v_proj]}
+execution: {backend: ray, resources: {cpus: 4, memory_gb: 16, num_gpus: 1, placement: single_gpu}}
+run: {role: trial, promotable: false}
+evaluation: {protocol_version: wechat-persona-style-v1, objective_metric: val_loss, objective_direction: min, test_access: untouched, evaluate_test: false}

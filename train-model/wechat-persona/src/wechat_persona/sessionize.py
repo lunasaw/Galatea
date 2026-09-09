@@ -8,26 +8,48 @@ from typing import Any, Iterable
 from ._common import digest, parse_datetime
 
 
-SESSION_VERSION = "wechat-session-v1"
+SESSION_VERSION = "wechat-session-v2"
+
+
+def _source_record_index(row: dict[str, Any], fallback: int) -> int:
+    value = row.get("source_record_index")
+    return fallback if value is None else int(value)
 
 
 def _merge_turns(rows: list[dict[str, Any]], merge_gap_seconds: int) -> list[dict[str, Any]]:
     turns: list[dict[str, Any]] = []
-    for row in rows:
+    for fallback_index, row in enumerate(rows):
         role = str(row.get("speaker_role", "unknown")); ts = parse_datetime(row.get("timestamp"))
         if turns:
             prior = turns[-1]; previous_ts = prior.get("_last_ts")
             gap = (ts - previous_ts).total_seconds() if ts and previous_ts else None
             if prior["speaker_role"] == role and gap is not None and 0 <= gap <= merge_gap_seconds and row.get("message_kind") not in {"system", "payment", "call"}:
-                if row.get("text_redacted"): prior["text_redacted"] = (prior.get("text_redacted") or "") + "\n" + str(row["text_redacted"])
-                prior["message_ids"].append(str(row["message_id"])); prior["_last_ts"] = ts; continue
-        turns.append({"speaker_role": role, "message_kind": row.get("message_kind", "text"), "text_redacted": row.get("text_redacted"), "message_ids": [str(row["message_id"])], "timestamps": [row.get("timestamp")], "_last_ts": ts})
-    for turn in turns: turn.pop("_last_ts", None)
+                if row.get("text_redacted"):
+                    prior["text_redacted"] = (prior.get("text_redacted") or "") + "\n" + str(row["text_redacted"])
+                prior["message_ids"].append(str(row["message_id"]))
+                prior["source_record_indices"].append(
+                    _source_record_index(row, fallback_index)
+                )
+                prior["timestamps"].append(row.get("timestamp"))
+                # Keep source-message boundaries available to the downstream
+                # privacy scanners. This is a versioned session field because
+                # reconstructing boundaries from merged newlines is lossy.
+                prior["message_contents"].append(row.get("text_redacted"))
+                prior["_last_ts"] = ts
+                continue
+        turns.append({"speaker_role": role, "message_kind": row.get("message_kind", "text"), "text_redacted": row.get("text_redacted"), "message_ids": [str(row["message_id"])], "source_record_indices": [_source_record_index(row, fallback_index)], "timestamps": [row.get("timestamp")], "message_contents": [row.get("text_redacted")], "_last_ts": ts})
+    for turn in turns:
+        turn.pop("_last_ts", None)
     return turns
 
 
 def sessionize(rows: Iterable[dict[str, Any]], *, inactivity_gap_minutes: int = 120, max_duration_minutes: int = 720, merge_gap_seconds: int = 120) -> list[dict[str, Any]]:
-    ordered = sorted((dict(row) for row in rows), key=lambda row: (row.get("timestamp") or "", int(row.get("source_record_index", 0))))
+    prepared = []
+    for fallback_index, row in enumerate(rows):
+        item = dict(row)
+        item.setdefault("source_record_index", fallback_index)
+        prepared.append(item)
+    ordered = sorted(prepared, key=lambda row: (row.get("timestamp") or "", int(row["source_record_index"])))
     sessions: list[dict[str, Any]] = []; current: list[dict[str, Any]] = []; start: datetime | None = None; previous: datetime | None = None
     gap_limit = inactivity_gap_minutes * 60; duration_limit = max_duration_minutes * 60
 

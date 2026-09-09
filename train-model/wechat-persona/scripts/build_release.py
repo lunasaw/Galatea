@@ -19,7 +19,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--execution-public-key", type=Path, required=True)
     parser.add_argument("--allow-dirty", action="store_true")
     parser.add_argument("--registration-output", type=Path)
     parser.add_argument("--snapshot-manifest", type=Path)
@@ -32,7 +31,6 @@ def main() -> int:
     release = build_release(
         args.project_root,
         args.output_dir,
-        public_key_path=args.execution_public_key,
         allow_dirty=args.allow_dirty,
     )
     registration: dict[str, str] = {}
@@ -54,7 +52,6 @@ def main() -> int:
         "release_id": release.manifest["release_id"],
         "archive_path": str(release.archive_path),
         "manifest_path": str(release.manifest_path),
-        "public_key_path": str(release.public_key_path),
         "registration_materials": registration,
         "uploaded": False,
         "registered": False,

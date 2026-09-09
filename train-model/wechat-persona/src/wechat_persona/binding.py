@@ -1,7 +1,6 @@
-"""Verify MCP-signed execution bindings and the originating Ray Job."""
+"""Verify MCP-issued execution bindings and the originating Ray Job."""
 from __future__ import annotations
 
-import base64
 import json
 import time
 from typing import Any, Callable, Mapping
@@ -17,20 +16,19 @@ def _reject(message: str) -> None:
 
 def verify_execution_binding(
     raw: str | None,
-    signature: str | None,
-    public_key_pem: bytes,
     *,
     now: float | None = None,
 ) -> dict[str, Any]:
-    """Verify the exact canonical packet emitted by Galatea MCP."""
+    """Verify the exact canonical packet emitted by Galatea MCP.
 
-    if not raw or not signature:
-        _reject("signed Galatea execution binding required")
+    V1 deliberately has no signing-key dependency.  Authenticity is provided
+    by the MCP-controlled Ray submission, immutable Release, exact submission
+    metadata, and the runtime Job-ID match checked below.
+    """
+
+    if not raw:
+        _reject("Galatea execution binding required")
     try:
-        from cryptography.hazmat.primitives import serialization
-
-        key = serialization.load_pem_public_key(public_key_pem)
-        key.verify(base64.b64decode(signature, validate=True), raw.encode("utf-8"))
         value = json.loads(
             raw,
             parse_constant=lambda value: (_ for _ in ()).throw(
@@ -38,7 +36,7 @@ def verify_execution_binding(
             ),
         )
     except Exception as exc:
-        raise BindingError("invalid execution binding signature") from exc
+        raise BindingError("invalid execution binding") from exc
     canonical = json.dumps(
         value,
         ensure_ascii=False,
@@ -52,7 +50,7 @@ def verify_execution_binding(
     if current >= float(value.get("deadline_at", 0)):
         _reject("execution binding expired")
     if not isinstance(value.get("ray_address"), str) or not value["ray_address"]:
-        _reject("signed Ray address required")
+        _reject("Ray address required in MCP execution binding")
     role = value.get("role")
     expected_views = {"test"} if role == "evaluate" else {"train", "validation"}
     if role not in {"baseline", "trial", "champion", "evaluate"}:
@@ -85,7 +83,7 @@ def verify_runtime_origin(
     now: Callable[[], float] = time.time,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Bind admission to the authorized Ray submission and signed metadata."""
+    """Bind admission to the authorized Ray submission and MCP metadata."""
 
     if ray_context is None:
         _reject("driver must run inside initialized Ray")
@@ -108,5 +106,5 @@ def verify_runtime_origin(
     if submitted_job_id != runtime_job_id:
         _reject("Ray runtime job ID does not match authorized submission")
     if dict(getattr(info, "metadata", {}) or {}) != dict(binding["metadata"]):
-        _reject("Ray job metadata does not match signed binding")
+        _reject("Ray job metadata does not match execution binding")
     return dict(binding)

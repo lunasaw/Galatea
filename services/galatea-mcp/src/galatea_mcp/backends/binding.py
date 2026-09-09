@@ -1,4 +1,11 @@
-"""Sign a fixed execution binding; signing keys stay on the MCP service side."""
+"""Issue fixed execution bindings for the MCP-controlled Ray boundary.
+
+The first Galatea workload release does not require an Ed25519 key.  The
+submission ID, immutable inputs, exact Ray metadata, cluster identity, and
+runtime Job-ID match provide the V1 admission boundary.  ``BindingSigner``
+keeps an optional legacy signing mode for older workloads that still declare
+one; new deployments pass ``key=None`` and emit only the binding packet.
+"""
 import base64
 from ..state import canonical
 
@@ -30,5 +37,7 @@ class BindingSigner:
             'model_artifact_path': project.model_artifact_path,
         }
         encoded = canonical(packet)
-        return {**self.role_env.get(role, {}), 'GALATEA_EXECUTION_BINDING': encoded.decode(),
-                'GALATEA_EXECUTION_SIGNATURE': base64.b64encode(self.key.sign(encoded)).decode()}
+        environment = {**self.role_env.get(role, {}), 'GALATEA_EXECUTION_BINDING': encoded.decode()}
+        if self.key is not None:
+            environment['GALATEA_EXECUTION_SIGNATURE'] = base64.b64encode(self.key.sign(encoded)).decode()
+        return environment

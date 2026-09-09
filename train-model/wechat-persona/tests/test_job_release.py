@@ -21,34 +21,18 @@ class Objects:
 
 
 class JobReleaseTests(unittest.TestCase):
-    def public_key(self, root: Path) -> Path:
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-        path = root / "execution-public.pem"
-        path.write_bytes(
-            Ed25519PrivateKey.generate().public_key().public_bytes(
-                serialization.Encoding.PEM,
-                serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-        )
-        return path
-
     def test_build_is_deterministic_and_excludes_runtime_state(self):
         with tempfile.TemporaryDirectory() as td:
             temp = Path(td)
             output = temp / "releases"
-            key = self.public_key(temp)
-            first = build_release(ROOT, output, public_key_path=key, allow_dirty=True)
-            second = build_release(
-                ROOT, output, public_key_path=first.public_key_path, allow_dirty=True
-            )
+            first = build_release(ROOT, output, allow_dirty=True)
+            second = build_release(ROOT, output, allow_dirty=True)
             self.assertEqual(first.manifest["release_id"], second.manifest["release_id"])
             self.assertEqual(first.archive_path.read_bytes(), second.archive_path.read_bytes())
             with zipfile.ZipFile(first.archive_path) as archive:
                 names = set(archive.namelist())
             self.assertIn("scripts/submit_train.py", names)
-            self.assertIn("release/execution-public.pem", names)
+            self.assertNotIn("release/execution-public.pem", names)
             self.assertIn("configs/formal-sft-v2-baseline.json", names)
             self.assertNotIn("tests/test_job_release.py", names)
             self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
@@ -56,9 +40,7 @@ class JobReleaseTests(unittest.TestCase):
     def test_registration_materials_match_real_mcp_schemas_and_zip_contract(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            release = build_release(
-                ROOT, root / "releases", public_key_path=self.public_key(root), allow_dirty=True
-            )
+            release = build_release(ROOT, root / "releases", allow_dirty=True)
             snapshot = root / "snapshot.json"
             snapshot.write_text(json.dumps({
                 "dataset_id": "wechat-snapshot",
@@ -96,7 +78,7 @@ class JobReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             with self.assertRaisesRegex(ValueError, "clean Git commit"):
                 root = Path(td)
-                build_release(ROOT, root / "release", public_key_path=self.public_key(root))
+                build_release(ROOT, root / "release")
 
     def test_release_rejects_symlink_and_output_inside_project(self):
         with tempfile.TemporaryDirectory() as td:
@@ -110,11 +92,10 @@ class JobReleaseTests(unittest.TestCase):
             target = root / "outside.txt"
             target.write_text("x\n", encoding="utf-8")
             (root / "src/link").symlink_to(target)
-            key = self.public_key(Path(td))
             with self.assertRaises(ValueError):
-                build_release(root, Path(td) / "out", public_key_path=key, allow_dirty=True)
+                build_release(root, Path(td) / "out", allow_dirty=True)
             with self.assertRaises(ValueError):
-                build_release(root, root / "releases", public_key_path=key, allow_dirty=True)
+                build_release(root, root / "releases", allow_dirty=True)
 
 
 if __name__ == "__main__":

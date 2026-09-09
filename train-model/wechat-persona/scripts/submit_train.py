@@ -22,14 +22,14 @@ from wechat_persona.training import (  # noqa: E402
 
 
 def _run_driver() -> dict[str, object]:
+    raw_binding = os.environ.get("GALATEA_EXECUTION_BINDING")
+    # Reject direct/local invocation before touching Ray or any training dependency.
+    verify_execution_binding(raw_binding)
+
     import boto3
     import mlflow
     import ray
 
-    public_key = (ROOT / "release" / "execution-public.pem").read_bytes()
-    raw_binding = os.environ.get("GALATEA_EXECUTION_BINDING")
-    signature = os.environ.get("GALATEA_EXECUTION_SIGNATURE")
-    binding = verify_execution_binding(raw_binding, signature, public_key)
     ray.init(address="auto")
 
     def official(verified: dict[str, object], admission: object) -> dict[str, object]:
@@ -46,11 +46,9 @@ def _run_driver() -> dict[str, object]:
         )
 
     return execute(
-        public_key,
         ray.get_runtime_context(),
         fit=official,
         raw_binding=raw_binding,
-        signature=signature,
     )
 
 
@@ -64,7 +62,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.run:
         if args.config is not None:
-            parser.error("--run consumes only the MCP-signed embedded config")
+            parser.error("--run consumes only the MCP-issued embedded config")
         payload = _run_driver()
     else:
         if args.config is None:

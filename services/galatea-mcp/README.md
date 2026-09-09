@@ -52,9 +52,11 @@ HTTP 服务仅绑定 `127.0.0.1:8791`，使用固定受限 Principal + bearer to
 外部访问通过 TLS 代理；[nginx 片段](deploy/nginx.example.conf)保留 token、重写 Host 并关闭缓冲。
 本地 stdio 继承专用服务账号的固定身份；只供受信本机进程。
 
-MCP 账号持自己的 S3 读取/MLflow API 凭据及 Ed25519 私钥（0600）。trainer/evaluator 的环境变量从
+MCP 账号持自己的 S3 读取/MLflow API 凭据。trainer/evaluator 的环境变量从
 服务端 `env_refs` 注入，模型不能指定。两种角色使用不同 Ray 地址、不同数据凭据，预配置环境具有固定依赖。
-只靠 Ray namespace 不构成隔离。代码 Release 内嵌公钥，Driver 验签并将 Jobs API 的真实 job_id 与 RuntimeContext 匹配。
+只靠 Ray namespace 不构成隔离。V1 Release 不嵌入签名公钥；MCP 发出 canonical execution binding，
+Driver 将其与 Jobs API 的真实 job_id、不可变输入和 exact metadata 匹配。旧版 workload 如仍声明
+签名密钥可继续使用兼容模式，但不是 V1 的部署要求。
 API 暂不可用/头节点变化/metadata 不符时保留 unknown，不把 404 当作尚未执行。
 
 单服务允许一个活跃 Job；真实资源保留量是 `workers × 每 worker 资源 × (seconds + cleanup_seconds)`，

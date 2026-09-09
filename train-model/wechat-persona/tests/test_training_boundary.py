@@ -1,4 +1,3 @@
-import base64
 import json
 import subprocess
 import sys
@@ -69,19 +68,9 @@ def packet(role="baseline"):
 
 
 class TrainingBoundaryTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-        cls.key = Ed25519PrivateKey.generate()
-        cls.public = cls.key.public_key().public_bytes(
-            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-
-    def signed(self, value):
+    def raw(self, value):
         raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        return raw, base64.b64encode(self.key.sign(raw.encode())).decode()
+        return raw
 
     def test_formal_role_plans_are_ready_and_read_only(self):
         for name in ("baseline", "trial", "champion", "champion-trial", "evaluate"):
@@ -90,29 +79,27 @@ class TrainingBoundaryTests(unittest.TestCase):
             self.assertEqual("planned", plan["status"], plan["errors"])
             self.assertFalse(plan["will_create_mlflow_run"])
 
-    def test_signed_binding_enforces_role_views_and_deadline(self):
-        raw, signature = self.signed(packet())
-        verified = verify_execution_binding(raw, signature, self.public, now=1)
+    def test_unsigned_binding_enforces_role_views_and_deadline(self):
+        raw = self.raw(packet())
+        verified = verify_execution_binding(raw, now=1)
         self.assertEqual({"train", "validation"}, set(verified["views"]))
         invalid = packet() | {"views": {"test": packet("evaluate")["views"]["test"]}}
-        raw, signature = self.signed(invalid)
+        raw = self.raw(invalid)
         with self.assertRaises(BindingError):
-            verify_execution_binding(raw, signature, self.public, now=1)
+            verify_execution_binding(raw, now=1)
 
     def test_driver_admission_matches_mcp_packet_and_ray_job(self):
         value = packet()
-        raw, signature = self.signed(value)
+        raw = self.raw(value)
 
         class Client:
             def get_job_info(self, submission):
                 return SimpleNamespace(job_id="ray-job-1", metadata=value["metadata"])
 
         result = execute(
-            self.public,
             Context(),
             fit=lambda binding, admission: {"status": "succeeded", "role": binding["role"]},
             raw_binding=raw,
-            signature=signature,
             client_factory=lambda _: Client(),
         )
         self.assertEqual("succeeded", result["status"])
@@ -155,7 +142,7 @@ class TrainingBoundaryTests(unittest.TestCase):
                 environment_digest=value["environment_digest"],
             )
             environment = BindingSigner(
-                self.key,
+                None,
                 tracking_uri=value["tracking_uri"],
                 role_env={},
                 ray_addresses={"trainer": value["ray_address"], "evaluator": "https://eval.invalid"},
@@ -166,11 +153,9 @@ class TrainingBoundaryTests(unittest.TestCase):
                     return SimpleNamespace(job_id="ray-job-1", metadata=value["metadata"])
 
             result = execute(
-                self.public,
                 Context(),
                 fit=lambda binding, admission: {"status": "succeeded", "role": binding["role"]},
                 raw_binding=environment["GALATEA_EXECUTION_BINDING"],
-                signature=environment["GALATEA_EXECUTION_SIGNATURE"],
                 client_factory=lambda _: Client(),
             )
             self.assertEqual("succeeded", result["status"])
@@ -200,7 +185,7 @@ class TrainingBoundaryTests(unittest.TestCase):
             check=False,
         )
         self.assertNotEqual(0, run.returncode)
-        self.assertIn("execution-public.pem", run.stderr)
+        self.assertIn("execution binding required", run.stderr)
 
 
 if __name__ == "__main__":

@@ -121,7 +121,7 @@ def validate_training_readiness(config: Mapping[str, Any]) -> list[str]:
 def load_bound_config(path: Path, binding: Mapping[str, Any]) -> dict[str, Any]:
     raw = path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != binding.get("config_digest"):
-        raise TrainingBoundaryError("embedded config digest differs from signed binding")
+        raise TrainingBoundaryError("embedded config digest differs from MCP execution binding")
     value = json.loads(raw)
     if not isinstance(value, dict):
         raise TrainingBoundaryError("bound config must contain a JSON object")
@@ -514,7 +514,7 @@ def run_training(
         raise TrainingBoundaryError("training readiness failed: " + "; ".join(errors))
     role = str(binding["role"])
     if role != config.get("run", {}).get("role"):
-        raise TrainingBoundaryError("signed role differs from bound configuration")
+        raise TrainingBoundaryError("MCP execution role differs from bound configuration")
     run_id = _create_run(mlflow_client, binding, config)
     started = time.monotonic()
     try:

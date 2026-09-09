@@ -51,7 +51,6 @@ class BuiltRelease:
     archive_path: Path
     manifest: dict[str, Any]
     manifest_path: Path
-    public_key_path: Path
 
 
 def sha256_file(path: Path) -> str:
@@ -105,25 +104,6 @@ def _is_runtime_file(relative: Path) -> bool:
     return relative.suffix not in EXCLUDED_SUFFIXES
 
 
-def _load_public_key(public_key_path: Path | None) -> tuple[bytes, Path]:
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
-    if public_key_path is None:
-        raise ValueError("administrator-provided Ed25519 execution public key is required")
-    path = public_key_path.resolve()
-    if not path.is_file() or path.is_symlink():
-        raise ValueError("execution public key must be a regular file")
-    raw = path.read_bytes()
-    try:
-        key = serialization.load_pem_public_key(raw)
-    except Exception as exc:
-        raise ValueError("invalid execution public key") from exc
-    if not isinstance(key, Ed25519PublicKey):
-        raise ValueError("Ed25519 execution public key required")
-    return raw, path
-
-
 def _normalized_configs(project_root: Path) -> dict[str, bytes]:
     result: dict[str, bytes] = {}
     for config_id, relative in FORMAL_CONFIGS.items():
@@ -166,10 +146,15 @@ def build_release(
     project_root: Path,
     output_root: Path,
     *,
-    public_key_path: Path | None = None,
     allow_dirty: bool = False,
 ) -> BuiltRelease:
-    """Build one content-addressed ZIP accepted by the MCP Registry verifier."""
+    """Build one content-addressed ZIP accepted by the MCP Registry verifier.
+
+    V1 execution bindings are issued by the MCP and authenticated by the fixed
+    Ray Job submission/metadata checks.  The release therefore contains no
+    administrator public key and can be built entirely as a local code-only
+    operation.
+    """
 
     root = project_root.resolve()
     output = output_root.resolve()
@@ -183,10 +168,8 @@ def build_release(
         raise ValueError("clean Git commit required for a registerable Release")
     output.mkdir(parents=True, exist_ok=True)
     output.chmod(stat.S_IRWXU)
-    public_key, resolved_public_key = _load_public_key(public_key_path)
     entries = _source_entries(root)
     entries.update(_normalized_configs(root))
-    entries["release/execution-public.pem"] = public_key
     entry_digests = {name: hashlib.sha256(raw).hexdigest() for name, raw in entries.items()}
     release_manifest = {
         "schema_version": "wechat-persona-release/v1",
@@ -237,7 +220,6 @@ def build_release(
         archive_path=archive_path.resolve(),
         manifest=manifest,
         manifest_path=(release_directory / "release.json").resolve(),
-        public_key_path=resolved_public_key,
     )
 
 
@@ -415,9 +397,11 @@ def write_registration_materials(
 `projects.json` and `campaign.json` are schema-valid inputs for the independent
 Galatea MCP. Before registration, an administrator must replace every `ADMIN_*`
 or `PENDING_*` value, bind distinct immutable train/validation/test VersionIds,
-confirm evaluator-only test access, set the real MLflow experiment ID, install
-the matching Ed25519 private key in the MCP service, and rebuild from a clean Git
-commit. This builder never uploads, registers, submits a Ray Job, or starts training.
+confirm evaluator-only test access, set the real MLflow experiment ID, and
+rebuild from a clean Git commit. V1 does not require an Ed25519 key; the MCP
+issues the execution binding and the fixed Driver verifies the Ray Job identity
+and metadata. This builder never uploads, registers, submits a Ray Job, or
+starts training.
 """
     files = {
         "projects": output / "projects.json",

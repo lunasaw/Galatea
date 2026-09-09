@@ -34,7 +34,7 @@ class PlatformConfig(Strict):
     tracking_uri: str
     s3_endpoint: str
     s3_region: str = 'us-east-1'
-    signing_key_path: str
+    signing_key_path: str | None = None
     artifact_download_root: str
 
 
@@ -62,8 +62,6 @@ def official_backends(config: PlatformConfig):
     from mlflow import MlflowClient
     import boto3
     from botocore.config import Config
-    from cryptography.hazmat.primitives.serialization import load_pem_private_key
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from .backends.ray import RayBackend
     from .backends.mlflow import MLflowEvidence
     from .backends.objects import S3Objects
@@ -82,12 +80,16 @@ def official_backends(config: PlatformConfig):
                 raise DomainError('cluster-identity-unavailable')
             observed[name] = nodes[0].node_id
         return observed
-    key_path = Path(config.signing_key_path)
-    if key_path.is_symlink() or key_path.stat().st_mode & 0o077:
-        raise ValueError('signing key must be a protected regular file (0600)')
-    key = load_pem_private_key(key_path.read_bytes(), password=None)
-    if not isinstance(key, Ed25519PrivateKey):
-        raise ValueError('Ed25519 signing key required')
+    key = None
+    if config.signing_key_path:
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        key_path = Path(config.signing_key_path)
+        if key_path.is_symlink() or key_path.stat().st_mode & 0o077:
+            raise ValueError('signing key must be a protected regular file (0600)')
+        key = load_pem_private_key(key_path.read_bytes(), password=None)
+        if not isinstance(key, Ed25519PrivateKey):
+            raise ValueError('Ed25519 signing key required')
     signer = BindingSigner(key, tracking_uri=config.tracking_uri, role_env={},
                            ray_addresses={name:t.address for name,t in targets.items()})
     envs = {}

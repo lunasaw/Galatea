@@ -116,18 +116,19 @@ upload to MinIO, contact Galatea, submit Ray Jobs, create MLflow Runs, or produc
 export PYTHONPATH="$PWD/train-model/wechat-persona/src"
 python train-model/wechat-persona/scripts/build_release.py \
   --output-dir /srv/galatea-private/wechat-persona/releases \
-  --execution-public-key /secure/galatea-mcp-execution-public.pem \
   --registration-output /srv/galatea-private/wechat-persona/registration-v2 \
   --snapshot-manifest \
     /srv/galatea-private/wechat-persona/formal-snapshot/wechat_35ad187b65c0ff1cb4e7-formal-sft-v2/manifest.json
 ```
 
 The default command requires a clean Git commit and prints the content-addressed Release ZIP,
-`release_id`, manifest path, generated execution public-key path, and explicit `uploaded=false`, `registered=false`,
+`release_id`, manifest path, and explicit `uploaded=false`, `registered=false`,
 `training_started=false`, and `mlflow_run_created=false` state.  The registration directory is an
 MCP-schema-valid `projects.json` plus `campaign.json`; every `ADMIN_*`/`PENDING_*` placeholder must be replaced after
-binding immutable object-store versions, Ray trainer/evaluator endpoints, signing keys, MLflow
-permissions, quality gates, and an approved Campaign budget.  Until those bindings and approvals
+binding immutable object-store versions, Ray trainer/evaluator endpoints, MLflow permissions,
+quality gates, and an approved Campaign budget. V1 does not require an Ed25519 signing key:
+the MCP issues an unsigned canonical execution binding and the fixed Driver verifies the
+immutable inputs, Ray submission identity, exact metadata, and runtime Job ID. Until those bindings and approvals
 exist, do not run `submit_train.py --run`, submit a generic Ray Job, create an MLflow Run, or mark
 the snapshot as training-eligible.
 

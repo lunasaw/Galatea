@@ -31,14 +31,12 @@ def issue(
     binding: Mapping[str, Any],
     *,
     raw_binding: str | None,
-    signature: str | None,
-    public_key_pem: bytes,
     ray_context: Any,
     client_factory: Any,
 ) -> _Admission:
-    verified = verify_execution_binding(raw_binding, signature, public_key_pem)
+    verified = verify_execution_binding(raw_binding)
     if _digest(verified) != _digest(binding):
-        raise PermissionError("binding differs from signed admission")
+        raise PermissionError("binding differs from MCP admission")
     verify_runtime_origin(verified, ray_context, client_factory)
     return _Admission(_digest(verified))
 

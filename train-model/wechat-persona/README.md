@@ -125,7 +125,7 @@ The default command requires a clean Git commit and prints the content-addressed
 `release_id`, manifest path, and explicit `uploaded=false`, `registered=false`,
 `training_started=false`, and `mlflow_run_created=false` state.  The registration directory is an
 MCP-schema-valid `projects.json` plus `campaign.json`; every `ADMIN_*`/`PENDING_*` placeholder must be replaced after
-binding immutable object-store versions, Ray trainer/evaluator endpoints, MLflow permissions,
+binding immutable object-store versions, the selected Ray topology and trainer/evaluator role credentials, MLflow permissions,
 quality gates, and an approved Campaign budget. V1 does not require an Ed25519 signing key:
 the MCP issues an unsigned canonical execution binding and the fixed Driver verifies the
 immutable inputs, Ray submission identity, exact metadata, and runtime Job ID. Until those bindings and approvals

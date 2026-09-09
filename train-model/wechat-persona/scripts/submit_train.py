@@ -55,11 +55,20 @@ def _run_driver() -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path)
-    mode = parser.add_mutually_exclusive_group(required=True)
+    # The immutable Ray Release carries the fixed script path.  The MCP-issued
+    # execution binding is the only context in which the path may default to
+    # the governed training Driver; local invocations still require an
+    # explicit read-only mode and fail closed.
+    mode = parser.add_mutually_exclusive_group(required=False)
     mode.add_argument("--check-config", action="store_true")
     mode.add_argument("--plan", action="store_true")
     mode.add_argument("--run", action="store_true")
     args = parser.parse_args()
+    if not any((args.check_config, args.plan, args.run)):
+        if os.environ.get("GALATEA_EXECUTION_BINDING"):
+            args.run = True
+        else:
+            parser.error("one of the arguments --check-config --plan --run is required")
     if args.run:
         if args.config is not None:
             parser.error("--run consumes only the MCP-issued embedded config")

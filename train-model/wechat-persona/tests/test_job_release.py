@@ -36,6 +36,7 @@ class JobReleaseTests(unittest.TestCase):
             self.assertIn("configs/formal-sft-v2-baseline.json", names)
             self.assertNotIn("tests/test_job_release.py", names)
             self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
+            self.assertEqual(["python", "scripts/submit_train.py", "--run"], first.manifest["entrypoint"])
 
     def test_registration_materials_match_real_mcp_schemas_and_zip_contract(self):
         with tempfile.TemporaryDirectory() as td:

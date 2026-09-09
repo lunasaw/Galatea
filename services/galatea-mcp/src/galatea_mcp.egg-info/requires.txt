@@ -1,0 +1,10 @@
+mcp==1.26.0
+pydantic==2.12.5
+jsonschema==4.25.1
+cryptography==45.0.6
+uvicorn==0.35.0
+
+[platform]
+ray[default]==2.48.0
+mlflow-skinny==3.14.0
+boto3==1.40.0

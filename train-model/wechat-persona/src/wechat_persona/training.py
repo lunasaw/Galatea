@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -17,6 +18,23 @@ from .runtime import validate_project_config
 
 class TrainingBoundaryError(RuntimeError):
     pass
+
+
+def _model_source(model_config: Mapping[str, Any]) -> tuple[str, str | None]:
+    """Resolve the approved model identity to a node-local immutable snapshot.
+
+    The model ID and revisions remain part of the signed binding and MLflow
+    lineage.  The service may provide a read-only local snapshot through the
+    protected runtime environment when the Ray node has no Hugging Face
+    network access; callers cannot choose this path.
+    """
+    model_id = str(model_config["model_id"])
+    local_path = os.environ.get("WECHAT_PERSONA_MODEL_PATH")
+    if local_path and model_id == "Qwen/Qwen3.5-0.8B":
+        path = Path(local_path)
+        if path.is_dir() and (path / "config.json").is_file():
+            return str(path), None
+    return model_id, str(model_config.get("model_revision"))
 
 
 def _canonical(value: Any) -> bytes:
@@ -186,14 +204,16 @@ def _load_model(config: Mapping[str, Any]):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     model_config = config["model"]
+    model_source, revision = _model_source(model_config)
+    tokenizer_source, tokenizer_revision = _model_source(model_config)
     tokenizer = AutoTokenizer.from_pretrained(
-        model_config["model_id"],
-        revision=model_config["tokenizer_revision"],
+        tokenizer_source,
+        revision=tokenizer_revision,
         trust_remote_code=False,
     )
     model = AutoModelForCausalLM.from_pretrained(
-        model_config["model_id"],
-        revision=model_config["model_revision"],
+        model_source,
+        revision=revision,
         torch_dtype=getattr(torch, str(model_config.get("dtype", "bfloat16"))),
         trust_remote_code=False,
     )
@@ -222,11 +242,22 @@ def _tokenize_rows(tokenizer: Any, rows: Iterable[Mapping[str, Any]], max_length
         prompt_text = tokenizer.apply_chat_template(
             messages[:-1], tokenize=False, add_generation_prompt=True
         )
-        full = tokenizer(full_text, truncation=True, max_length=max_length)
-        prompt = tokenizer(prompt_text, truncation=True, max_length=max_length)
+        # Tokenize without an implicit right-truncation first.  Right
+        # truncation can remove the entire assistant target when a long chat
+        # prompt fills the context window, yielding an unusable all-ignored
+        # label row.  Keep the deterministic suffix of the complete example,
+        # which always contains the assistant response and therefore preserves
+        # the supervised signal.
+        full = tokenizer(full_text, truncation=False)
+        prompt = tokenizer(prompt_text, truncation=False)
         labels = list(full["input_ids"])
         prompt_length = min(len(prompt["input_ids"]), len(labels))
         labels[:prompt_length] = [-100] * prompt_length
+        if len(labels) > max_length:
+            start = len(labels) - max_length
+            full["input_ids"] = list(full["input_ids"])[start:]
+            full["attention_mask"] = list(full["attention_mask"])[start:]
+            labels = labels[start:]
         if not any(value != -100 for value in labels):
             raise ValueError("assistant response was fully truncated")
         encoded.append(
@@ -454,11 +485,13 @@ def _evaluate_role(
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     model_config = config["model"]
+    model_source, revision = _model_source(model_config)
+    tokenizer_source, tokenizer_revision = _model_source(model_config)
     tokenizer = AutoTokenizer.from_pretrained(
-        model_config["model_id"], revision=model_config["tokenizer_revision"], trust_remote_code=False
+        tokenizer_source, revision=tokenizer_revision, trust_remote_code=False
     )
     base = AutoModelForCausalLM.from_pretrained(
-        model_config["model_id"], revision=model_config["model_revision"], trust_remote_code=False
+        model_source, revision=revision, trust_remote_code=False
     )
     adapter_directory = _download_proxy_model(
         client,

@@ -25,7 +25,11 @@ import yaml
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 PROJECT_NAME = "wechat-persona"
 DEFAULT_RELEASE_NAME = "wechat-persona-release.zip"
-ENTRYPOINT = ["python", "scripts/submit_train.py"]
+# Ray Jobs invokes the immutable release exactly as declared here.  The
+# governed Driver consumes the MCP-issued binding and therefore must receive
+# the explicit training mode; omitting it makes the released job exit during
+# argparse before MLflow admission.
+ENTRYPOINT = ["python", "scripts/submit_train.py", "--run"]
 FORMAL_CONFIGS = {
     "formal-sft-v2-baseline": "configs/formal-sft-v2-baseline.yaml",
     "formal-sft-v2-trial": "configs/formal-sft-v2-trial.yaml",

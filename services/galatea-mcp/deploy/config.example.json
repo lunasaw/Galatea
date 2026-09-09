@@ -11,6 +11,8 @@
   "http_port": 8791,
   "token_env": "GALATEA_SERVICE_TOKEN",
   "platform": {
+    "ray_topology": "separate_endpoints",
+    "credential_mode": "separate_role_credentials",
     "trainer": {
       "address": "https://trainer-ray.example.invalid",
       "expected_head_id": "record-live-trainer-head-node-id",

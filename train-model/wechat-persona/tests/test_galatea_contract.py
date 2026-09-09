@@ -13,7 +13,7 @@ class GalateaContractTests(unittest.TestCase):
 
     def test_fixed_ray_driver_and_objective(self):
         self.assertEqual("ray", self.spec["executionBackend"])
-        self.assertEqual("scripts/submit_train.py", self.spec["entrypoints"]["train"][1])
+        self.assertEqual(["python", "scripts/submit_train.py", "--run"], self.spec["entrypoints"]["train"])
         self.assertEqual({"metric": "val_loss", "direction": "min"}, self.spec["objective"])
         self.assertFalse(self.spec["capabilities"]["pauseResume"])
 

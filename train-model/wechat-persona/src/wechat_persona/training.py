@@ -555,7 +555,7 @@ def _train_role(
         client,
         run_id,
         trainer.state.log_history,
-        summary_metrics={"train_loss": metrics["train_loss"]},
+        summary_metrics=metrics,
     )
     report = output / "validation-quality.json"
     report.write_text(json.dumps({"metrics": metrics}, sort_keys=True) + "\n", encoding="utf-8")
@@ -664,8 +664,12 @@ def run_training(
                 metrics, artifacts = _train_role(
                     config, views["train"], views["validation"], mlflow_client, run_id, output
                 )
-            for name, value in metrics.items():
-                mlflow_client.log_metric(run_id, name, float(value))
+            # Training aggregates were written after step history by
+            # ``_train_role``.  Evaluation has no Trainer history, so log its
+            # final metrics here.
+            if role == "evaluate":
+                for name, value in metrics.items():
+                    mlflow_client.log_metric(run_id, name, float(value))
             manifest: list[dict[str, Any]] = []
             for source, remote in artifacts:
                 parent = _artifact_parent(source, remote)

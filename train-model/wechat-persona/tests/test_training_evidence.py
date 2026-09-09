@@ -51,6 +51,14 @@ class TrainingEvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "cannot traverse"):
                 _artifact_parent(source, "../best-adapter.safetensors")
 
+    def test_training_history_logs_summary_after_step_history(self):
+        history = [{"step": 1, "loss": 9.0}, {"step": 2, "loss": 8.0}]
+        client = FakeClient()
+        _log_training_history(client, "run-2", history, summary_metrics={"train_loss": 4.0})
+        metrics = [metric for _, batch, _ in client.batches for metric in batch]
+        self.assertEqual([1, 2, 3], [metric.step for metric in metrics])
+        self.assertEqual(4.0, metrics[-1].value)
+
 
 if __name__ == "__main__":
     unittest.main()

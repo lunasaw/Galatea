@@ -1,5 +1,6 @@
 import json
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -80,9 +81,20 @@ class JobReleaseTests(unittest.TestCase):
 
     def test_clean_build_rejects_dirty_repository(self):
         with tempfile.TemporaryDirectory() as td:
+            repository = Path(td) / "repository"
+            root = repository / "train-model" / "wechat-persona"
+            (root / "scripts").mkdir(parents=True)
+            for relative in ("galatea.project.yaml", "conda.yaml", "scripts/submit_train.py"):
+                (root / relative).write_text("fixture\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "init", "--quiet"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             with self.assertRaisesRegex(ValueError, "clean Git commit"):
-                root = Path(td)
-                build_release(ROOT, root / "release")
+                build_release(root, Path(td) / "release")
 
     def test_release_rejects_symlink_and_output_inside_project(self):
         with tempfile.TemporaryDirectory() as td:

@@ -65,6 +65,7 @@ class JobReleaseTests(unittest.TestCase):
             )
             self.assertTrue(project.releases[release_id].deadline_enforced)
             self.assertTrue(project.releases[release_id].path.endswith(".zip"))
+            self.assertIn("reports/evidence.json", project.artifact_paths)
             # Four governed slots (baseline, one trial, champion, evaluator)
             # each carry the explicit three-hour execution budget.
             self.assertEqual(173760, campaign.budget.cpu_seconds)

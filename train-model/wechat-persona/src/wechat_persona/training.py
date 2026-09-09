@@ -447,15 +447,23 @@ def _verify_fresh_adapter_load(model_directory: Path) -> None:
         raise ValueError("fresh-process adapter load verification failed")
 
 
-def _log_training_history(client: Any, run_id: str, history: Iterable[Mapping[str, Any]]) -> None:
-    """Persist step metrics in bounded MLflow batches."""
+def _log_training_history(
+    client: Any,
+    run_id: str,
+    history: Iterable[Mapping[str, Any]],
+    *,
+    summary_metrics: Mapping[str, float] | None = None,
+) -> None:
+    """Persist step metrics and authoritative summaries in bounded MLflow batches."""
 
     from mlflow.entities import Metric
 
     batch: list[Any] = []
     timestamp = int(time.time() * 1000)
+    last_step = 0
     for entry in history:
         step = int(entry.get("step", 0))
+        last_step = max(last_step, step)
         for source, target in (
             ("loss", "train_loss"),
             ("learning_rate", "learning_rate"),
@@ -466,6 +474,11 @@ def _log_training_history(client: Any, run_id: str, history: Iterable[Mapping[st
             if len(batch) >= 1000:
                 client.log_batch(run_id, metrics=batch, synchronous=True)
                 batch = []
+    for key, value in (summary_metrics or {}).items():
+        batch.append(Metric(key, float(value), timestamp, last_step + 1))
+        if len(batch) >= 1000:
+            client.log_batch(run_id, metrics=batch, synchronous=True)
+            batch = []
     if batch:
         client.log_batch(run_id, metrics=batch, synchronous=True)
 
@@ -538,7 +551,12 @@ def _train_role(
         "val_loss": adapted_validation_loss,
         "val_perplexity": math.exp(min(adapted_validation_loss, 20.0)),
     }
-    _log_training_history(client, run_id, trainer.state.log_history)
+    _log_training_history(
+        client,
+        run_id,
+        trainer.state.log_history,
+        summary_metrics={"train_loss": metrics["train_loss"]},
+    )
     report = output / "validation-quality.json"
     report.write_text(json.dumps({"metrics": metrics}, sort_keys=True) + "\n", encoding="utf-8")
     if not trainer.state.best_model_checkpoint:

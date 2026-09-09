@@ -360,6 +360,7 @@ def write_registration_materials(
         "artifact_paths": [
             "model/adapter_model.safetensors",
             "model/adapter_config.json",
+            "reports/evidence.json",
             "reports/validation-quality.json",
             "reports/final-test-evaluation.json",
             "checkpoints/best-adapter.safetensors",

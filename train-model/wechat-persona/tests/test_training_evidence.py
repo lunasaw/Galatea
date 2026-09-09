@@ -25,13 +25,21 @@ class TrainingEvidenceTests(unittest.TestCase):
         ]
         client = FakeClient()
 
-        _log_training_history(client, "run-1", history)
+        _log_training_history(
+            client,
+            "run-1",
+            history,
+            summary_metrics={"train_loss": 4.25},
+        )
 
-        self.assertEqual([1000, 203], [len(batch[1]) for batch in client.batches])
+        self.assertEqual([1000, 204], [len(batch[1]) for batch in client.batches])
         self.assertTrue(all(batch[0] == "run-1" and batch[2] is True for batch in client.batches))
         metrics = [metric for _, batch, _ in client.batches for metric in batch]
         self.assertEqual({"train_loss", "learning_rate", "gradient_norm"}, {m.key for m in metrics})
-        self.assertEqual(400, metrics[-1].step)
+        self.assertEqual(
+            ("train_loss", 4.25, 401),
+            (metrics[-1].key, metrics[-1].value, metrics[-1].step),
+        )
 
     def test_artifact_parent_requires_exact_remote_filename(self):
         with tempfile.TemporaryDirectory() as temp:

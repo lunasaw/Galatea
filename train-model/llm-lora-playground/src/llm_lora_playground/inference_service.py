@@ -283,7 +283,7 @@ def run_adapter_effectiveness_probe(preflight: dict[str, Any]) -> list[dict[str,
         ("readiness-1", [{"role": "user", "content": "请用一句话回答：今天心情如何？"}]),
         ("readiness-2", [{"role": "user", "content": "请简短回复：谢谢你。"}]),
         ("readiness-3", [{"role": "user", "content": "请自然地说：晚安。"}]),
-    ], max_length=int(preflight["values"]["model"]["max_input_tokens"]))
+    ], max_length=int(preflight["values"]["model"]["max_input_tokens"]), device=loaded.device)
     try:
         results = assert_adapter_effective(adapted, probes, tokenizer=loaded.tokenizer, min_changed_probes=1)
     except AdapterEffectError as exc:

@@ -10,25 +10,21 @@ service:
   health_check_period_s: 10
   health_check_timeout_s: 30
 model:
-  id: qwen35-wechat-trial
-  lora_id: wechat-private-5k-standard-20260906-v2-step-944
+  id: qwen35-wechat-baseline
+  lora_id: wechat-condgen-baseline-fd1509-step-9353
   base_model_path: /data/ai/chenzhangyue/code/model/Qwen3.5-0.8B
-  adapter_path: /data/ai/chenzhangyue/code/galatea/platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/training/5486e8a7db3547919a66865983a81162/checkpoints/wechat-private-5k-standard-20260906-v2/step-944/adapter
-  checkpoint_manifest_path: /data/ai/chenzhangyue/code/galatea/platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/training/5486e8a7db3547919a66865983a81162/checkpoints/wechat-private-5k-standard-20260906-v2/step-944/checkpoint_manifest.json
-  source_mlflow_run_id: 5486e8a7db3547919a66865983a81162
+  adapter_path: /data/ai/chenzhangyue/code/galatea/platform-data/llm-private/wechat-persona-condgen-baseline/fd1509c6b1824132941f9909b022fa68/step/step-9353/adapter
+  checkpoint_manifest_path: /data/ai/chenzhangyue/code/galatea/platform-data/llm-private/wechat-persona-condgen-baseline/fd1509c6b1824132941f9909b022fa68/step/step-9353/checkpoint_manifest.json
+  source_mlflow_run_id: fd1509c6b1824132941f9909b022fa68
   engine: ray-serve-llm-vllm
   protocol: openai-chat-completions-v1
   dtype: bfloat16
   device: cuda:0
   max_input_tokens: 512
-  # The historical adapter was trained through Qwen3_5ForCausalLM and its
-  # keys are base_model.model.model.layers.*.  vLLM/Ray Serve currently loads
-  # Qwen3_5ForConditionalGeneration, whose tree is different.  Keep this
-  # explicit so readiness fails closed until a same-class adapter is exported.
   expected_architecture: qwen3_5_conditional_generation
   trust_remote_code: false
   enable_thinking: false
-  lora_loading_path: s3://training-data/ray-runtime/llm-lora-playground-inference/5486e8a7db3547919a66865983a81162
+  lora_loading_path: s3://training-data/ray-runtime/llm-lora-playground-inference/fd1509c6b1824132941f9909b022fa68
   max_model_len: 512
   max_num_seqs: 1
   gpu_memory_utilization: 0.7
@@ -63,4 +59,4 @@ resources:
   num_gpus: 1
   cpus: 4
   memory_gb: 8
-output_root: platform-data/llm-private/wechat-owner-bulk-approved-experiments/wechat_aa807aaad90dc4463964-20260905T151759Z/serving
+output_root: platform-data/llm-private/wechat-persona-condgen-baseline/fd1509c6b1824132941f9909b022fa68/serving

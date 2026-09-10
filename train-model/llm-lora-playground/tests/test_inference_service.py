@@ -15,7 +15,8 @@ class InferenceServiceContractTests(unittest.TestCase):
     def test_experimental_checkpoint_config_is_immutable_and_non_promotable(self):
         result = validate_inference_config(ROOT / "configs/inference-ray.yaml")
         values = result["values"]
-        self.assertEqual(result["checkpoint"].step, 944)
+        self.assertEqual(result["checkpoint"].step, 9353)
+        self.assertEqual(values["model"]["source_mlflow_run_id"], "fd1509c6b1824132941f9909b022fa68")
         self.assertEqual(values["governance"]["role"], "trial")
         self.assertFalse(values["governance"]["promotable"])
         self.assertEqual(values["governance"]["test_access"], "untouched")
@@ -46,10 +47,11 @@ class InferenceServiceContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_inference_config(path)
 
-    def test_historical_text_adapter_is_blocked_for_conditional_serving(self):
+    def test_conditional_adapter_is_compatible_with_conditional_serving(self):
         preflight = validate_inference_config(ROOT / "configs/inference-ray.yaml")
-        with self.assertRaisesRegex(ValueError, "architecture mismatch"):
-            validate_model_adapter_compatibility(preflight)
+        compatibility = validate_model_adapter_compatibility(preflight)
+        self.assertEqual(compatibility["base_architecture"], "Qwen3_5ForConditionalGeneration")
+        self.assertEqual(compatibility["adapter_architecture"], "qwen3_5_conditional_generation")
 
     def test_inference_requires_external_galatea_binding(self):
         with self.assertRaisesRegex(ValueError, "Galatea authorization binding"):

@@ -6,7 +6,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from wechat_persona.training import _artifact_parent, _log_training_history
+from wechat_persona.training import (
+    _adapter_tensor_architecture,
+    _artifact_parent,
+    _log_training_history,
+    _record_adapter_architecture,
+)
 
 
 class FakeClient:
@@ -58,6 +63,51 @@ class TrainingEvidenceTests(unittest.TestCase):
         metrics = [metric for _, batch, _ in client.batches for metric in batch]
         self.assertEqual([1, 2, 3], [metric.step for metric in metrics])
         self.assertEqual(4.0, metrics[-1].value)
+
+    def test_adapter_architecture_is_derived_from_tensor_keys_and_recorded(self):
+        import torch
+        from safetensors.torch import save_file
+
+        with tempfile.TemporaryDirectory() as temp:
+            model = Path(temp)
+            (model / "adapter_config.json").write_text("{}\n", encoding="utf-8")
+            save_file(
+                {
+                    "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_A.weight":
+                        torch.zeros((1, 1))
+                },
+                model / "adapter_model.safetensors",
+            )
+            self.assertEqual(
+                "qwen3_5_conditional_generation",
+                _adapter_tensor_architecture(model),
+            )
+            _record_adapter_architecture(model, "qwen3_5_conditional_generation")
+            metadata = __import__("json").loads(
+                (model / "adapter_config.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                "qwen3_5_conditional_generation",
+                metadata["model_architecture"],
+            )
+
+    def test_causal_lm_adapter_is_rejected_by_conditional_contract(self):
+        import torch
+        from safetensors.torch import save_file
+
+        with tempfile.TemporaryDirectory() as temp:
+            model = Path(temp)
+            (model / "adapter_config.json").write_text("{}\n", encoding="utf-8")
+            save_file(
+                {
+                    "base_model.model.model.layers.0.self_attn.q_proj.lora_A.weight":
+                        torch.zeros((1, 1))
+                },
+                model / "adapter_model.safetensors",
+            )
+            self.assertEqual("qwen3_5_causal_lm", _adapter_tensor_architecture(model))
+            with self.assertRaisesRegex(ValueError, "adapter architecture mismatch"):
+                _record_adapter_architecture(model, "qwen3_5_conditional_generation")
 
 
 if __name__ == "__main__":

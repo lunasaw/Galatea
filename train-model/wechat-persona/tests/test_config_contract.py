@@ -36,6 +36,25 @@ class ConfigContractTests(unittest.TestCase):
             self.assertEqual(role, config["run"]["role"])
             self.assertRegex(config["model"]["model_revision"], r"^[a-f0-9]{40}$")
             self.assertEqual(config["model"]["model_revision"], config["model"]["tokenizer_revision"])
+            self.assertEqual(
+                "qwen3_5_conditional_generation",
+                config["model"]["architecture"],
+            )
+
+    def test_qwen35_rejects_implicit_or_causal_lm_architecture(self):
+        config = load_project_config(ROOT / "configs/formal-sft-v2-baseline.yaml")
+        for architecture in (None, "qwen3_5_causal_lm"):
+            model = {**config["model"]}
+            if architecture is None:
+                model.pop("architecture")
+            else:
+                model["architecture"] = architecture
+            errors = validate_project_config({**config, "model": model})
+            self.assertIn(
+                "Qwen/Qwen3.5-0.8B requires "
+                "model.architecture=qwen3_5_conditional_generation",
+                errors,
+            )
 
     def test_no_secrets_or_raw_paths_in_configs(self):
         for path in (ROOT / "configs").glob("*.yaml"):

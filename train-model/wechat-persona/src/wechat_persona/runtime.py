@@ -92,6 +92,14 @@ def validate_project_config(config: Mapping[str, Any], *, raise_on_error: bool =
         for key in ("model_id", "model_revision", "tokenizer_revision", "dtype"):
             if not model.get(key):
                 errors.append(f"model.{key} is required")
+        if (
+            model.get("model_id") == "Qwen/Qwen3.5-0.8B"
+            and model.get("architecture") != "qwen3_5_conditional_generation"
+        ):
+            errors.append(
+                "Qwen/Qwen3.5-0.8B requires "
+                "model.architecture=qwen3_5_conditional_generation"
+            )
         training = values.get("training", {})
         for key in ("epochs", "batch_size", "learning_rate", "seed"):
             if key not in training:

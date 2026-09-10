@@ -21,6 +21,10 @@ class TrainingBoundaryError(RuntimeError):
     pass
 
 
+QWEN35_MODEL_ID = "Qwen/Qwen3.5-0.8B"
+QWEN35_CONDITIONAL_ARCHITECTURE = "qwen3_5_conditional_generation"
+
+
 def _model_source(model_config: Mapping[str, Any]) -> tuple[str, str | None]:
     """Resolve the approved model identity to a node-local immutable snapshot.
 
@@ -31,7 +35,7 @@ def _model_source(model_config: Mapping[str, Any]) -> tuple[str, str | None]:
     """
     model_id = str(model_config["model_id"])
     local_path = os.environ.get("WECHAT_PERSONA_MODEL_PATH")
-    if local_path and model_id == "Qwen/Qwen3.5-0.8B":
+    if local_path and model_id == QWEN35_MODEL_ID:
         path = Path(local_path)
         if path.is_dir() and (path / "config.json").is_file():
             return str(path), None
@@ -74,6 +78,7 @@ def build_training_plan(config: Mapping[str, Any]) -> dict[str, Any]:
         "task": config.get("task"),
         "config_digest": _digest(config),
         "role": config.get("run", {}).get("role"),
+        "model_architecture": config.get("model", {}).get("architecture"),
         "test_access": config.get("evaluation", {}).get("test_access", "untouched"),
         "execution_backend": config.get("execution", {}).get("backend"),
         "errors": errors,
@@ -200,24 +205,9 @@ def _messages(row: Mapping[str, Any]) -> list[dict[str, str]]:
 
 
 def _load_model(config: Mapping[str, Any]):
-    import torch
     from peft import LoraConfig, get_peft_model
-    from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    model_config = config["model"]
-    model_source, revision = _model_source(model_config)
-    tokenizer_source, tokenizer_revision = _model_source(model_config)
-    tokenizer = AutoTokenizer.from_pretrained(
-        tokenizer_source,
-        revision=tokenizer_revision,
-        trust_remote_code=False,
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        model_source,
-        revision=revision,
-        torch_dtype=getattr(torch, str(model_config.get("dtype", "bfloat16"))),
-        trust_remote_code=False,
-    )
+    tokenizer, model = _load_base_model(config)
     lora = config["lora"]
     return tokenizer, get_peft_model(
         model,
@@ -228,6 +218,86 @@ def _load_model(config: Mapping[str, Any]):
             target_modules=list(lora["target_modules"]),
             task_type="CAUSAL_LM",
         ),
+    )
+
+
+def _base_model_loader(
+    model_config: Mapping[str, Any],
+    *,
+    causal_loader: Any,
+    conditional_loader: Any,
+) -> Any:
+    if model_config["model_id"] != QWEN35_MODEL_ID:
+        return causal_loader
+    if model_config.get("architecture") != QWEN35_CONDITIONAL_ARCHITECTURE:
+        raise TrainingBoundaryError(
+            "Qwen3.5 training and serving require "
+            "model.architecture=qwen3_5_conditional_generation"
+        )
+    return conditional_loader
+
+
+def _load_base_model(config: Mapping[str, Any]):
+    """Load the concrete model class bound by the training/serving contract."""
+
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen3_5ForConditionalGeneration
+
+    model_config = config["model"]
+    model_source, revision = _model_source(model_config)
+    tokenizer_source, tokenizer_revision = _model_source(model_config)
+    tokenizer = AutoTokenizer.from_pretrained(
+        tokenizer_source,
+        revision=tokenizer_revision,
+        trust_remote_code=False,
+    )
+    model_loader = _base_model_loader(
+        model_config,
+        causal_loader=AutoModelForCausalLM,
+        conditional_loader=Qwen3_5ForConditionalGeneration,
+    )
+    model = model_loader.from_pretrained(
+        model_source,
+        revision=revision,
+        dtype=getattr(torch, str(model_config.get("dtype", "bfloat16"))),
+        trust_remote_code=False,
+    )
+    return tokenizer, model
+
+
+def _adapter_tensor_architecture(model_directory: Path) -> str:
+    from safetensors import safe_open
+
+    weights = model_directory / "adapter_model.safetensors"
+    if not weights.is_file():
+        raise ValueError("adapter_model.safetensors is missing")
+    with safe_open(str(weights), framework="pt", device="cpu") as handle:
+        keys = list(handle.keys())
+    if not keys:
+        raise ValueError("adapter contains no tensors")
+    conditional_markers = (
+        "base_model.model.model.language_model.layers.",
+        "base_model.model.language_model.model.layers.",
+    )
+    if all(any(marker in key for marker in conditional_markers) for key in keys):
+        return QWEN35_CONDITIONAL_ARCHITECTURE
+    if all("base_model.model.model.layers." in key for key in keys):
+        return "qwen3_5_causal_lm"
+    raise ValueError("adapter tensor keys do not match a supported Qwen3.5 module tree")
+
+
+def _record_adapter_architecture(model_directory: Path, expected: str) -> None:
+    observed = _adapter_tensor_architecture(model_directory)
+    if observed != expected:
+        raise ValueError(
+            f"adapter architecture mismatch: expected {expected}, observed {observed}"
+        )
+    config_path = model_directory / "adapter_config.json"
+    value = json.loads(config_path.read_text(encoding="utf-8"))
+    value["model_architecture"] = observed
+    config_path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -400,6 +470,7 @@ def _log_lineage(client: Any, run_id: str, binding: Mapping[str, Any], config: M
         "metric_definition": binding["metric_definition"],
         "evaluation_protocol": binding["evaluation_protocol"],
         "model_id": config["model"]["model_id"],
+        "model_architecture": config["model"].get("architecture", "auto_causal_lm"),
         "model_revision": config["model"]["model_revision"],
         "tokenizer_revision": config["model"]["tokenizer_revision"],
         "seed": binding["seed"],
@@ -422,29 +493,48 @@ def _download_proxy_model(client: Any, run_id: str, destination: Path) -> Path:
     return path
 
 
-def _verify_fresh_adapter_load(model_directory: Path) -> None:
+def _verify_fresh_adapter_load(model_directory: Path, config: Mapping[str, Any]) -> None:
     import subprocess
     import sys
 
+    model_config = config["model"]
+    model_source, revision = _model_source(model_config)
+    expected = str(model_config.get("architecture", "auto_causal_lm"))
+    if model_config["model_id"] == QWEN35_MODEL_ID:
+        observed = _adapter_tensor_architecture(model_directory)
+        if observed != expected:
+            raise ValueError(
+                f"adapter architecture mismatch: expected {expected}, observed {observed}"
+            )
     result = subprocess.run(
         [
             sys.executable,
             "-c",
             (
-                "from pathlib import Path; from peft import PeftConfig; "
-                "from safetensors import safe_open; import sys; "
-                "root=Path(sys.argv[1]); PeftConfig.from_pretrained(root); "
-                "handle=safe_open(root/'adapter_model.safetensors',framework='pt',device='cpu'); "
-                "assert handle.keys()"
+                "from pathlib import Path; import sys, torch; "
+                "from peft import PeftModel; "
+                "from transformers import AutoModelForCausalLM, Qwen3_5ForConditionalGeneration; "
+                "adapter=Path(sys.argv[1]); source=sys.argv[2]; revision=sys.argv[3] or None; "
+                "architecture=sys.argv[4]; "
+                "loader=(Qwen3_5ForConditionalGeneration "
+                "if architecture=='qwen3_5_conditional_generation' else AutoModelForCausalLM); "
+                "base=loader.from_pretrained(source,revision=revision,dtype=torch.bfloat16,"
+                "trust_remote_code=False,local_files_only=Path(source).is_dir()); "
+                "model=PeftModel.from_pretrained(base,str(adapter),is_trainable=False); "
+                "assert model.peft_config"
             ),
             str(model_directory),
+            model_source,
+            revision or "",
+            expected,
         ],
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode != 0:
-        raise ValueError("fresh-process adapter load verification failed")
+        detail = (result.stderr or result.stdout).strip()[-2000:]
+        raise ValueError(f"fresh-process adapter load verification failed: {detail}")
 
 
 def _log_training_history(
@@ -535,6 +625,11 @@ def _train_role(
     )
     train = trainer.train()
     model.save_pretrained(adapter_dir, safe_serialization=True)
+    if config["model"]["model_id"] == QWEN35_MODEL_ID:
+        _record_adapter_architecture(
+            adapter_dir,
+            str(config["model"].get("architecture", "auto_causal_lm")),
+        )
     tokenizer.save_pretrained(adapter_dir)
     # Reuse the authoritative Trainer evaluation metric.  Re-running a second
     # validation pass after training can produce small numerical differences
@@ -580,19 +675,9 @@ def _evaluate_role(
     client: Any,
     output: Path,
 ) -> tuple[dict[str, float], list[tuple[Path, str]]]:
-    import torch
     from peft import PeftModel
-    from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    model_config = config["model"]
-    model_source, revision = _model_source(model_config)
-    tokenizer_source, tokenizer_revision = _model_source(model_config)
-    tokenizer = AutoTokenizer.from_pretrained(
-        tokenizer_source, revision=tokenizer_revision, trust_remote_code=False
-    )
-    base = AutoModelForCausalLM.from_pretrained(
-        model_source, revision=revision, trust_remote_code=False
-    )
+    tokenizer, base = _load_base_model(config)
     adapter_directory = _download_proxy_model(
         client,
         str(binding["champion_run_id"]),
@@ -601,7 +686,7 @@ def _evaluate_role(
     adapter_file = adapter_directory / "adapter_model.safetensors"
     if _file_digest(adapter_file) != binding["champion_model_sha256"]:
         raise ValueError("champion model digest mismatch")
-    _verify_fresh_adapter_load(adapter_directory)
+    _verify_fresh_adapter_load(adapter_directory, config)
     model = PeftModel.from_pretrained(base, str(adapter_directory), is_trainable=False)
     model.eval()
     dataset = _tokenize_rows(tokenizer, test_rows, int(config["training"].get("max_length", 1024)))
@@ -687,7 +772,7 @@ def run_training(
                 roundtrip_model = Path(
                     mlflow_client.download_artifacts(run_id, "model", str(output / "roundtrip-model"))
                 )
-                _verify_fresh_adapter_load(roundtrip_model)
+                _verify_fresh_adapter_load(roundtrip_model, config)
             evidence = {
                 "schema_version": "galatea.evidence/v1",
                 "lineage": {
@@ -704,6 +789,9 @@ def run_training(
                     "preprocessing": binding["preprocessing"],
                     "metric_definition": binding["metric_definition"],
                     "evaluation_protocol": binding["evaluation_protocol"],
+                    "model_architecture": config["model"].get(
+                        "architecture", "auto_causal_lm"
+                    ),
                     "seed": binding["seed"],
                     "role": role,
                     "readiness_digest": binding["readiness_digest"],

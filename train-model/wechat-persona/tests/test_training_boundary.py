@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from wechat_persona.binding import BindingError, verify_execution_binding
 from wechat_persona.driver import execute
 from wechat_persona.runtime import load_project_config
-from wechat_persona.training import build_training_plan, run_training
+from wechat_persona.training import _base_model_loader, build_training_plan, run_training
 
 
 class Context:
@@ -77,7 +77,24 @@ class TrainingBoundaryTests(unittest.TestCase):
             config = load_project_config(ROOT / "configs" / f"formal-sft-v2-{name}.yaml")
             plan = build_training_plan(config)
             self.assertEqual("planned", plan["status"], plan["errors"])
+            self.assertEqual(
+                "qwen3_5_conditional_generation",
+                plan["model_architecture"],
+            )
             self.assertFalse(plan["will_create_mlflow_run"])
+
+    def test_qwen35_uses_conditional_generation_loader(self):
+        config = load_project_config(ROOT / "configs/formal-sft-v2-baseline.yaml")
+        causal_loader = object()
+        conditional_loader = object()
+        self.assertIs(
+            conditional_loader,
+            _base_model_loader(
+                config["model"],
+                causal_loader=causal_loader,
+                conditional_loader=conditional_loader,
+            ),
+        )
 
     def test_unsigned_binding_enforces_role_views_and_deadline(self):
         raw = self.raw(packet())

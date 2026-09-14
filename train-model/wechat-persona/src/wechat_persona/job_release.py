@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import copy
 import shutil
 import stat
 import subprocess
@@ -36,6 +37,7 @@ FORMAL_CONFIGS = {
     "formal-sft-v2-champion": "configs/formal-sft-v2-champion.yaml",
     "formal-sft-v2-champion-trial": "configs/formal-sft-v2-champion-trial.yaml",
     "formal-sft-v2-evaluate": "configs/formal-sft-v2-evaluate.yaml",
+    "gpt-prelabel-v1-baseline": "configs/gpt-prelabel-v1-baseline.yaml",
 }
 EXCLUDED_TOP_LEVEL = {"notebooks", "tests"}
 EXCLUDED_PARTS = {
@@ -274,6 +276,7 @@ def _config_registration(release: BuiltRelease, config_id: str) -> dict[str, Any
         "path": path,
         "sha256": hashlib.sha256(raw).hexdigest(),
         "seed": int(config["training"]["seed"]),
+        "promotable": bool(config["run"]["promotable"]),
         "resources": {
             "cpus": int(resources["cpus"]),
             "gpus": int(resources["num_gpus"]),
@@ -439,6 +442,191 @@ starts training.
         "release": registered_archive,
     }
     _write_immutable(files["projects"], canonical_json(projects))
+    _write_immutable(files["campaign"], canonical_json(campaign))
+    _write_immutable(files["readme"], readme.encode("utf-8"))
+    return files
+
+
+def write_prelabel_registration_materials(
+    release: BuiltRelease,
+    output_directory: Path,
+    *,
+    snapshot_manifest: Path,
+    base_registry_path: Path,
+    train_version_id: str,
+    validation_version_id: str,
+    campaign_id: str,
+    approved_by: str,
+    expires_at: int | None = None,
+) -> dict[str, Path]:
+    """Build a separate, non-promotable registry entry for GPT-prelabel data."""
+
+    output = output_directory.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    output.chmod(stat.S_IRWXU)
+    snapshot_path = snapshot_manifest.resolve()
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    if snapshot.get("schema_version") != "wechat-persona-gpt-prelabel-snapshot-v1":
+        raise ValueError("unsupported GPT-prelabel snapshot manifest")
+    governance = snapshot.get("governance") or {}
+    if (
+        governance.get("experimental_training_authorized") is not True
+        or governance.get("formal_training_eligible") is not False
+        or governance.get("human_review_completed") is not False
+        or governance.get("promotable") is not False
+        or governance.get("test_access") != "untouched"
+    ):
+        raise ValueError("GPT-prelabel snapshot governance boundary is invalid")
+    config_id = "gpt-prelabel-v1-baseline"
+    config = _config_registration(release, config_id)
+    if config["promotable"] is not False:
+        raise ValueError("GPT-prelabel config must be non-promotable")
+    with zipfile.ZipFile(release.archive_path) as archive:
+        raw_config = json.loads(archive.read(config["path"]))
+        _write_immutable(output / config["path"], archive.read(config["path"]))
+    project_id = str(raw_config.get("platform_project_id") or "")
+    if not project_id:
+        raise ValueError("GPT-prelabel config must bind platform_project_id")
+    if raw_config.get("dataset", {}).get("manifest_sha256") != snapshot["manifest_sha256"]:
+        raise ValueError("GPT-prelabel config and snapshot manifest differ")
+
+    base_registry = json.loads(base_registry_path.read_text(encoding="utf-8"))
+    if base_registry.get("schema_version") != "galatea.registry/v1":
+        raise ValueError("unsupported base registry")
+    projects = copy.deepcopy(base_registry.get("projects") or [])
+    if any(project.get("project_id") == project_id for project in projects):
+        raise ValueError("GPT-prelabel platform project already exists")
+    base_project = next(
+        (project for project in projects if project.get("project_id") == PROJECT_NAME),
+        None,
+    )
+    if base_project is None:
+        raise ValueError("base wechat-persona project is missing")
+    test_ref = copy.deepcopy(base_project["dataset"]["views"]["test"])
+    if test_ref["sha256"] != snapshot["split_file_sha256"]["test"]:
+        raise ValueError("parent test identity differs from GPT-prelabel snapshot")
+
+    registered_archive = output / release.archive_path.name
+    if registered_archive.resolve() != release.archive_path.resolve():
+        _write_immutable(registered_archive, release.archive_path.read_bytes())
+    split_refs: dict[str, dict[str, Any]] = {}
+    version_ids = {
+        "train": train_version_id,
+        "validation": validation_version_id,
+    }
+    key_root = f"datasets/wechat-persona/gpt-prelabel-v1/{snapshot['selection']['selection_sha256'][:20]}"
+    for split in ("train", "validation"):
+        source = snapshot_path.parent / f"{split}.jsonl"
+        observed_sha = sha256_file(source)
+        if observed_sha != snapshot["split_file_sha256"][split]:
+            raise ValueError(f"GPT-prelabel {split} file digest mismatch")
+        if not version_ids[split] or version_ids[split] == "null":
+            raise ValueError(f"GPT-prelabel {split} immutable VersionId is required")
+        split_refs[split] = {
+            "bucket": "training-data",
+            "key": f"{key_root}/{split}.jsonl",
+            "version_id": version_ids[split],
+            "sha256": observed_sha,
+            "size_bytes": source.stat().st_size,
+        }
+    dataset = {
+        "dataset_id": snapshot["dataset_id"],
+        "manifest_digest": snapshot["manifest_sha256"],
+        "split_digest": snapshot["split_sha256"],
+        "preprocessing": snapshot["preprocessing_version"],
+        "holdout_identity": test_ref["sha256"],
+        "holdout_untouched": True,
+        "views": {**split_refs, "test": test_ref},
+    }
+    release_id = release.manifest["release_id"]
+    project = {
+        "project_id": project_id,
+        "root": str(output),
+        "task": "causal-language-model-sft-lora",
+        "objective": {"metric": "val_loss", "direction": "min"},
+        "metric_definition": "wechat-persona-quality-v1",
+        "evaluation_protocol": "wechat-persona-style-v1",
+        "experiment_id": base_project["experiment_id"],
+        "dataset": dataset,
+        "releases": {
+            release_id: {
+                "path": registered_archive.name,
+                "sha256": release.manifest["archive_sha256"],
+                "code_revision": release.manifest["code_revision"],
+                "environment_digest": release.manifest["environment_digest"],
+                "entrypoint": ENTRYPOINT,
+                "deadline_enforced": True,
+            }
+        },
+        "configs": {config_id: config},
+        "evaluation_isolated": True,
+        "quality_gates": [],
+        "artifact_paths": [
+            "model/adapter_model.safetensors",
+            "model/adapter_config.json",
+            "reports/evidence.json",
+            "reports/validation-quality.json",
+            "checkpoints/best-adapter.safetensors",
+            "checkpoints/trainer_state.json",
+        ],
+        "model_artifact_path": "model/adapter_model.safetensors",
+    }
+    projects.append(project)
+    registry = {"schema_version": "galatea.registry/v1", "projects": projects}
+    duration = config["resources"]["seconds"] + config["resources"]["cleanup_seconds"]
+    campaign = {
+        "campaign_id": campaign_id,
+        "project_id": project_id,
+        "request_revision": 1,
+        "expires_at": int(expires_at or time.time() + 30 * 24 * 60 * 60),
+        "approved_by": approved_by,
+        "slots": [
+            {
+                "step_id": step_id,
+                "role": role,
+                "config_ids": [config_id],
+                "release_ids": [release_id],
+                "max_attempts": 1,
+            }
+            for step_id, role in (
+                ("baseline", "baseline"),
+                ("blocked-champion", "champion"),
+                ("blocked-evaluate", "evaluate"),
+            )
+        ],
+        "budget": {
+            "cpu_seconds": config["resources"]["cpus"] * duration * 3,
+            "gpu_seconds": config["resources"]["gpus"] * duration * 3,
+            "max_trials": 0,
+        },
+    }
+
+    try:
+        from galatea_mcp.contracts import CampaignSpec
+        from galatea_mcp.projects import Registry
+    except ImportError:
+        pass
+    else:
+        class MetadataOnlyObjects:
+            verify = verify_metadata = lambda self, ref: True
+
+        parsed = Registry(registry, MetadataOnlyObjects())
+        CampaignSpec.model_validate(campaign)
+        for role in ("baseline", "champion", "evaluate"):
+            parsed.verify(project_id, config_id, release_id, role)
+
+    readme = (
+        "# GPT-prelabel experimental registration\n\n"
+        "This registry entry is machine-reviewed, experimental-only, CPU-only, and non-promotable.\n"
+        "Its test view reuses the untouched parent identity and is not exposed to the baseline role.\n"
+    )
+    files = {
+        "projects": output / "projects.json",
+        "campaign": output / "campaign.json",
+        "readme": output / "README.md",
+        "release": registered_archive,
+    }
+    _write_immutable(files["projects"], canonical_json(registry))
     _write_immutable(files["campaign"], canonical_json(campaign))
     _write_immutable(files["readme"], readme.encode("utf-8"))
     return files

@@ -77,6 +77,7 @@ class Configuration(Strict):
     sha256: Sha
     seed: Nonneg
     resources: Resources
+    promotable: bool = True
 
 
 class Objective(Strict):

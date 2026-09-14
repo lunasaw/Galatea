@@ -10,9 +10,10 @@ Ray Train 及其他能够接入 MLflow 的训练项目，覆盖分类、回归�
 
 README 分为两层：先沿着四张图理解平台如何运转，再进入可检索的部署与运维手册。
 
-DeepSeek Harness 是仓库唯一的 Agent Runtime；[`dsh-galatea`](plugins/dsh-galatea/) 通过 Cordis
-Tool、Harness Session 审批和项目声明安全地操作 Ray/MLflow。插件不复制 Agent Loop、Workflow、
-Session 或权限系统，架构见 [`doc/agent-galatea.md`](doc/agent-galatea.md)。
+Codex 通过仓库级 [`.codex/skills/`](.codex/skills/) 执行 Galatea 治理流程并安全地操作
+Ray/MLflow。选择 DeepSeek 作为 Agent Runtime 时，使用 [`dsh-galatea`](plugins/dsh-galatea/)
+接入 Cordis Tool、Harness Session 审批和项目声明；该集成不适用于 Codex，架构见
+[`doc/agent-galatea.md`](doc/agent-galatea.md)。
 
 ## 图解导览
 

@@ -7,10 +7,7 @@ from jsonschema import Draft202012Validator
 from wechat_persona.datasets import build_review_candidates
 
 
-SCHEMA_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "doc/train-llm/2026-09-06-project-5-9-wechat-persona/schemas/candidate.schema.json"
-)
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas/candidate.schema.json"
 
 
 class CandidateSchemaTests(unittest.TestCase):

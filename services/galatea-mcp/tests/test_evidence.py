@@ -63,6 +63,22 @@ class EvidenceTests(helpers.ServiceFixture):
         c1 = self.freeze(rid)
         self.assertEqual(self.freeze(rid), c1)
 
+    def test_non_promotable_run_cannot_be_frozen(self):
+        from galatea_mcp.errors import DomainError
+        from galatea_mcp.projects import Registry
+
+        self.registry_data['projects'][0]['configs']['c1']['promotable'] = False
+        self.registry = Registry(self.registry_data, helpers.FakeObjects())
+        self.service.registry = self.registry
+        _, rid = self.baseline()
+        comparison = self.call('compare_runs', run_ids=[rid])
+        with self.assertRaisesRegex(DomainError, 'candidate-ineligible'):
+            self.call(
+                'freeze_candidate',
+                run_id=rid,
+                evidence_digest=comparison['ranking'][0]['evidence_digest'],
+            )
+
     def test_gate_failure_does_not_unlock_search_or_repeat_evaluation(self):
         from galatea_mcp.errors import DomainError
         _, rid = self.baseline()

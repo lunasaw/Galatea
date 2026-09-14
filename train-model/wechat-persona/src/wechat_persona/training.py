@@ -96,18 +96,58 @@ def validate_training_readiness(config: Mapping[str, Any]) -> list[str]:
     for split in ("train", "validation", "test"):
         if counts and int(counts.get(split, 0)) <= 0:
             errors.append(f"dataset.{split} must be non-empty")
-    if dataset.get("formal_dataset_ready") is not True:
-        errors.append("dataset must be FORMAL_DATASET_READY")
-    if governance:
+    experimental_prelabel = (
+        governance.get("quality_status") == "experimental_only"
+        and governance.get("review_method") == "gpt-prelabel-v1"
+    )
+    if experimental_prelabel:
+        if dataset.get("experimental_prelabel_ready") is not True:
+            errors.append("experimental prelabel dataset must be ready")
+        if dataset.get("formal_dataset_ready") is not False:
+            errors.append("experimental prelabel dataset must not claim FORMAL_DATASET_READY")
+        if config.get("run", {}).get("role") not in {"baseline", "trial"}:
+            errors.append("experimental prelabel training is limited to baseline/trial")
+        if config.get("run", {}).get("promotable") is not False:
+            errors.append("experimental prelabel training must be non-promotable")
+        if config.get("evaluation", {}).get("test_access") != "untouched":
+            errors.append("experimental prelabel training must leave test untouched")
+        if config.get("evaluation", {}).get("evaluate_test") is not False:
+            errors.append("experimental prelabel training cannot evaluate test")
         required_true = (
-            "formal_training_eligible",
-            "human_review_completed",
+            "experimental_training_authorized",
+            "machine_review_completed",
+            "parent_human_review_completed",
             "pii_scan_passed",
             "canary_scan_passed",
         )
         for name in required_true:
             if governance.get(name) is not True:
                 errors.append(f"{name} must be true")
+        for name in ("formal_training_eligible", "human_review_completed"):
+            if governance.get(name) is not False:
+                errors.append(f"experimental prelabel {name} must be false")
+        for name in ("authorization_digest", "review_state_sha256"):
+            if not _is_sha(governance.get(name)):
+                errors.append(f"{name} must be a SHA-256 digest")
+        authorization_id = str(governance.get("authorization_id") or "")
+        authorization_digest = hashlib.sha256(
+            authorization_id.encode("utf-8")
+        ).hexdigest()
+        if not authorization_id or governance.get("authorization_digest") != authorization_digest:
+            errors.append("experimental training authorization identity mismatch")
+    elif dataset.get("formal_dataset_ready") is not True:
+        errors.append("dataset must be FORMAL_DATASET_READY")
+    if governance:
+        if not experimental_prelabel:
+            required_true = (
+                "formal_training_eligible",
+                "human_review_completed",
+                "pii_scan_passed",
+                "canary_scan_passed",
+            )
+            for name in required_true:
+                if governance.get(name) is not True:
+                    errors.append(f"{name} must be true")
         if governance.get("withdrawn") is True:
             errors.append("withdrawn dataset cannot train")
         if governance.get("cross_split_session_count", 0) != 0:
@@ -139,6 +179,34 @@ def validate_training_readiness(config: Mapping[str, Any]) -> list[str]:
             )
         except (ConsentError, OSError) as exc:
             errors.append(str(exc))
+    return sorted(set(errors))
+
+
+def validate_binding_identity(
+    binding: Mapping[str, Any], config: Mapping[str, Any]
+) -> list[str]:
+    """Ensure platform input identity matches the immutable embedded config."""
+
+    dataset = config.get("dataset", {})
+    evaluation = config.get("evaluation", {})
+    expected = {
+        "project_id": config.get("platform_project_id", config.get("project")),
+        "dataset_digest": dataset.get("manifest_sha256"),
+        "split_digest": dataset.get("split_sha256"),
+        "preprocessing": dataset.get("preprocessing_version"),
+        "role": config.get("run", {}).get("role"),
+        "seed": config.get("training", {}).get("seed"),
+    }
+    errors = [
+        f"binding {key} differs from embedded config"
+        for key, value in expected.items()
+        if binding.get(key) != value
+    ]
+    objective = binding.get("objective") or {}
+    if objective.get("metric") != evaluation.get("objective_metric"):
+        errors.append("binding objective metric differs from embedded config")
+    if objective.get("direction") != evaluation.get("objective_direction"):
+        errors.append("binding objective direction differs from embedded config")
     return sorted(set(errors))
 
 
@@ -728,6 +796,7 @@ def run_training(
 
     require_admission(admission, binding)
     errors = validate_training_readiness(config)
+    errors.extend(validate_binding_identity(binding, config))
     if errors:
         raise TrainingBoundaryError("training readiness failed: " + "; ".join(errors))
     role = str(binding["role"])

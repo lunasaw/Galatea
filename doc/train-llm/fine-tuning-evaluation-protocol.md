@@ -1,5 +1,7 @@
 # 开放式聊天微调评测方案
 
+> 当前主导航：[`2026-09-10-governed-llm-finetuning-complete-guide.md`](2026-09-10-governed-llm-finetuning-complete-guide.md)。本文是可复用评测专题协议；项目级实施顺序以项目主文档为准。
+
 > 状态：通用评测契约（可用于 Toy、公开数据和经授权的真实聊天项目）
 >
 > 版本：`eval-protocol-v1`；日期：2026-09-05
@@ -516,7 +518,7 @@ manifest、consent 引用、脱敏/泄漏报告和 split digest。预检失败�
 原子申请 `test_evaluation_id`，执行一次冻结 test；之后通过 Artifact API 在新进程 round-trip 校验。
 完成后归档 Run ID、manifest、报告、风险清单和删除/撤回引用，不自动修改生产 alias。
 
-正式、分布式或长时间运行优先使用参数化脚本/Ray Job；Driver 是父 MLflow Run 和共享 Artifact 的
+正式、分布式或长时间运行必须使用项目声明后端的固定参数化入口；Driver 是父 MLflow Run 和共享 Artifact 的
 唯一 owner，Worker 只计算和报告。中断恢复必须产生新的 attempt/Run，并通过 `resumed_from` 或
 `retry_of` 关联旧状态，不覆盖成功工件。
 
@@ -526,12 +528,12 @@ manifest、consent 引用、脱敏/泄漏报告和 split digest。预检失败�
 
 | 本协议部分 | 当前仓库落点 |
 | --- | --- |
-| 原始模型运行基线 | [`2026-09-05-project-0-1-qwen3-0.6b-baseline/`](2026-09-05-project-0-1-qwen3-0.6b-baseline/) |
-| Toy SFT、LoRA、split、test-once 和恢复 | [`2026-09-05-project-2-4-toy-lora-ray/`](2026-09-05-project-2-4-toy-lora-ray/) |
+| 原始模型运行基线 | [`llm-lora-playground/docs/README.md`](../../train-model/llm-lora-playground/docs/README.md) |
+| Toy SFT、LoRA、split、test-once 和恢复 | [`llm-lora-playground/docs/README.md`](../../train-model/llm-lora-playground/docs/README.md) |
 | 评测协议辅助函数 | [`evaluation.py`](../../train-model/llm-lora-playground/src/llm_lora_playground/evaluation.py) |
 | 三组评测命令入口 | [`scripts/evaluate.py`](../../train-model/llm-lora-playground/scripts/evaluate.py) |
 | 合成数据与 Toy 训练 | [`train-model/llm-lora-playground/`](../../train-model/llm-lora-playground/) |
-| 真实聊天数据授权、审核和 SFT 导出 | [`2026-09-05-wechat-dataset-processing-plan.md`](2026-09-05-wechat-dataset-processing-plan.md) |
+| 真实聊天数据授权、审核和 SFT 导出 | [`wechat-persona data preprocessing`](../../train-model/wechat-persona/docs/data-preprocessing.md) |
 
 当前 Toy 评测代码中的 `validation_loss`、非空和格式检查是契约起点；真正的 embedding、人工盲测、
 PII/canary 扫描和 challenge set 需要由具体项目实现并把版本、规则和结果写入 MLflow Artifact。

@@ -11,7 +11,12 @@ sys.path.insert(0, str(ROOT / "src"))
 from wechat_persona.binding import BindingError, verify_execution_binding
 from wechat_persona.driver import execute
 from wechat_persona.runtime import load_project_config
-from wechat_persona.training import _base_model_loader, build_training_plan, run_training
+from wechat_persona.training import (
+    _base_model_loader,
+    build_training_plan,
+    run_training,
+    validate_binding_identity,
+)
 
 
 class Context:
@@ -95,6 +100,45 @@ class TrainingBoundaryTests(unittest.TestCase):
                 conditional_loader=conditional_loader,
             ),
         )
+
+    def test_gpt_prelabel_baseline_is_non_promotable_and_ready(self):
+        config = load_project_config(ROOT / "configs/gpt-prelabel-v1-baseline.yaml")
+        plan = build_training_plan(config)
+        self.assertEqual("planned", plan["status"], plan["errors"])
+        self.assertFalse(config["dataset"]["formal_dataset_ready"])
+        self.assertFalse(config["governance"]["human_review_completed"])
+        self.assertFalse(config["governance"]["formal_training_eligible"])
+        self.assertFalse(config["run"]["promotable"])
+        self.assertEqual("untouched", plan["test_access"])
+
+    def test_gpt_prelabel_cannot_claim_promotion_or_human_review(self):
+        config = load_project_config(ROOT / "configs/gpt-prelabel-v1-baseline.yaml")
+        for replacement, expected in (
+            (
+                {"run": {**config["run"], "promotable": True}},
+                "experimental prelabel training must be non-promotable",
+            ),
+            (
+                {
+                    "governance": {
+                        **config["governance"],
+                        "human_review_completed": True,
+                    }
+                },
+                "experimental prelabel human_review_completed must be false",
+            ),
+            (
+                {
+                    "evaluation": {
+                        **config["evaluation"],
+                        "test_access": "evaluator-only",
+                    }
+                },
+                "experimental prelabel training must leave test untouched",
+            ),
+        ):
+            changed = {**config, **replacement}
+            self.assertIn(expected, build_training_plan(changed)["errors"])
 
     def test_unsigned_binding_enforces_role_views_and_deadline(self):
         raw = self.raw(packet())
@@ -189,6 +233,24 @@ class TrainingBoundaryTests(unittest.TestCase):
                 s3_client=object(),
                 mlflow_client=object(),
             )
+
+    def test_binding_identity_cannot_swap_dataset_or_role(self):
+        config = load_project_config(ROOT / "configs/formal-sft-v2-baseline.yaml")
+        value = packet()
+        value.update(
+            project_id="wechat-persona",
+            dataset_digest=config["dataset"]["manifest_sha256"],
+            split_digest=config["dataset"]["split_sha256"],
+            preprocessing=config["dataset"]["preprocessing_version"],
+            role="baseline",
+            seed=config["training"]["seed"],
+            objective={"metric": "val_loss", "direction": "min"},
+        )
+        self.assertEqual([], validate_binding_identity(value, config))
+        self.assertIn(
+            "binding dataset_digest differs from embedded config",
+            validate_binding_identity({**value, "dataset_digest": "0" * 64}, config),
+        )
 
     def test_direct_scripts_fail_closed(self):
         local = subprocess.run(

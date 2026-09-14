@@ -17,7 +17,8 @@ class ConfigContractTests(unittest.TestCase):
             "qwen3-1.7b-lora.yaml", "qlora-4b.yaml", "local-chat.yaml", "screenplay.yaml",
             "formal-sft-v2-baseline.yaml", "formal-sft-v2-trial.yaml",
             "formal-sft-v2-champion.yaml", "formal-sft-v2-champion-trial.yaml",
-            "formal-sft-v2-evaluate.yaml",
+            "formal-sft-v2-evaluate.yaml", "rag-private-hybrid.yaml",
+            "gpt-prelabel-v1-baseline.yaml",
         }
         self.assertEqual(expected, {p.name for p in (ROOT / "configs").glob("*.yaml")})
         for path in (ROOT / "configs").glob("*.yaml"):

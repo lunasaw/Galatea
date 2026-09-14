@@ -6,7 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "doc" / "train-llm"))
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parents[1] / "train-model" / "wechat-persona" / "scripts"),
+)
 
 from export_review_candidates import ExportContractError, export_review_dataset
 

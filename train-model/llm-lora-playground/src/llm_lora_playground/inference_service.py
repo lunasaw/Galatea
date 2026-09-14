@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -63,6 +64,7 @@ def validate_inference_binding(
         "GALATEA_SUBMISSION_ID": None,
         "GALATEA_EXECUTION_MODE": "governed-ray-serve-inference",
         "GALATEA_INFERENCE_AUTHORIZED": "true",
+        "RAYLLM_ENABLE_REQUEST_PROMPT_LOGS": "0",
     }
     missing: list[str] = []
     for key, expected in required.items():
@@ -103,6 +105,7 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
     service = values.get("service", {})
     model = values.get("model", {})
     generation = values.get("generation", {})
+    prompt = values.get("prompt", {})
     governance = values.get("governance", {})
     resources = values.get("resources", {})
     memory = values.get("memory", {})
@@ -150,8 +153,13 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
         errors.append("governance.role must be trial")
     if governance.get("promotable") is not False:
         errors.append("governance.promotable must be false")
-    if governance.get("test_access") != "untouched":
-        errors.append("governance.test_access must be untouched")
+    test_access = governance.get("test_access")
+    if test_access not in {"historical_test_included_in_memory_corpus", "untouched"}:
+        errors.append(
+            "governance.test_access must be historical_test_included_in_memory_corpus or untouched"
+        )
+    if governance.get("future_holdout_policy") != "post_index_temporal":
+        errors.append("governance.future_holdout_policy must be post_index_temporal")
     if resources.get("num_gpus") != 1 or resources.get("cpus") != 4 or resources.get("memory_gb") != 8:
         errors.append("resources must declare 1 GPU, 4 CPUs and 8 GiB")
     if generation.get("max_new_tokens", 0) <= 0 or generation.get("max_new_tokens", 0) > 128:
@@ -160,6 +168,8 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
         errors.append("generation.repetition_penalty must be at least 1")
     if generation.get("no_repeat_ngram_size", 0) < 0:
         errors.append("generation.no_repeat_ngram_size must be non-negative")
+    if not str(prompt.get("persona_system_prompt", "")).strip():
+        errors.append("prompt.persona_system_prompt is required")
     if memory:
         if memory.get("enabled") is not True:
             errors.append("memory.enabled must be true when memory configuration is present")
@@ -171,6 +181,36 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
             errors.append("memory.owner_scope_required must be true")
         if memory.get("allow_model_generated_writeback") is not False:
             errors.append("memory.allow_model_generated_writeback must be false")
+        if memory.get("backend") != "hybrid-bm25-bge":
+            errors.append("memory.backend must be hybrid-bm25-bge")
+        for key in (
+            "index_path",
+            "index_manifest_sha256",
+            "index_manifest_digest",
+            "candidate_path",
+            "candidate_sha256",
+            "embedding_model_path",
+            "embedding_model_revision",
+            "embedding_model_digest",
+            "fixed_owner_scope",
+            "max_results",
+            "max_context_chars",
+        ):
+            if key not in memory:
+                errors.append(f"memory.{key} is required")
+        if test_access == "untouched" and memory.get("historical_test_status") != "excluded_for_holdout":
+            errors.append(
+                "memory.historical_test_status must be excluded_for_holdout when test_access is untouched"
+            )
+        if not re.fullmatch(r"owner_[a-f0-9]{24}", str(memory.get("fixed_owner_scope", ""))):
+            errors.append("memory.fixed_owner_scope must be an opaque owner identifier")
+        for key in ("index_manifest_sha256", "index_manifest_digest", "candidate_sha256", "embedding_model_digest"):
+            if not re.fullmatch(r"[a-f0-9]{64}", str(memory.get(key, ""))):
+                errors.append(f"memory.{key} must be a lowercase SHA-256 digest")
+        if not 0 < int(memory.get("max_results", 0)) <= 8:
+            errors.append("memory.max_results must be in [1, 8]")
+        if not 256 <= int(memory.get("max_context_chars", 0)) <= 4096:
+            errors.append("memory.max_context_chars must be in [256, 4096]")
 
     for key in ("base_model_path", "adapter_path", "checkpoint_manifest_path"):
         value = model.get(key)
@@ -180,6 +220,21 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
                 errors.append(f"model.{key} does not exist: {path}")
             elif path.is_symlink():
                 errors.append(f"model.{key} must not be a symlink: {path}")
+    for key in ("index_path", "embedding_model_path"):
+        value = memory.get(key)
+        if value:
+            path = Path(str(value)).expanduser().resolve()
+            if not path.is_dir():
+                errors.append(f"memory.{key} is not a directory: {path}")
+            elif path.is_symlink():
+                errors.append(f"memory.{key} must not be a symlink: {path}")
+    candidate_value = memory.get("candidate_path")
+    if candidate_value:
+        candidate_path = Path(str(candidate_value)).expanduser().resolve()
+        if not candidate_path.is_file():
+            errors.append(f"memory.candidate_path is not a file: {candidate_path}")
+        elif candidate_path.is_symlink():
+            errors.append(f"memory.candidate_path must not be a symlink: {candidate_path}")
     if errors:
         raise InferenceContractError("; ".join(sorted(set(errors))))
 
@@ -220,6 +275,9 @@ def validate_inference_config(config_path: Path) -> dict[str, Any]:
         "adapter_config_sha256": sha256_file(adapter_config),
         "adapter_weights_sha256": sha256_file(adapter_weights),
         "adapter_architecture": adapter_architecture,
+        "memory_index_path": Path(str(memory["index_path"])).expanduser().resolve(),
+        "memory_candidate_path": Path(str(memory["candidate_path"])).expanduser().resolve(),
+        "embedding_model_path": Path(str(memory["embedding_model_path"])).expanduser().resolve(),
     }
 
 
@@ -312,7 +370,23 @@ def build_serving_manifest(preflight: dict[str, Any], submission_id: str, code_r
         "expected_architecture": model["expected_architecture"],
         "adapter_architecture": preflight.get("adapter_architecture"),
         "protocol": model["protocol"],
+        "prompt": {
+            "persona_system_prompt_sha256": hashlib.sha256(
+                str(values["prompt"]["persona_system_prompt"]).encode("utf-8")
+            ).hexdigest(),
+        },
         "governance": values["governance"],
+        "memory": {
+            "backend": values["memory"]["backend"],
+            "protocol_version": values["memory"]["protocol_version"],
+            "index_manifest_sha256": values["memory"]["index_manifest_sha256"],
+            "index_manifest_digest": values["memory"]["index_manifest_digest"],
+            "candidate_sha256": values["memory"]["candidate_sha256"],
+            "embedding_model_revision": values["memory"]["embedding_model_revision"],
+            "embedding_model_digest": values["memory"]["embedding_model_digest"],
+            "fixed_owner_scope": values["memory"]["fixed_owner_scope"],
+            "historical_test_status": values["memory"].get("historical_test_status"),
+        },
         "code_revision": code_revision,
         "status": "starting",
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -336,6 +410,8 @@ def create_deployment(preflight: dict[str, Any]):
     """Build the official Ray Serve LLM application backed by vLLM."""
 
     from ray.serve.llm import LLMConfig, LoraConfig, build_openai_app
+
+    from .rag_ingress import OpenAiIngress
 
     values = preflight["values"]
     model_values = values["model"]
@@ -370,7 +446,22 @@ def create_deployment(preflight: dict[str, Any]):
         },
         log_engine_metrics=False,
     )
-    app = build_openai_app({"llm_configs": [llm_config]})
+    memory_config = dict(values["memory"])
+    prompt_values = dict(values["prompt"])
+    app = build_openai_app({
+        "llm_configs": [llm_config],
+        "ingress_cls_config": {
+            "ingress_cls": OpenAiIngress,
+            "ingress_extra_kwargs": {
+                "memory_config": memory_config,
+                "persona_system_prompt": str(prompt_values["persona_system_prompt"]),
+            },
+        },
+        "ingress_deployment_config": {
+            "num_replicas": 1,
+            "autoscaling_config": None,
+        },
+    })
     # The official ingress discovers adapters as <base_id>:<lora_id>.
     preflight["official_model_id"] = f"{model_id}:{lora_id}"
     return app

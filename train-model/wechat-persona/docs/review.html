@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Persona Review · 私聊数据审核</title>
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #687783;
+      --line: #dfe6e9;
+      --paper: #f7f8f6;
+      --panel: #ffffff;
+      --navy: #17324d;
+      --blue: #2d6cdf;
+      --blue-soft: #eaf1ff;
+      --coral: #d85f4f;
+      --coral-soft: #fff0ed;
+      --green: #1e8061;
+      --green-soft: #e7f5ef;
+      --amber: #a86d18;
+      --amber-soft: #fff6df;
+      --shadow: 0 14px 36px rgba(23, 33, 43, .08);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--paper); min-width: 320px; }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .shell { min-height: 100vh; display: grid; grid-template-rows: 68px 1fr; }
+    header { background: var(--navy); color: #fff; display: flex; align-items: center; padding: 0 28px; justify-content: space-between; gap: 24px; }
+    .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
+    .brand-mark { width: 34px; height: 34px; border-radius: 8px; background: #f3c96d; color: var(--navy); display: grid; place-items: center; font-weight: 800; letter-spacing: 0; }
+    .brand h1 { margin: 0; font-size: 16px; letter-spacing: .2px; font-weight: 700; }
+    .brand p { margin: 3px 0 0; color: #b8c8d6; font-size: 12px; }
+    .header-actions { display: flex; align-items: center; gap: 10px; }
+    .header-actions label, .header-actions button { color: #fff; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); border-radius: 6px; padding: 8px 12px; font-size: 12px; }
+    .header-actions label:hover, .header-actions button:hover { background: rgba(255,255,255,.16); }
+    .header-actions input { display: none; }
+    .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px; gap: 20px; max-width: 1540px; width: 100%; margin: 0 auto; padding: 22px 24px 30px; }
+    aside, .review-card, .decision-panel, .empty-state { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+    aside { padding: 20px 18px; height: fit-content; position: sticky; top: 20px; }
+    .section-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; margin: 0 0 10px; }
+    .file-name { font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 16px; }
+    .meter { height: 7px; background: #edf0f1; border-radius: 99px; overflow: hidden; }
+    .meter > span { display: block; height: 100%; width: 0; background: var(--blue); transition: width .2s ease; }
+    .progress-line { display: flex; justify-content: space-between; align-items: baseline; margin: 9px 0 22px; }
+    .progress-line strong { font-size: 22px; }
+    .progress-line span { color: var(--muted); font-size: 12px; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 -18px 20px; padding: 14px 18px; gap: 16px 10px; }
+    .stat-value { display: block; font-weight: 750; font-size: 20px; }
+    .stat-label { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .filter-group { margin-bottom: 20px; }
+    .filter-group select, .filter-group input, .reviewer-field input, textarea, .edit-box textarea { width: 100%; border: 1px solid var(--line); background: #fbfcfc; color: var(--ink); border-radius: 6px; padding: 9px 10px; outline: none; }
+    .filter-group input:focus, .filter-group select:focus, .reviewer-field input:focus, textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+    .filter-group + .filter-group { margin-top: 12px; }
+    .import-note { font-size: 11px; line-height: 1.55; color: var(--muted); margin: 0; }
+    main { min-width: 0; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .toolbar-title { font-size: 13px; color: var(--muted); }
+    .toolbar-title strong { color: var(--ink); font-size: 15px; }
+    .toolbar-actions { display: flex; gap: 8px; }
+    .btn { border: 1px solid var(--line); color: var(--ink); background: #fff; border-radius: 6px; padding: 9px 13px; font-weight: 650; font-size: 12px; }
+    .btn:hover { border-color: #aab8c0; background: #f8fafb; }
+    .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btn.primary:hover { background: #255dc1; }
+    .btn:disabled { cursor: not-allowed; opacity: .46; }
+    .review-card { padding: 24px; min-height: 560px; }
+    .sample-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 17px; border-bottom: 1px solid var(--line); }
+    .sample-id { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .badge { border-radius: 99px; padding: 4px 8px; font-size: 11px; font-weight: 700; background: #eef2f4; color: #53636e; }
+    .badge.split { background: var(--blue-soft); color: #2956a1; }
+    .badge.keep { background: var(--green-soft); color: var(--green); }
+    .badge.reject { background: var(--coral-soft); color: var(--coral); }
+    .badge.uncertain { background: var(--amber-soft); color: var(--amber); }
+    .badge.machine { background: #f3eafa; color: #70429a; }
+    .conversation { display: grid; gap: 16px; padding: 24px 2px 12px; }
+    .turn { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 14px; align-items: start; }
+    .turn-role { font-size: 11px; color: var(--muted); font-weight: 750; text-transform: uppercase; letter-spacing: .08em; padding-top: 3px; }
+    .turn-body { white-space: pre-wrap; word-break: break-word; line-height: 1.7; font-size: 15px; }
+    .turn.user .turn-body { color: #304b60; background: #f1f5f7; border-left: 3px solid #9bb0bd; padding: 12px 14px; border-radius: 0 7px 7px 0; }
+    .turn.assistant .turn-body { color: #173d34; background: #eff8f3; border-left: 3px solid #4ba781; padding: 12px 14px; border-radius: 0 7px 7px 0; }
+    .empty-state { min-height: 560px; display: grid; place-items: center; text-align: center; padding: 50px; color: var(--muted); }
+    .empty-state strong { display: block; color: var(--ink); font-size: 20px; margin-bottom: 8px; }
+    .decision-panel { padding: 20px 18px; height: fit-content; position: sticky; top: 20px; }
+    .decision-panel h2 { font-size: 15px; margin: 0 0 4px; }
+    .panel-subtitle { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 0 0 18px; }
+    .reviewer-field { margin-bottom: 18px; }
+    .reviewer-field label, .field-label { display: block; color: var(--muted); font-size: 11px; font-weight: 700; margin-bottom: 7px; }
+    .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 18px; }
+    .choice { border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); padding: 10px 8px; font-size: 12px; font-weight: 700; text-align: left; }
+    .choice:hover { border-color: #9aa9b3; }
+    .choice.active.keep { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+    .choice.active.reject { border-color: var(--coral); background: var(--coral-soft); color: var(--coral); }
+    .choice.active.uncertain { border-color: var(--amber); background: var(--amber-soft); color: var(--amber); }
+    .choice.active.redact { border-color: var(--blue); background: var(--blue-soft); color: #2956a1; }
+    .field { margin-top: 14px; }
+    textarea { resize: vertical; min-height: 76px; line-height: 1.5; font-size: 12px; }
+    .reason-select { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; background: #fbfcfc; color: var(--ink); font-size: 12px; }
+    .edit-box { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .edit-box.visible { display: block; }
+    .edit-box textarea { min-height: 105px; }
+    .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 5px; margin-top: 12px; }
+    .checks label { display: flex; align-items: center; gap: 6px; color: #53636e; font-size: 11px; }
+    .checks input { accent-color: var(--blue); }
+    .panel-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 20px; }
+    .panel-actions .save { grid-column: 1 / -1; }
+    .nav-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .status-line { min-height: 18px; margin-top: 12px; font-size: 11px; color: var(--muted); }
+    .status-line.error { color: var(--coral); }
+    .status-line.ok { color: var(--green); }
+    .privacy-strip { grid-column: 1 / -1; border: 1px solid #cfe3da; background: #f0f8f4; color: #326b57; border-radius: 7px; padding: 10px 12px; font-size: 11px; line-height: 1.5; }
+    @media (max-width: 1120px) { .layout { grid-template-columns: 220px minmax(0, 1fr); } .decision-panel { grid-column: 2; position: static; } .privacy-strip { grid-column: 1 / -1; } }
+    @media (max-width: 760px) { header { padding: 0 15px; } .brand p { display: none; } .header-actions label, .header-actions button { padding: 7px 8px; } .layout { display: flex; flex-direction: column; padding: 13px; gap: 13px; } aside, .decision-panel { position: static; } .decision-panel { order: 3; } .review-card, .empty-state { min-height: 420px; padding: 17px; } .turn { grid-template-columns: 1fr; gap: 5px; } .turn-role { font-size: 10px; } .toolbar { align-items: flex-start; flex-direction: column; } .toolbar-actions { width: 100%; } .toolbar-actions .btn { flex: 1; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand">
+        <div class="brand-mark">PR</div>
+        <div><h1>Persona Review</h1><p>wechat-persona · 服务器精选审核工作台</p></div>
+      </div>
+      <div class="header-actions">
+        <button id="refresh-btn" type="button" title="重新从服务器读取精选数据">刷新数据</button>
+        <button id="clear-btn" type="button" title="清空当前浏览器视图">清空视图</button>
+      </div>
+    </header>
+    <div class="layout">
+      <aside>
+        <p class="section-label">数据源</p>
+        <div class="file-name" id="file-name">正在连接审核服务</div>
+        <div class="meter"><span id="progress-bar"></span></div>
+        <div class="progress-line"><strong id="progress-count">0 / 0</strong><span id="progress-percent">0%</span></div>
+        <div class="stats">
+          <div><span class="stat-value" id="keep-count">0</span><span class="stat-label">保留</span></div>
+          <div><span class="stat-value" id="reject-count">0</span><span class="stat-label">排除</span></div>
+          <div><span class="stat-value" id="uncertain-count">0</span><span class="stat-label">待复核</span></div>
+          <div><span class="stat-value" id="visible-count">0</span><span class="stat-label">当前页</span></div>
+        </div>
+        <div class="filter-group">
+          <p class="section-label">筛选</p>
+          <select id="split-filter"><option value="all">全部 split</option><option value="train">train</option><option value="validation">validation</option><option value="test">test</option></select>
+          <div class="filter-group"><select id="status-filter"><option value="all">全部状态</option><option value="uncertain">待复核</option><option value="keep">保留</option><option value="reject">排除</option><option value="redact_keep">脱敏后保留</option></select></div>
+          <div class="filter-group"><input id="search-filter" type="search" placeholder="搜索样本 ID 或内容"></div>
+        </div>
+        <p class="import-note">精选数据由审核服务自动提供；页面只请求当前审核目录，浏览器不会接触 test 数据。审核判定保存后写入服务器审计记录。</p>
+      </aside>
+
+      <main>
+        <div class="toolbar">
+          <div class="toolbar-title"><strong id="position-label">等待载入</strong><br><span id="category-label">选择一条样本开始</span></div>
+          <div class="toolbar-actions"><button class="btn" id="prev-top" type="button">上一条</button><button class="btn" id="next-top" type="button">下一条</button></div>
+        </div>
+        <section id="review-area" class="empty-state"><div><strong>正在载入服务器精选数据</strong><span>请稍候，页面会自动读取 train 和 validation</span></div></section>
+      </main>
+
+      <section class="decision-panel">
+        <h2>审核判定</h2>
+        <p class="panel-subtitle">判定会绑定样本 ID、原内容 hash、审核人和时间；导出事件不包含聊天正文。</p>
+        <div class="reviewer-field"><label for="reviewer">审核人标识</label><input id="reviewer" type="text" placeholder="例如 owner"></div>
+        <div class="choices" id="choices">
+          <button class="choice keep" data-status="keep" type="button" title="快捷键 1">保留</button>
+          <button class="choice reject" data-status="reject" type="button" title="快捷键 2">排除</button>
+          <button class="choice uncertain" data-status="uncertain" type="button" title="快捷键 3">待复核</button>
+          <button class="choice redact" data-status="redact_keep" type="button" title="快捷键 4">脱敏后保留</button>
+        </div>
+        <div class="field"><label class="field-label" for="reason">原因</label><select id="reason" class="reason-select"><option value="">选择原因</option><option value="useful_direct_response">直接回应且有用</option><option value="emotional_attunement">情绪承接自然</option><option value="caring_followup">关心或追问有价值</option><option value="practical_help">建议可执行</option><option value="playful_affection">亲密/调侃自然</option><option value="no_context">上下文不足或答非所问</option><option value="repetitive_template">重复模板</option><option value="too_short">过短或仅语气词</option><option value="private_fact_dependency">依赖未经确认的私人事实</option><option value="identity_boundary">真人身份暗示</option><option value="unsafe_or_controlling">控制、辱骂或依赖操纵</option><option value="third_party_or_sensitive">第三方或敏感内容</option><option value="other">其他</option></select></div>
+        <div class="field"><label class="field-label" for="notes">审核备注</label><textarea id="notes" placeholder="可选；不要粘贴新的私人信息"></textarea></div>
+        <div class="edit-box" id="edit-box"><label class="field-label" for="edited-reply">脱敏后的 assistant 回复</label><textarea id="edited-reply" placeholder="仅在需要保留时填写已脱敏的新回复"></textarea></div>
+        <div class="field"><span class="field-label">用途标签</span><div class="checks"><label><input type="checkbox" value="direct_response">直接回应</label><label><input type="checkbox" value="emotional_attunement">情绪承接</label><label><input type="checkbox" value="caring_followup">关心追问</label><label><input type="checkbox" value="practical_help">实用建议</label><label><input type="checkbox" value="playful_affection">自然调侃</label><label><input type="checkbox" value="relationship_context">人物关系</label><label><input type="checkbox" value="repair_boundary">边界修复</label></div></div>
+        <div class="panel-actions"><button class="btn primary save" id="save-btn" type="button">保存当前判定</button><button class="btn" id="export-events" type="button">导出审核事件</button><button class="btn" id="export-rows" type="button">导出脱敏行</button></div>
+        <div class="nav-actions"><button class="btn" id="prev-btn" type="button">上一条</button><button class="btn" id="next-btn" type="button">下一条</button></div>
+        <div class="status-line" id="status-line" aria-live="polite"></div>
+      </section>
+      <div class="privacy-strip">隐私边界：页面只通过当前 loopback/NAT 入口读取精选 train 和 validation，不提供 test；审核事件只含 ID、hash、状态、原因、审核人和时间，脱敏正文只在“脱敏后保留”成功后写入受控审核目录。</div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const state = {
+        rows: [],
+        decisions: new Map(),
+        drafts: new Map(),
+        index: -1,
+        offset: 0,
+        total: 0,
+        datasetTotal: 0,
+        pageSize: 32,
+        statusCounts: { keep: 0, reject: 0, uncertain: 0, redact_keep: 0 },
+        fileName: "",
+        loading: true,
+        serverReady: false,
+        filter: { split: "all", status: "all", search: "" }
+      };
+      const $ = (id) => document.getElementById(id);
+      const allowed = new Set(["keep", "reject", "uncertain", "redact_keep"]);
+      const els = {
+        refresh: $("refresh-btn"), clear: $("clear-btn"), fileName: $("file-name"),
+        bar: $("progress-bar"), count: $("progress-count"), percent: $("progress-percent"), keep: $("keep-count"),
+        reject: $("reject-count"), uncertain: $("uncertain-count"), visible: $("visible-count"), split: $("split-filter"),
+        status: $("status-filter"), search: $("search-filter"), area: $("review-area"), position: $("position-label"),
+        category: $("category-label"), reviewer: $("reviewer"), reason: $("reason"), notes: $("notes"), edited: $("edited-reply"),
+        editBox: $("edit-box"), save: $("save-btn"), exportEvents: $("export-events"), exportRows: $("export-rows"),
+        prev: $("prev-btn"), next: $("next-btn"), prevTop: $("prev-top"), nextTop: $("next-top"), message: $("status-line")
+      };
+      const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+      const normalize = (value) => String(value ?? "").normalize("NFKC").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+      const setMessage = (text, kind = "") => { els.message.textContent = text; els.message.className = `status-line ${kind}`; };
+      const valuesFromText = (text) => {
+        const trimmed = text.trim(); if (!trimmed) return [];
+        let values; try { values = trimmed.startsWith("[") ? JSON.parse(trimmed) : trimmed.split(/\n+/).filter(Boolean).map((line) => JSON.parse(line)); } catch (error) { throw new Error(`JSON/JSONL 解析失败：${error.message}`); }
+        return Array.isArray(values) ? values : [values];
+      };
+      const rowsFromText = (text) => valuesFromText(text).filter((row) => row && typeof row === "object" && typeof row.sample_id === "string" && Array.isArray(row.messages));
+      const current = () => state.index >= 0 ? state.rows[state.index] : null;
+      // Filtering and searching happen on the server. The browser only keeps
+      // the bounded page returned by the latest query.
+      const filteredRows = () => state.rows;
+      // Upstream curation labels and unsaved drafts are deliberately ignored by
+      // the list filters. A row leaves the current queue only after the server
+      // has accepted its decision.
+      const statusOf = (row) => state.decisions.get(row.sample_id)?.review_status || "uncertain";
+      const contentHash = async (row) => {
+        const content = (row.messages || []).map((item) => normalize(item.content)).join("\n");
+        const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
+        return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      };
+      const rowAssistant = (row) => [...(row.messages || [])].reverse().find((item) => item && item.role === "assistant");
+      const visibleMessages = (row) => (row.messages || []).filter((item) => item && ["system", "user", "assistant"].includes(item.role));
+      const isMachineDecision = (decision) => String(decision?.reviewer_id || "").startsWith("gpt-prelabel-");
+      const reasonRequired = (status) => status === "reject" || status === "redact_keep";
+      const selectedLabels = () => [...document.querySelectorAll(".checks input:checked")].map((input) => input.value);
+      const decisionFor = (row) => state.drafts.get(row.sample_id) || state.decisions.get(row.sample_id) || { review_status: "uncertain", review_reason: "", labels: [] };
+
+      class ApiError extends Error {
+        constructor(status, message) { super(message); this.status = status; }
+      }
+
+      async function fetchJson(path, options = {}) {
+        let response;
+        try {
+          response = await fetch(path, { cache: "no-store", ...options });
+        } catch (error) {
+          throw new ApiError(0, "无法连接审核服务，请确认服务已启动并通过 NAT/SSH 代理访问。");
+        }
+        const text = await response.text();
+        let value = {};
+        try { value = text ? JSON.parse(text) : {}; } catch (error) { value = {}; }
+        if (!response.ok) {
+          const detail = value.error || `HTTP ${response.status}`;
+          throw new ApiError(response.status, detail);
+        }
+        return value;
+      }
+
+      async function fetchPage(offset, targetIndex = 0) {
+        const query = new URLSearchParams({
+          split: state.filter.split,
+          offset: String(Math.max(0, offset)),
+          limit: String(state.pageSize),
+        });
+        if (state.filter.status !== "all") query.set("status", state.filter.status);
+        if (state.filter.search.trim()) query.set("search", state.filter.search.trim());
+        const page = await fetchJson(`./api/dataset?${query.toString()}`);
+        if (!page || !Array.isArray(page.rows) || !Number.isInteger(page.total)) {
+          throw new Error("审核服务返回了无效分页数据");
+        }
+        page.rows.forEach((row) => {
+          const rowSplit = row.metadata?.split;
+          if (!row || typeof row.sample_id !== "string" || !Array.isArray(row.messages) || !["train", "validation"].includes(rowSplit)) {
+            throw new Error("审核服务返回了无效样本");
+          }
+          if (state.filter.split !== "all" && rowSplit !== state.filter.split) {
+            throw new Error("审核服务返回了错误 split");
+          }
+        });
+        state.rows = page.rows;
+        state.offset = page.offset;
+        state.total = page.total;
+        state.index = page.rows.length ? Math.min(Math.max(targetIndex, 0), page.rows.length - 1) : -1;
+        return page;
+      }
+
+      const apiErrorMessage = (error) => {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          return "审核服务已找到，但当前代理未认证或无权访问；请先登录 Coder，或确认 SSH 隧道指向 127.0.0.1:51644。";
+        }
+        return error.message || "精选数据载入失败。";
+      };
+
+      async function loadPage(offset, targetIndex = 0) {
+        state.loading = true;
+        state.rows = [];
+        state.index = -1;
+        render();
+        setMessage("正在读取当前页…");
+        try {
+          const page = await fetchPage(offset, targetIndex);
+          state.loading = false;
+          state.serverReady = true;
+          render();
+          setMessage(`已载入当前页 ${page.rows.length} 条（共 ${page.total} 条匹配结果）。`, "ok");
+          return page;
+        } catch (error) {
+          state.loading = false;
+          state.rows = [];
+          state.offset = 0;
+          state.total = 0;
+          if (error instanceof ApiError && (error.status === 401 || error.status === 403)) state.serverReady = false;
+          render();
+          setMessage(apiErrorMessage(error), "error");
+          return null;
+        }
+      }
+
+      async function loadRemote() {
+        state.loading = true;
+        state.serverReady = false;
+        state.rows = [];
+        state.decisions.clear();
+        state.drafts.clear();
+        state.index = -1;
+        state.offset = 0;
+        state.total = 0;
+        state.datasetTotal = 0;
+        state.statusCounts = { keep: 0, reject: 0, uncertain: 0, redact_keep: 0 };
+        render();
+        setMessage("正在从审核服务读取精选 train 和 validation…");
+        try {
+          const bootstrap = await fetchJson("./api/bootstrap");
+          state.statusCounts = { ...state.statusCounts, ...(bootstrap.review?.status_counts || {}) };
+          state.datasetTotal = Object.values(bootstrap.dataset?.counts || {}).reduce((sum, count) => sum + (Number.isInteger(count) ? count : 0), 0);
+          const page = await fetchPage(0);
+          state.fileName = `服务器精选数据 · ${bootstrap.dataset?.curation_id || "当前版本"}`;
+          (bootstrap.decisions || []).forEach((event) => {
+            if (event.sample_id && allowed.has(event.review_status)) {
+              state.decisions.set(event.sample_id, event);
+            }
+          });
+          state.loading = false;
+          state.serverReady = true;
+          render();
+          const saved = state.decisions.size;
+          setMessage(`已载入第 1 页 ${page.rows.length} 条样本（共 ${page.total} 条匹配结果）；已恢复 ${saved} 条服务器决策。`, "ok");
+        } catch (error) {
+          state.loading = false;
+          state.serverReady = false;
+          state.rows = [];
+          state.offset = 0;
+          state.total = 0;
+          state.datasetTotal = 0;
+          state.statusCounts = { keep: 0, reject: 0, uncertain: 0, redact_keep: 0 };
+          state.index = -1;
+          render();
+          setMessage(apiErrorMessage(error), "error");
+        }
+      }
+
+      function updateStats() {
+        const counts = state.statusCounts;
+        const rows = filteredRows(); const done = counts.keep + counts.reject + counts.redact_keep;
+        els.keep.textContent = counts.keep + counts.redact_keep; els.reject.textContent = counts.reject; els.uncertain.textContent = counts.uncertain; els.visible.textContent = rows.length;
+        const overallTotal = state.datasetTotal || state.total;
+        els.count.textContent = `${overallTotal ? done : 0} / ${overallTotal}`; const pct = overallTotal ? Math.round((done / overallTotal) * 100) : 0; els.percent.textContent = `${pct}%`; els.bar.style.width = `${pct}%`;
+      }
+      function syncIndex(preferredId) {
+        const rows = filteredRows(); if (!rows.length) { state.index = -1; return; }
+        const found = preferredId ? rows.findIndex((row) => row.sample_id === preferredId) : -1;
+        state.index = found >= 0 ? found : Math.min(Math.max(state.index, 0), rows.length - 1);
+      }
+      function render() {
+        const rows = filteredRows(); syncIndex(current()?.sample_id); updateStats();
+        const row = rows[state.index]; const hasRow = Boolean(row); [els.save, els.exportEvents, els.exportRows, els.prev, els.next, els.prevTop, els.nextTop].forEach((button) => { button.disabled = state.loading || (!hasRow && button !== els.exportEvents && button !== els.exportRows); });
+        els.refresh.disabled = state.loading;
+        if (!hasRow) {
+          els.area.className = "empty-state";
+          const hasQuery = state.filter.split !== "all" || state.filter.status !== "all" || state.filter.search.trim();
+          const title = state.loading ? "正在载入服务器精选数据" : hasQuery || state.total ? "当前筛选没有结果" : state.serverReady ? "服务器没有可审核样本" : "无法自动载入精选数据";
+          const subtitle = state.loading ? "请稍候，页面只读取当前页" : hasQuery || state.total ? "调整左侧筛选条件" : state.serverReady ? "点击刷新数据重试" : "请确认审核服务、Coder 登录状态或 SSH 隧道";
+          els.area.innerHTML = `<div><strong>${title}</strong><span>${subtitle}</span></div>`;
+          els.position.textContent = state.loading ? "正在连接" : hasQuery || state.total ? "无匹配样本" : "等待服务";
+          els.category.textContent = "";
+          els.fileName.textContent = state.fileName || (state.loading ? "正在连接审核服务" : "审核服务不可用");
+          clearDecisionForm();
+          return;
+        }
+        const meta = row.metadata || {}; const decision = decisionFor(row); const messages = visibleMessages(row);
+        const machine = isMachineDecision(decision); const machineBadge = machine ? '<span class="badge machine">GPT预标</span>' : ''; const machineSuffix = machine ? " · GPT预标" : "";
+        els.position.textContent = `${state.offset + state.index + 1} / ${state.total}`; els.category.textContent = `${meta.split || "未标记 split"} · ${statusLabel(decision.review_status)}${machineSuffix}`; els.fileName.textContent = state.fileName || "已载入数据";
+        els.area.className = "review-card"; els.area.innerHTML = `<div class="sample-meta"><div class="sample-id" title="${esc(row.sample_id)}">${esc(row.sample_id)}</div><div class="badges"><span class="badge split">${esc(meta.split || "unknown")}</span><span class="badge ${esc(decision.review_status)}">${statusLabel(decision.review_status)}</span>${machineBadge}</div></div><div class="conversation">${messages.map((message) => `<div class="turn ${message.role === "assistant" ? "assistant" : message.role === "user" ? "user" : "system"}"><div class="turn-role">${roleLabel(message.role)}</div><div class="turn-body">${esc(message.content)}</div></div>`).join("")}</div>`;
+        loadDecisionForm(decision, row);
+      }
+      const statusLabel = (status) => ({ keep: "保留", reject: "排除", uncertain: "待复核", redact_keep: "脱敏后保留" }[status] || "待复核");
+      const roleLabel = (role) => ({ system: "策略", user: "用户", assistant: "回复" }[role] || role);
+      function clearDecisionForm() { document.querySelectorAll(".choice").forEach((button) => button.classList.remove("active")); els.reason.value = ""; els.notes.value = ""; els.edited.value = ""; els.editBox.classList.remove("visible"); document.querySelectorAll(".checks input").forEach((input) => { input.checked = false; }); }
+      function loadDecisionForm(decision, row) { document.querySelectorAll(".choice").forEach((button) => button.classList.toggle("active", button.dataset.status === decision.review_status)); els.reason.value = decision.review_reason || ""; els.notes.value = decision.notes || ""; els.edited.value = decision.edited_reply || rowAssistant(row)?.content || ""; els.editBox.classList.toggle("visible", decision.review_status === "redact_keep"); const labels = new Set(decision.labels || []); document.querySelectorAll(".checks input").forEach((input) => { input.checked = labels.has(input.value); }); }
+      function chooseStatus(status) { if (!current()) return; const row = current(); const old = decisionFor(row); const draft = { ...old, review_status: status }; state.drafts.set(row.sample_id, draft); loadDecisionForm(draft, row); setMessage(`已选择“${statusLabel(status)}”，点击保存写入审核记录。`); }
+      async function saveCurrent() {
+        const row = current(); if (!row) return; const reviewer = els.reviewer.value.trim(); const status = document.querySelector(".choice.active")?.dataset.status;
+        if (!reviewer) return setMessage("请先填写审核人标识。", "error"); if (!status || !allowed.has(status)) return setMessage("请选择审核判定。", "error");
+        const reason = els.reason.value; if (reasonRequired(status) && !reason) return setMessage("排除或脱敏后保留必须选择原因。", "error");
+        const editedReply = els.edited.value.trim(); if (status === "redact_keep" && !editedReply) return setMessage("脱敏后保留必须填写新的 assistant 回复。", "error");
+        const originalHash = row.metadata?.content_sha256 || await contentHash(row);
+        const payload = { sample_id: row.sample_id, session_id: row.session_id || "", review_status: status, reviewer_id: reviewer, review_reason: reason || null, content_sha256: originalHash, notes: els.notes.value.trim() || null, labels: selectedLabels(), edited_reply: status === "redact_keep" ? editedReply : null };
+        els.save.disabled = true;
+        setMessage("正在写入服务器审核记录…");
+        try {
+          const result = await fetchJson("./api/decision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          if (!result.event || result.event.sample_id !== row.sample_id) throw new Error("审核服务返回了无效事件");
+          const previousStatus = state.decisions.get(row.sample_id)?.review_status || "uncertain";
+          if (state.statusCounts[previousStatus] !== undefined) state.statusCounts[previousStatus] = Math.max(0, state.statusCounts[previousStatus] - 1);
+          if (state.statusCounts[result.event.review_status] !== undefined) state.statusCounts[result.event.review_status] += 1;
+          state.decisions.set(row.sample_id, result.event);
+          state.drafts.delete(row.sample_id);
+          render();
+          setMessage("已保存当前判定并写入服务器审计记录。", "ok");
+        } catch (error) {
+          setMessage(error instanceof ApiError && (error.status === 401 || error.status === 403) ? "审核服务拒绝了保存请求，请检查代理认证。" : `保存失败：${error.message}`, "error");
+        } finally {
+          els.save.disabled = false;
+        }
+      }
+      async function move(step) {
+        if (state.loading || !state.rows.length) return;
+        const nextIndex = state.index + step;
+        if (nextIndex >= 0 && nextIndex < state.rows.length) {
+          state.index = nextIndex;
+          render();
+          return;
+        }
+        if (step > 0 && state.offset + state.rows.length < state.total) {
+          await loadPage(state.offset + state.pageSize, 0);
+        } else if (step < 0 && state.offset > 0) {
+          await loadPage(Math.max(0, state.offset - state.pageSize), state.pageSize - 1);
+        }
+      }
+      function download(name, text, mime = "application/jsonl") { const blob = new Blob([text], { type: `${mime};charset=utf-8` }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
+      function exportEvents() { const events = [...state.decisions.values()].filter((event) => allowed.has(event.review_status)); if (!events.length) return setMessage("还没有可导出的审核事件。", "error"); const clean = events.map(({ sample_id, session_id, review_status, reviewer_id, reviewed_at, review_reason, content_sha256, redacted_content_sha256 }) => ({ sample_id, session_id, review_status, reviewer_id, reviewed_at, review_reason, content_sha256, redacted_content_sha256 })); download("review-events.jsonl", clean.map((row) => JSON.stringify(row)).join("\n") + "\n"); setMessage(`已导出 ${clean.length} 条 hash-only 审核事件。`, "ok"); }
+      function exportRows() { const rows = state.rows.filter((row) => state.decisions.get(row.sample_id)?.review_status === "redact_keep").map((row) => { const event = state.decisions.get(row.sample_id); const copy = JSON.parse(JSON.stringify(row)); const assistant = rowAssistant(copy); if (assistant && event.edited_reply) assistant.content = event.edited_reply; copy.metadata = { ...(copy.metadata || {}), review_status: "redact_keep", reviewer_id: event.reviewer_id, reviewed_at: event.reviewed_at, review_reason: event.review_reason, redacted_content_sha256: event.redacted_content_sha256 }; return copy; }); if (!rows.length) return setMessage("没有待导出的脱敏编辑行。", "error"); download("reviewed-rows.jsonl", rows.map((row) => JSON.stringify(row)).join("\n") + "\n"); setMessage(`已导出 ${rows.length} 条脱敏编辑行。`, "ok"); }
+      els.refresh.addEventListener("click", () => { void loadRemote(); });
+      els.clear.addEventListener("click", () => { state.rows = []; state.decisions.clear(); state.drafts.clear(); state.index = -1; state.offset = 0; state.total = 0; state.datasetTotal = 0; state.statusCounts = { keep: 0, reject: 0, uncertain: 0, redact_keep: 0 }; state.fileName = ""; state.serverReady = false; render(); setMessage("已清空当前浏览器视图；点击“刷新数据”重新载入。", "ok"); });
+      [els.split, els.status].forEach((input) => input.addEventListener("change", () => { state.filter[input === els.split ? "split" : "status"] = input.value; void loadPage(0); }));
+      let searchTimer = 0;
+      els.search.addEventListener("input", () => { state.filter.search = els.search.value; window.clearTimeout(searchTimer); searchTimer = window.setTimeout(() => { void loadPage(0); }, 250); });
+      document.querySelectorAll(".choice").forEach((button) => button.addEventListener("click", () => chooseStatus(button.dataset.status)));
+      els.save.addEventListener("click", saveCurrent); els.prev.addEventListener("click", () => move(-1)); els.next.addEventListener("click", () => move(1)); els.prevTop.addEventListener("click", () => move(-1)); els.nextTop.addEventListener("click", () => move(1)); els.exportEvents.addEventListener("click", exportEvents); els.exportRows.addEventListener("click", exportRows);
+      document.addEventListener("keydown", (event) => { if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return; if (event.key.toLowerCase() === "j") move(1); else if (event.key.toLowerCase() === "k") move(-1); else if (event.key === "1") chooseStatus("keep"); else if (event.key === "2") chooseStatus("reject"); else if (event.key === "3") chooseStatus("uncertain"); else if (event.key === "4") chooseStatus("redact_keep"); else if (event.key === "Enter") saveCurrent(); });
+      render();
+      loadRemote();
+    })();
+  </script>
+</body>
+</html>

@@ -19,10 +19,13 @@ class InferenceServiceContractTests(unittest.TestCase):
         self.assertEqual(values["model"]["source_mlflow_run_id"], "fd1509c6b1824132941f9909b022fa68")
         self.assertEqual(values["governance"]["role"], "trial")
         self.assertFalse(values["governance"]["promotable"])
-        self.assertEqual(values["governance"]["test_access"], "untouched")
+        self.assertEqual(values["governance"]["test_access"], "historical_test_included_in_memory_corpus")
+        self.assertEqual(values["governance"]["future_holdout_policy"], "post_index_temporal")
         self.assertEqual(values["model"]["engine"], "ray-serve-llm-vllm")
         self.assertEqual(values["model"]["expected_architecture"], "qwen3_5_conditional_generation")
+        self.assertIn("像女友一样聊天", values["prompt"]["persona_system_prompt"])
         self.assertTrue(values["model"]["lora_loading_path"].startswith("s3://"))
+        self.assertEqual(values["memory"]["backend"], "hybrid-bm25-bge")
         self.assertEqual(len(result["model_manifest_sha256"]), 64)
 
     def test_config_rejects_public_bind(self):
@@ -66,8 +69,23 @@ class InferenceServiceContractTests(unittest.TestCase):
             "GALATEA_SUBMISSION_ID": "llm-lora-inference-test",
             "GALATEA_EXECUTION_MODE": "governed-ray-serve-inference",
             "GALATEA_INFERENCE_AUTHORIZED": "true",
+            "RAYLLM_ENABLE_REQUEST_PROMPT_LOGS": "0",
         })
         self.assertEqual(binding["release_id"], "2f43042e31363a149af2")
+
+    def test_inference_rejects_prompt_logging(self):
+        environment = {
+            "GALATEA_PROJECT": "llm-lora-playground",
+            "GALATEA_RELEASE_ID": "2f43042e31363a149af2",
+            "GALATEA_READINESS_DIGEST": "sha256:" + "a" * 64,
+            "GALATEA_EXECUTION_IDENTITY": "sha256:" + "b" * 64,
+            "GALATEA_SUBMISSION_ID": "llm-lora-inference-test",
+            "GALATEA_EXECUTION_MODE": "governed-ray-serve-inference",
+            "GALATEA_INFERENCE_AUTHORIZED": "true",
+            "RAYLLM_ENABLE_REQUEST_PROMPT_LOGS": "1",
+        }
+        with self.assertRaisesRegex(ValueError, "RAYLLM_ENABLE_REQUEST_PROMPT_LOGS"):
+            validate_inference_binding(environment=environment)
 
 
 if __name__ == "__main__":

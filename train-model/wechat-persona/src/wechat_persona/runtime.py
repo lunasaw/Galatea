@@ -60,6 +60,11 @@ def validate_project_config(config: Mapping[str, Any], *, raise_on_error: bool =
         errors.append("schema_version must be wechat-persona-config-v1")
     if values.get("project") != "wechat-persona":
         errors.append("project must be wechat-persona")
+    platform_project_id = values.get("platform_project_id")
+    if platform_project_id is not None and not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", str(platform_project_id)
+    ):
+        errors.append("platform_project_id has an invalid format")
     task = values.get("task")
     allowed_tasks = {"data_engineering", "memory_rag", "causal-language-model-sft-lora", "capacity_comparison", "local_prototype", "screenplay_generation"}
     if task not in allowed_tasks:

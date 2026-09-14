@@ -34,7 +34,8 @@ class MemoryTests(unittest.TestCase):
 
     def test_grounded_prompt_has_no_evidence_boundary(self):
         messages = build_grounded_messages("我姐在哪里上学？", [])
-        self.assertIn("无相关且已确认的记忆", messages[1]["content"])
+        self.assertEqual([message["role"] for message in messages], ["system", "user"])
+        self.assertIn("无相关且已确认的记忆", messages[0]["content"])
         self.assertIn("memory_grounded_reply", messages[0]["content"])
 
     def test_challenge_set_covers_safety_cases(self):

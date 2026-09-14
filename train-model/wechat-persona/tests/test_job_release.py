@@ -76,6 +76,8 @@ class JobReleaseTests(unittest.TestCase):
                 {"formal-sft-v2-champion", "formal-sft-v2-champion-trial"},
                 set(champion.config_ids),
             )
+            self.assertFalse(project.configs["formal-sft-v2-baseline"].promotable)
+            self.assertTrue(project.configs["formal-sft-v2-champion"].promotable)
             for path in files.values():
                 self.assertEqual(stat.S_IRUSR | stat.S_IWUSR, stat.S_IMODE(path.stat().st_mode))
 

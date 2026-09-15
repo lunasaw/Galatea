@@ -1,0 +1,281 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "wechat-persona · 训练与验收方案",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "preparation",
+      "label": "数据与授权"
+    },
+    {
+      "id": "governed-execution",
+      "label": "受治理执行"
+    },
+    {
+      "id": "acceptance",
+      "label": "验收与启用"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "consent-review",
+      "lane": "preparation",
+      "col": 0,
+      "type": "security",
+      "label": "授权与人工审核",
+      "sublabel": "用途核验 · 脱敏 · 审核",
+      "width": 184
+    },
+    {
+      "id": "immutable-data",
+      "lane": "preparation",
+      "col": 1,
+      "type": "database",
+      "label": "冻结数据与切分",
+      "sublabel": "数据摘要 · session 隔离",
+      "width": 184
+    },
+    {
+      "id": "immutable-release",
+      "lane": "preparation",
+      "col": 2,
+      "type": "backend",
+      "label": "不可变 Release",
+      "sublabel": "固定代码 · 配置 · 环境",
+      "width": 184
+    },
+    {
+      "id": "readiness-auth",
+      "lane": "preparation",
+      "col": 3,
+      "type": "security",
+      "label": "Galatea 计划与授权",
+      "sublabel": "readiness · 资源 · 角色",
+      "width": 184
+    },
+    {
+      "id": "fixed-driver",
+      "lane": "governed-execution",
+      "col": 3,
+      "type": "cloud",
+      "label": "固定 Ray Driver",
+      "sublabel": "校验运行绑定 · 父 Run",
+      "tag": "当前真实执行待接入",
+      "width": 184
+    },
+    {
+      "id": "fit-validation",
+      "lane": "governed-execution",
+      "col": 2,
+      "type": "backend",
+      "label": "训练与验证选优",
+      "sublabel": "LoRA · 五组冻结对照",
+      "width": 184
+    },
+    {
+      "id": "artifact-verification",
+      "lane": "governed-execution",
+      "col": 1,
+      "type": "database",
+      "label": "物料发布与回读",
+      "sublabel": "MLflow API · SHA-256",
+      "width": 184
+    },
+    {
+      "id": "candidate-freeze",
+      "lane": "governed-execution",
+      "col": 0,
+      "type": "security",
+      "label": "冻结候选与协议",
+      "sublabel": "仅使用 validation 证据",
+      "width": 184
+    },
+    {
+      "id": "test-once",
+      "lane": "acceptance",
+      "col": 0,
+      "type": "security",
+      "label": "最终测试一次",
+      "sublabel": "绑定 freeze_id 与声明",
+      "width": 184
+    },
+    {
+      "id": "human-approval",
+      "lane": "acceptance",
+      "col": 1,
+      "type": "security",
+      "label": "质量与人工安全审核",
+      "sublabel": "偏好胜率 · 隐私 · 行为",
+      "width": 184
+    },
+    {
+      "id": "prototype-enable",
+      "lane": "acceptance",
+      "col": 2,
+      "type": "frontend",
+      "label": "启用本地原型",
+      "sublabel": "候选身份一致 · 未撤回",
+      "width": 184
+    }
+  ],
+  "edges": [
+    {
+      "id": "review-to-data",
+      "from": "consent-review",
+      "to": "immutable-data",
+      "label": "审核通过",
+      "role": "main"
+    },
+    {
+      "id": "data-to-release",
+      "from": "immutable-data",
+      "to": "immutable-release",
+      "label": "固定输入",
+      "role": "main"
+    },
+    {
+      "id": "release-to-auth",
+      "from": "immutable-release",
+      "to": "readiness-auth",
+      "label": "校验就绪",
+      "role": "main"
+    },
+    {
+      "id": "auth-to-driver",
+      "from": "readiness-auth",
+      "to": "fixed-driver",
+      "label": "授权提交",
+      "role": "main",
+      "variant": "emphasis"
+    },
+    {
+      "id": "driver-to-fit",
+      "from": "fixed-driver",
+      "to": "fit-validation",
+      "label": "统一执行",
+      "role": "main"
+    },
+    {
+      "id": "fit-to-artifacts",
+      "from": "fit-validation",
+      "to": "artifact-verification",
+      "label": "发布证据",
+      "role": "main"
+    },
+    {
+      "id": "artifacts-to-freeze",
+      "from": "artifact-verification",
+      "to": "candidate-freeze",
+      "label": "摘要验证",
+      "role": "main"
+    },
+    {
+      "id": "freeze-to-test",
+      "from": "candidate-freeze",
+      "to": "test-once",
+      "label": "一次性声明",
+      "role": "main",
+      "variant": "security"
+    },
+    {
+      "id": "test-to-approval",
+      "from": "test-once",
+      "to": "human-approval",
+      "label": "汇总验收",
+      "role": "main"
+    },
+    {
+      "id": "approval-to-prototype",
+      "from": "human-approval",
+      "to": "prototype-enable",
+      "label": "显式启用",
+      "role": "main"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "这是目标闭环",
+      "items": [
+        "现有代码提供检查、阻断与评估辅助函数",
+        "真实 Driver、训练和正式证据尚待接通"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "失败与撤回",
+      "items": [
+        "任一门禁失败即停止后续执行",
+        "撤回需使下游数据、索引和模型失效"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "统一执行原则",
+      "items": [
+        "Smoke / Trial / Champion 使用相同架构",
+        "test 不参与调参；模型推广需单独审核"
+      ]
+    }
+  ],
+  "semanticChecks": {
+    "allowedRoots": [
+      "consent-review"
+    ],
+    "allowedTerminals": [
+      "prototype-enable"
+    ],
+    "requiredEdges": [
+      {
+        "from": "consent-review",
+        "to": "immutable-data"
+      },
+      {
+        "from": "immutable-data",
+        "to": "immutable-release"
+      },
+      {
+        "from": "immutable-release",
+        "to": "readiness-auth"
+      },
+      {
+        "from": "readiness-auth",
+        "to": "fixed-driver"
+      },
+      {
+        "from": "fixed-driver",
+        "to": "fit-validation"
+      },
+      {
+        "from": "fit-validation",
+        "to": "artifact-verification"
+      },
+      {
+        "from": "artifact-verification",
+        "to": "candidate-freeze"
+      },
+      {
+        "from": "candidate-freeze",
+        "to": "test-once"
+      },
+      {
+        "from": "test-once",
+        "to": "human-approval"
+      },
+      {
+        "from": "human-approval",
+        "to": "prototype-enable"
+      }
+    ],
+    "requiredPaths": [
+      {
+        "from": "consent-review",
+        "to": "prototype-enable"
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "workflow",
+  "input": "/Users/weidian/project/luna/Galatea/train-model/wechat-persona/doc/diagrams/governed-workflow.json",
+  "output": "/Users/weidian/project/luna/Galatea/train-model/wechat-persona/doc/governed-workflow.html",
+  "specification": {
+    "sha256": "52e9131baddfe2996c4bb2309cb5ed750e307b2048095707000ee9175382c0e3",
+    "bytes": 6415
+  },
+  "artifact": {
+    "sha256": "829653bd5679dd041b14f0d66433bb53778d92292051b4b159a488ade6f6eba5",
+    "bytes": 718677
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

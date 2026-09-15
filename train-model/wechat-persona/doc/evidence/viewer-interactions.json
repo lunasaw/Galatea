@@ -1,0 +1,25 @@
+{
+  "evidenceKind": "supplementary-browser",
+  "checked_at": "2026-09-15",
+  "scope": "Search Ray, select result, Escape, native SVG download; structural export check only",
+  "results": [
+    {
+      "artifact": "system-architecture.html",
+      "sha256": "1b03350c582329676617d7ebdc2934b305d2464f64b0725fc85014a143e3c2d4",
+      "search_focus_activated": true,
+      "search_closed_after_escape": true,
+      "svg_export_clean_structure": true,
+      "export_bytes": 59736,
+      "page_errors": []
+    },
+    {
+      "artifact": "governed-workflow.html",
+      "sha256": "829653bd5679dd041b14f0d66433bb53778d92292051b4b159a488ade6f6eba5",
+      "search_focus_activated": true,
+      "search_closed_after_escape": true,
+      "svg_export_clean_structure": true,
+      "export_bytes": 61776,
+      "page_errors": []
+    }
+  ]
+}

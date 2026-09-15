@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "wechat-persona · 项目架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1160,
+      560
+    ]
+  },
+  "components": [
+    {
+      "id": "authorized-export",
+      "type": "external",
+      "label": "授权聊天导出",
+      "sublabel": "TXT / CSV / JSON / HTML",
+      "tag": "本地输入",
+      "pos": [
+        60,
+        40
+      ],
+      "size": [
+        240,
+        82
+      ]
+    },
+    {
+      "id": "data-pipeline",
+      "type": "backend",
+      "label": "导入与数据工程",
+      "sublabel": "脱敏 · 会话 · 时间切分",
+      "tag": "已实现",
+      "pos": [
+        450,
+        40
+      ],
+      "size": [
+        240,
+        82
+      ]
+    },
+    {
+      "id": "reviewed-snapshot",
+      "type": "database",
+      "label": "人工审核与数据快照",
+      "sublabel": "SFT 样本 · 来源与摘要",
+      "tag": "导出门禁已实现",
+      "pos": [
+        840,
+        40
+      ],
+      "size": [
+        240,
+        82
+      ]
+    },
+    {
+      "id": "withdrawal-control",
+      "type": "security",
+      "label": "撤回与删除",
+      "sublabel": "来源血缘 · 删除回执",
+      "tag": "已实现基础接口",
+      "pos": [
+        60,
+        220
+      ],
+      "size": [
+        240,
+        82
+      ]
+    },
+    {
+      "id": "memory-retrieval",
+      "type": "database",
+      "label": "关系记忆与检索",
+      "sublabel": "BM25 / embedding · 按人隔离",
+      "tag": "库已实现 · CLI 仅计划",
+      "pos": [
+        450,
+        220
+      ],
+      "size": [
+        240,
+        82
+      ]
+    },
+    {
+      "id": "governed-training",
+      "type": "cloud",
+      "label": "Galatea → Ray Driver",
+      "sublabel": "Release · LoRA 风格适配",
+      "tag": "边界已实现 · 训练待接入",
+      "pos": [
+        840,
+        220
+      ],
+      "size": [
+        240,
+        82
+      ]
+    },
+    {
+      "id": "screenplay-prototype",
+      "type": "frontend",
+      "label": "事件卡与文本脚本",
+      "sublabel": "分场 · 时间码 · 改写占位",
+      "tag": "结构化原型",
+      "pos": [
+        60,
+        400
+      ],
+      "size": [
+        240,
+        82
+      ]
+    },
+    {
+      "id": "local-chat",
+      "type": "frontend",
+      "label": "本地聊天原型",
+      "sublabel": "AI 标识 · 输出检查 · 记忆开关",
+      "tag": "默认关闭 · 生成待接入",
+      "pos": [
+        450,
+        400
+      ],
+      "size": [
+        240,
+        82
+      ]
+    },
+    {
+      "id": "evaluation-evidence",
+      "type": "security",
+      "label": "评估与候选准入",
+      "sublabel": "五组对照 · 冻结 · test-once",
+      "tag": "契约已实现 · 正式证据待产出",
+      "pos": [
+        840,
+        400
+      ],
+      "size": [
+        240,
+        82
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "authorized-import",
+      "from": "authorized-export",
+      "to": "data-pipeline",
+      "label": "核验授权",
+      "variant": "emphasis"
+    },
+    {
+      "id": "review-export",
+      "from": "data-pipeline",
+      "to": "reviewed-snapshot",
+      "label": "审核后导出",
+      "variant": "emphasis"
+    },
+    {
+      "id": "snapshot-train",
+      "from": "reviewed-snapshot",
+      "to": "governed-training",
+      "label": "受治理训练",
+      "variant": "emphasis",
+      "labelDy": 60
+    },
+    {
+      "id": "training-evaluation",
+      "from": "governed-training",
+      "to": "evaluation-evidence",
+      "label": "验证集选优",
+      "variant": "emphasis",
+      "labelDy": 60
+    },
+    {
+      "id": "enable-runtime",
+      "from": "evaluation-evidence",
+      "to": "local-chat",
+      "label": "通过后启用",
+      "variant": "emphasis"
+    },
+    {
+      "id": "snapshot-memory",
+      "from": "reviewed-snapshot",
+      "to": "memory-retrieval",
+      "label": "记忆卡适配待接",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "top"
+    },
+    {
+      "id": "retrieval-chat",
+      "from": "memory-retrieval",
+      "to": "local-chat",
+      "label": "检索接线待完成",
+      "variant": "dashed",
+      "labelDy": 60
+    },
+    {
+      "id": "withdraw-memory",
+      "from": "withdrawal-control",
+      "to": "memory-retrieval",
+      "label": "删除并验证",
+      "variant": "security"
+    },
+    {
+      "id": "memory-events",
+      "from": "memory-retrieval",
+      "to": "screenplay-prototype",
+      "label": "事件卡适配待接",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "设计分工",
+      "items": [
+        "关系事实留在可删除记忆中",
+        "LoRA 只承担表达风格适配"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "当前边界",
+      "items": [
+        "图中箭头含目标集成关系；状态以节点为准",
+        "未验证真实训练、检索或生成质量"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "持久化方案",
+      "items": [
+        "私有文件置于 platform-data 受控目录",
+        "正式模型证据经 MLflow API / MinIO"
+      ]
+    }
+  ]
+}

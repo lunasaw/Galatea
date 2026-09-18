@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/daily-bundle-v1",
+  "title": "Daily Conversation Bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "day_id",
+    "timezone",
+    "owner_scope",
+    "source_manifest_sha256",
+    "sessions",
+    "bundle_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "daily-bundle-v1"},
+    "day_id": {"type": "string", "format": "date"},
+    "timezone": {"type": "string", "minLength": 1},
+    "owner_scope": {"type": "string", "pattern": "^owner_[a-f0-9]{24}$"},
+    "source_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "sessions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["session_id", "start_time", "end_time", "turns"],
+        "properties": {
+          "session_id": {"type": "string", "minLength": 1},
+          "start_time": {"type": "string", "format": "date-time"},
+          "end_time": {"type": "string", "format": "date-time"},
+          "turns": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["speaker_role", "messages"],
+              "properties": {
+                "speaker_role": {"enum": ["self", "target", "other", "unknown"]},
+                "messages": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["evidence_ref", "message_id_digest", "timestamp", "text"],
+                    "properties": {
+                      "evidence_ref": {"type": "string", "pattern": "^e_[a-f0-9]{20}$"},
+                      "message_id_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+                      "timestamp": {"type": "string", "format": "date-time"},
+                      "text": {"type": "string", "minLength": 1}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "bundle_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}
+

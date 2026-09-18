@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/fact-extraction-v1",
+  "title": "Atomic Fact Extraction Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "extraction_id",
+    "day_id",
+    "session_id",
+    "chunk_ordinal",
+    "fact_key",
+    "value",
+    "normalized_value",
+    "value_type",
+    "date_precision",
+    "date_basis",
+    "claim_type",
+    "polarity",
+    "confidence",
+    "aliases",
+    "evidence",
+    "unresolved_references",
+    "status",
+    "extractor_version",
+    "lineage_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "fact-extraction-v1"},
+    "extraction_id": {"type": "string", "pattern": "^extract_[a-f0-9]{20}$"},
+    "day_id": {"type": "string", "format": "date"},
+    "session_id": {"type": "string", "minLength": 1},
+    "chunk_ordinal": {"type": "integer", "minimum": 0},
+    "fact_key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$"},
+    "value": {"type": ["string", "number", "boolean"]},
+    "normalized_value": {"type": ["string", "number", "boolean"]},
+    "value_type": {"enum": ["date", "string", "number", "boolean"]},
+    "date_precision": {"enum": ["day", "month", "year", "unknown"]},
+    "date_basis": {"enum": ["explicit", "relative_resolved", "conversation_timestamp", "unknown"]},
+    "claim_type": {"enum": ["explicit", "relative", "quoted", "hypothetical", "inferred"]},
+    "polarity": {"enum": ["positive", "negative", "uncertain"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["evidence_ref", "quote"],
+        "properties": {
+          "evidence_ref": {"type": "string", "pattern": "^e_[a-f0-9]{20}$"},
+          "quote": {"type": "string", "minLength": 1, "maxLength": 240}
+        }
+      }
+    },
+    "unresolved_references": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "status": {"const": "candidate"},
+    "extractor_version": {"type": "string", "minLength": 1},
+    "lineage_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}
+

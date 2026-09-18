@@ -136,6 +136,7 @@ candidate freeze → test-once → 人工/安全审查。`LoRA_vs_PromptOnly_win
 - [女友语气 AI 助手端到端优化方案](girlfriend-assistant-optimization-plan.md)
 - [本地数据用途筛选页](review.html)
 - [当前数据预处理设计](data-preprocessing.md)
+- [按天上下文的事实与记忆预处理方案](daily-memory-extraction-plan.md)
 - [当前 governed execution plan](governed-execution-plan.md)
 - [跨项目外部记忆评测协议](../../../doc/train-llm/memory-grounded-evaluation-protocol.md)
 - [跨项目微调评测协议](../../../doc/train-llm/fine-tuning-evaluation-protocol.md)
@@ -166,3 +167,22 @@ ssh -N -L 56961:127.0.0.1:51644 <user>@<host>
 然后打开 `http://localhost:56961/review.html`。在已登录 Coder 的会话中，也可使用
 `https://coder.vdian.net/<workspace>/proxy/51644/review.html`；若显示 `401`，先完成 Coder 登录，
 不要改成公网绑定地址。
+
+### 事实候选审核页
+
+事实候选审核页读取一个不可变 daily-memory snapshot，并将人工判定单独写入受控 review workspace。
+它不会修改源快照、构建 confirmed cards 或 RAG 索引，也不会授予训练资格。启动当前快照：
+
+```bash
+/data/conda/envs/attend-ray-py312/bin/python \
+train-model/wechat-persona/scripts/serve_fact_review.py \
+  --snapshot-dir \
+    /srv/galatea-private/wechat-persona/memory-daily/daily-memory_20bb25fd1141dbe2cd86 \
+  --review-dir \
+    /srv/galatea-private/wechat-persona/memory-daily-reviews/daily-memory_20bb25fd1141dbe2cd86 \
+  --host 127.0.0.1 --port 51645
+```
+
+打开 `http://127.0.0.1:51645/fact-review.html`。远程访问应使用 SSH 端口转发或已认证的
+Coder proxy，禁止为了浏览器访问而改成公网监听。只读校验可在同一命令末尾增加 `--check`；该模式
+不创建 review workspace。

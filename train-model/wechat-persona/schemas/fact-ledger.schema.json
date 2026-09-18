@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/fact-ledger-v1",
+  "title": "Pending Fact Ledger Group",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fact_group_id",
+    "owner_scope",
+    "fact_key",
+    "aliases",
+    "candidates",
+    "conflict_status",
+    "review_status",
+    "confirmed_value",
+    "lineage_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "fact-ledger-v1"},
+    "fact_group_id": {"type": "string", "pattern": "^factgrp_[a-f0-9]{20}$"},
+    "owner_scope": {"type": "string", "pattern": "^owner_[a-f0-9]{24}$"},
+    "fact_key": {"type": "string", "minLength": 3},
+    "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "normalized_value",
+          "precision",
+          "evidence_refs",
+          "source_days",
+          "extraction_ids",
+          "claim_types",
+          "polarities",
+          "support_count"
+        ],
+        "properties": {
+          "normalized_value": {"type": ["string", "number", "boolean"]},
+          "precision": {"enum": ["day", "month", "year", "unknown"]},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "source_days": {"type": "array", "items": {"type": "string", "format": "date"}, "uniqueItems": true},
+          "extraction_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "claim_types": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "polarities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "support_count": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "conflict_status": {"enum": ["none", "conflicted", "insufficient"]},
+    "review_status": {"const": "pending"},
+    "confirmed_value": {"type": "null"},
+    "lineage_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

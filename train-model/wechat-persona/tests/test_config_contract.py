@@ -18,10 +18,20 @@ class ConfigContractTests(unittest.TestCase):
             "formal-sft-v2-baseline.yaml", "formal-sft-v2-trial.yaml",
             "formal-sft-v2-champion.yaml", "formal-sft-v2-champion-trial.yaml",
             "formal-sft-v2-evaluate.yaml", "rag-private-hybrid.yaml",
-            "gpt-prelabel-v1-baseline.yaml",
+            "gpt-prelabel-v1-baseline.yaml", "daily-memory-gpt-v1.yaml",
         }
         self.assertEqual(expected, {p.name for p in (ROOT / "configs").glob("*.yaml")})
         for path in (ROOT / "configs").glob("*.yaml"):
+            if path.name == "daily-memory-gpt-v1.yaml":
+                config = load_project_config(path)
+                self.assertEqual("wechat-persona-memory-daily-v1", config["schema_version"])
+                self.assertEqual("candidate", config["governance"]["result_status"])
+                self.assertFalse(config["governance"]["training_run"])
+                self.assertEqual(
+                    "compatible_constraints_v1",
+                    config["extraction"]["wire_schema_mode"],
+                )
+                continue
             self.assertEqual([], validate_project_config(load_project_config(path)), path.name)
 
     def test_training_config_requires_governed_backend_resources(self):

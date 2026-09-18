@@ -550,6 +550,7 @@ def main() -> int:
     )
     failures = 0
     processed = len(deterministic)
+    last_reported = processed
     buffered_payloads: list[dict[str, Any]] = []
     batches = [
         model_groups[index : index + settings.batch_size]
@@ -594,12 +595,13 @@ def main() -> int:
                     store, buffered_payloads, settings.save_batch_size
                 )
                 buffered_payloads = []
-            if (processed + failures) % 120 == 0 or processed + failures == len(groups):
+            handled = processed + failures
+            if handled - last_reported >= 120 or handled == len(groups):
                 print(
                     json.dumps(
                         {
                             "status": "progress",
-                            "processed": processed + failures,
+                            "processed": handled,
                             "saved": saved,
                             "failed": failures,
                             "total": len(groups),
@@ -609,6 +611,7 @@ def main() -> int:
                     ),
                     flush=True,
                 )
+                last_reported = handled
     saved += _save_in_batches(store, buffered_payloads, settings.save_batch_size)
     counts = store.bootstrap()["review"]["status_counts"]
     print(

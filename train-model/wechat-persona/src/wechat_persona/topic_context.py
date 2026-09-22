@@ -9,10 +9,9 @@ from typing import Any, Sequence
 from ._common import digest
 
 
-POLICY_VERSION = "prefix-topic-rules-v1"
-EXCHANGE_POLICY_VERSION = "prefix-topic-exchanges-v2"
-OPENER_POLICY_VERSION = "prefix-topic-openers-v3"
-POLICY_VERSIONS = {POLICY_VERSION, EXCHANGE_POLICY_VERSION, OPENER_POLICY_VERSION}
+TOPIC_STATE_POLICY_VERSION = "prefix-topic-rules-v1"
+POLICY_VERSION = "prefix-topic-openers-v3"
+POLICY_VERSIONS = {POLICY_VERSION}
 CATEGORIES = {
     "work": ("工作", "上班", "下班", "公司", "开会", "汇报", "项目", "加班", "老板"),
     "study": ("学习", "考试", "作业", "上课", "论文", "复习"),
@@ -113,7 +112,7 @@ def forward_topics(prefix: Sequence[Turn]) -> list[dict[str, Any]]:
                                and len(terms & _terms(prefix[state["turn_index"]].content)) >= 2), None)
         topic_id = linked["topic_id"] if linked else "topic_" + digest({
             "owner": turn.messages[0].owner_scope, "session": turn.messages[0].session_id,
-            "first_message": turn.ids[0], "policy": POLICY_VERSION,
+            "first_message": turn.ids[0], "policy": TOPIC_STATE_POLICY_VERSION,
         })[:24]
         if linked and not found:
             category = linked["topic_category"]
@@ -121,7 +120,7 @@ def forward_topics(prefix: Sequence[Turn]) -> list[dict[str, Any]]:
             "schema_version": "topic-segment-v1", "turn_index": index,
             "topic_id": topic_id, "topic_category": category,
             "message_ids": turn.ids, "observed_through": turn.ids[-1],
-            "policy_version": POLICY_VERSION,
+            "policy_version": TOPIC_STATE_POLICY_VERSION,
         })
     return states
 
@@ -251,14 +250,14 @@ def select_context(
         trial = selected | {index}
         if len(prompt_ids(tokenizer, system, [prefix[i] for i in sorted(trial)])) <= budget:
             selected = trial
-    if arm == "topic" and policy_version in {EXCHANGE_POLICY_VERSION, OPENER_POLICY_VERSION}:
+    if arm == "topic":
         selected = _select_exchanges(prefix, states, tokenizer, system, budget, max_turns,
-                                    allow_opening_target=policy_version == OPENER_POLICY_VERSION and prefix_complete_start)
+                                    allow_opening_target=prefix_complete_start)
     chosen = [prefix[i] for i in sorted(selected)]
     return chosen, {
         **latest, "selector_arm": arm,
-        **({"selector_policy_version": policy_version} if policy_version != POLICY_VERSION else {}),
-        **({"prefix_complete_start": prefix_complete_start} if policy_version == OPENER_POLICY_VERSION else {}),
+        "selector_policy_version": policy_version,
+        "prefix_complete_start": prefix_complete_start,
         "prefix_sha256": digest([{
             "ids": turn.ids, "role": turn.role, "content": turn.content,
             "references": [row.reply_to for row in turn.messages],

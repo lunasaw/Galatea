@@ -13,7 +13,7 @@ from wechat_persona.topic_candidates import build_pilot, load_policy
 
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--config',type=Path,default=ROOT/'configs/daily-topic-sft-v1.yaml')
+    parser.add_argument('--config', type=Path, default=ROOT / 'configs/daily-topic-sft.yaml')
     parser.add_argument('--reference-pilot', type=Path,
                         help='Freeze the previous target population; never backfill failures')
     for name in ('source','memory','consent','tokenizer-path','output-root','controlled-root'):

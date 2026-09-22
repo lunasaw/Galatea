@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from wechat_persona._common import digest
 from wechat_persona.reply_links import validate_references
 from wechat_persona.topic_candidates import build_candidate, freeze_target_attempts, load_policy, load_train_days
-from wechat_persona.topic_context import (AtomicMessage, EXCHANGE_POLICY_VERSION, OPENER_POLICY_VERSION,
+from wechat_persona.topic_context import (AtomicMessage, POLICY_VERSION,
     TopicContractError, Turn, exchange_dependencies, forward_topics, merge_turns, select_context)
 
 
@@ -39,7 +39,7 @@ def message(index, role, text, **kwargs):
 class TopicCandidateTests(unittest.TestCase):
     def setUp(self):
         self.tokenizer = CharacterTokenizer()
-        self.config = load_policy(ROOT / 'configs/daily-topic-sft-v1.yaml')
+        self.config = load_policy(ROOT / 'configs/daily-topic-sft.yaml')
         self.prefix = [Turn((message(0, 'self', '今天开会有点紧张。'),)),
                        Turn((message(1, 'target', '是要你做汇报吗？'),)),
                        Turn((message(2, 'self', '对，第一次讲这个项目。'),))]
@@ -68,9 +68,10 @@ class TopicCandidateTests(unittest.TestCase):
             self.candidate(target=target)
 
     def test_delayed_reply_unrecoverable_from_prefix_is_quarantined(self):
-        target=Turn((replace(self.target.messages[0],reply_to='m0'),))
+        prefix = [Turn((message(index, 'self', f'独立消息{index}。'),)) for index in range(18)]
+        target = Turn((replace(message(18, 'target', '延迟回复。'), reply_to='m0'),))
         with self.assertRaisesRegex(TopicContractError,'not_reconstructible_online'):
-            self.candidate(target=target)
+            self.candidate(prefix=prefix, target=target)
 
     def test_prefix_reference_keeps_earlier_question_for_delayed_reply(self):
         prefix=[*self.prefix[:-1],Turn((replace(self.prefix[-1].messages[0],reply_to='m0'),))]
@@ -141,14 +142,13 @@ class TopicCandidateTests(unittest.TestCase):
         row=self.candidate(target=Turn((replace(self.target.messages[0],content='好'),)))
         self.assertEqual(row['messages'][-1]['content'],'好')
 
-    def test_exchange_policy_restores_earlier_question_without_answer_access(self):
-        self.config = load_policy(ROOT / 'configs/daily-topic-sft-v2.yaml')
+    def test_current_policy_restores_earlier_question_without_answer_access(self):
         row = self.candidate()
         self.assertEqual(row['context_message_ids'], ['m0', 'm1', 'm2'])
         changed = self.candidate(target=Turn((replace(self.target.messages[0], content='换个完全无关的回答'),)))
         self.assertEqual(row['messages'][:-1], changed['messages'][:-1])
         self.assertEqual(row['topic'], changed['topic'])
-        self.assertEqual(row['topic']['selector_policy_version'], EXCHANGE_POLICY_VERSION)
+        self.assertEqual(row['topic']['selector_policy_version'], POLICY_VERSION)
 
     def test_reference_closure_is_transitive_and_keeps_historical_question(self):
         prefix = [Turn((message(0, 'self', '问题甲'),)),
@@ -159,28 +159,28 @@ class TopicCandidateTests(unittest.TestCase):
         self.assertEqual(exchange_dependencies(prefix, {4}), set(range(5)))
         with self.assertRaisesRegex(TopicContractError, 'required_context_over_budget'):
             select_context(prefix, self.tokenizer, system='系统', max_length=1024,
-                           target_reserve=256, max_turns=4, policy_version=EXCHANGE_POLICY_VERSION)
+                           target_reserve=256, max_turns=4, policy_version=POLICY_VERSION)
 
-    def test_v2_required_missing_or_future_reference_fails_closed(self):
+    def test_required_missing_or_future_reference_fails_closed(self):
         for reference in ('missing', 'm2'):
             prefix = [*self.prefix[:-1], Turn((replace(self.prefix[-1].messages[0], reply_to=reference),))]
             with self.assertRaisesRegex(TopicContractError, 'prefix_reference'):
                 select_context(prefix, self.tokenizer, system='系统', max_length=1024,
-                               target_reserve=256, policy_version=EXCHANGE_POLICY_VERSION)
+                               target_reserve=256, policy_version=POLICY_VERSION)
 
-    def test_v2_never_keeps_a_reply_without_its_overbudget_question(self):
+    def test_policy_never_keeps_a_reply_without_its_overbudget_question(self):
         prefix = [Turn((message(0, 'self', '问题'*2000),)),
                   Turn((message(1, 'target', '好'),)),
                   Turn((message(2, 'self', '新的问题'),))]
         chosen, _ = select_context(prefix, self.tokenizer, system='系统', max_length=200,
-                                  target_reserve=50, policy_version=EXCHANGE_POLICY_VERSION)
+                                  target_reserve=50, policy_version=POLICY_VERSION)
         self.assertEqual([turn.ids for turn in chosen], [['m2']])
 
-    def test_v2_recency_keeps_intervening_topic_and_returns_within_turn_budget(self):
+    def test_recency_keeps_intervening_topic_and_returns_within_turn_budget(self):
         prefix = [Turn((message(i, 'self' if i % 2 == 0 else 'target',
                                 '工作项目' if i in (0, 1, 8) else '晚饭吃什么'),)) for i in range(9)]
         chosen, _ = select_context(prefix, self.tokenizer, system='系统', max_length=1024,
-                                  target_reserve=256, max_turns=5, policy_version=EXCHANGE_POLICY_VERSION)
+                                  target_reserve=256, max_turns=5, policy_version=POLICY_VERSION)
         self.assertEqual([turn.ids for turn in chosen], [['m4'], ['m5'], ['m6'], ['m7'], ['m8']])
 
     def test_frozen_population_preserves_order_and_never_backfills_missing_target(self):
@@ -195,38 +195,29 @@ class TopicCandidateTests(unittest.TestCase):
         with self.assertRaisesRegex(TopicContractError, 'frozen target'):
             freeze_target_attempts(attempts, [mutated])
 
-    def test_v3_preserves_target_initiated_history_only_at_known_session_day_start(self):
+    def test_policy_preserves_target_initiated_history_only_at_known_session_day_start(self):
         prefix = [Turn((message(0, 'target', '明天汇报前我想再练一遍开头。'),)),
                   Turn((message(1, 'self', '几点开始？'),))]
-        config = load_policy(ROOT / 'configs/daily-topic-sft-v3.yaml')
         target = Turn((message(2, 'target', '九点开始。'),))
-        complete = build_candidate(prefix, target, self.tokenizer, config, prefix_complete_start=True)
-        clipped = build_candidate(prefix, target, self.tokenizer, config, prefix_complete_start=False)
+        complete = build_candidate(prefix, target, self.tokenizer, self.config, prefix_complete_start=True)
+        clipped = build_candidate(prefix, target, self.tokenizer, self.config, prefix_complete_start=False)
         self.assertEqual(complete['context_message_ids'], ['m0', 'm1'])
         self.assertEqual(clipped['context_message_ids'], ['m1'])
         changed = build_candidate(prefix, Turn((replace(target.messages[0], content='无关的其他回复'),)),
-                                  self.tokenizer, config, prefix_complete_start=True)
+                                  self.tokenizer, self.config, prefix_complete_start=True)
         self.assertEqual(complete['topic'], changed['topic'])
         self.assertEqual(complete['messages'][:-1], changed['messages'][:-1])
 
-    def test_v3_opening_target_reference_requires_complete_start_evidence(self):
+    def test_opening_target_reference_requires_complete_start_evidence(self):
         prefix = [Turn((message(0, 'target', '今天计划先整理项目资料。'),)),
                   Turn((message(1, 'self', '这个计划呢？', reply_to='m0'),))]
         with self.assertRaisesRegex(TopicContractError, 'historical_reply_missing'):
             select_context(prefix, self.tokenizer, system='系统', max_length=1024,
-                           target_reserve=256, policy_version=OPENER_POLICY_VERSION)
+                           target_reserve=256, policy_version=POLICY_VERSION)
         chosen, _ = select_context(prefix, self.tokenizer, system='系统', max_length=1024,
-                                    target_reserve=256, policy_version=OPENER_POLICY_VERSION,
+                                    target_reserve=256, policy_version=POLICY_VERSION,
                                     prefix_complete_start=True)
         self.assertEqual([turn.ids for turn in chosen], [['m0'], ['m1']])
-
-    def test_v2_keeps_its_original_orphan_history_rule(self):
-        prefix = [Turn((message(0, 'target', '这是一条历史开场消息。'),)),
-                  Turn((message(1, 'self', '好的。'),))]
-        chosen, _ = select_context(prefix, self.tokenizer, system='系统', max_length=1024,
-                                    target_reserve=256, policy_version=EXCHANGE_POLICY_VERSION,
-                                    prefix_complete_start=True)
-        self.assertEqual([turn.ids for turn in chosen], [['m1']])
 
     def test_train_selection_never_materializes_test_message_body(self):
         with tempfile.TemporaryDirectory() as temporary:

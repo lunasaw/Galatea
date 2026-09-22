@@ -19,21 +19,6 @@ encoding:
   max_length: 1024
   target_token_reserve: 256
   system_prompt: 仅基于已提供的脱敏对话生成回复；不猜测或复述私人事实。
-review:
-  method: topic-reply-machine-audit-v1
-  model: gpt-5.6-sol
-  batch_size: 6
-  workers: 4
-  max_requests: 36
-  max_retries: 1
-  max_output_tokens: 2400
-  max_input_tokens: 350000
-  max_total_output_tokens: 172800
-  request_timeout_seconds: 120
-resources:
-  cpus: 2
-  memory_gb: 8
-  num_gpus: 0
 governance:
   required_purposes: [processing, persona_style, evaluation]
   training_run: false

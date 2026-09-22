@@ -9,7 +9,7 @@
 > 主导航：[`docs/README.md`](README.md)
 
 本文负责事实记忆分支。按天整理聊天、识别回应话题并构造真实回复训练样本，见
-[日级话题与回复训练实施计划](daily-topic-sft-implementation-plan.md)。两条分支共享消息来源，
+[日级话题与真实回复候选](daily-topic-sft.md)。两条分支共享消息来源，
 审核结果与用途资格分别管理；事实抽取的前后邻日上下文不能直接用作回复训练输入。
 
 ## 1. 结论
@@ -608,7 +608,7 @@ PII/canary=0；日期准确率和冲突召回率需先用人工 gold set 建立�
 
 ### Phase 3：事实账本和审核
 
-- 新增 `fact_resolution.py` 和 `scripts/resolve_daily_facts.py`；
+- 使用 `fact_resolution.py` 和 `scripts/compile_confirmed_facts.py`；
 - 实现日内去重、跨天归并、日期 parser、别名 registry 和冲突报告；
 - 审核 UI 按 `fact_key` 聚合显示候选和全部证据；
 - 用户确认后调用现有 memory card compiler，生成 confirmed cards。
@@ -628,9 +628,9 @@ PII/canary=0；日期准确率和冲突召回率需先用人工 gold set 建立�
 - 使用项目声明的 governed Ray 训练路径，不使用本地全量训练或通用 Ray 提交；
 - 对 Base、Prompt-only、RAG、LoRA 和 RAG+LoRA 使用同一冻结协议比较。
 
-## 14. 建议的代码和文件变更
+## 14. 现行代码和后续扩展
 
-以下是实施时的建议映射，本文阶段不创建这些代码：
+以下映射包含已有实现和后续可选扩展：
 
 | 类型 | 建议位置 | 作用 |
 | --- | --- | --- |
@@ -643,7 +643,7 @@ PII/canary=0；日期准确率和冲突召回率需先用人工 gold set 建立�
 | 抽取 schema | `schemas/fact-extraction.schema.json` | GPT 输出契约 |
 | 账本 schema | `schemas/fact-ledger.schema.json` | 跨天审核契约 |
 | 预处理入口 | `scripts/prepare_daily_memory.py` | 日级计划/生成 |
-| 归并入口 | `scripts/resolve_daily_facts.py` | 账本计划/生成 |
+| 归并入口 | `scripts/compile_confirmed_facts.py` | 编译已明确接受的事实并构建私有索引 |
 | 索引入口 | `scripts/build_memory_index.py` | 消费 confirmed cards；禁止绕过审核 |
 | 项目测试 | `tests/test_daily_memory_*.py` | 分桶、截断、时间、冲突、幂等和隐私测试 |
 

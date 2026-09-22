@@ -24,6 +24,7 @@ python train-model/wechat-persona/scripts/import_chat.py \
   --check --source <controlled-export> --consent <controlled-consent.json> \
   --speaker-map-file <controlled-speaker-map.json>
 python train-model/wechat-persona/scripts/build_dataset.py --config train-model/wechat-persona/configs/import.yaml --plan
+python train-model/wechat-persona/scripts/build_topic_reply_candidates.py --check
 python train-model/wechat-persona/scripts/review_app.py
 python -m unittest discover -s train-model/wechat-persona/tests -p 'test_*.py'
 ```

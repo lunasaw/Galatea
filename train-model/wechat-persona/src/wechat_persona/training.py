@@ -389,6 +389,20 @@ def _tokenize_rows(tokenizer: Any, rows: Iterable[Mapping[str, Any]], max_length
         # the supervised signal.
         full = tokenizer(full_text, truncation=False)
         prompt = tokenizer(prompt_text, truncation=False)
+        if row.get("schema_version") == "topic-reply-candidate-v1":
+            if row.get("candidate_sha256") != _digest({
+                key: value for key, value in row.items() if key != "candidate_sha256"
+            }):
+                raise ValueError("topic candidate semantic digest mismatch")
+            if full["input_ids"][:len(prompt["input_ids"])] != prompt["input_ids"]:
+                raise ValueError("topic candidate template prompt is not a prefix")
+            statistics = row.get("tokens", {})
+            if (len(full["input_ids"]) > max_length
+                    or statistics.get("serialized_tokens") != len(full["input_ids"])
+                    or statistics.get("target_start") != len(prompt["input_ids"])
+                    or statistics.get("target_end") != len(full["input_ids"])
+                    or statistics.get("target_tokens") != len(full["input_ids"]) - len(prompt["input_ids"])):
+                raise ValueError("topic candidate encoding changed or exceeds maximum length")
         labels = list(full["input_ids"])
         prompt_length = min(len(prompt["input_ids"]), len(labels))
         labels[:prompt_length] = [-100] * prompt_length

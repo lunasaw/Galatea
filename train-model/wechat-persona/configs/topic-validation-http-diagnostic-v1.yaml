@@ -1,0 +1,17 @@
+schema_version: topic-validation-http-diagnostic-config-v1
+recovery_config: topic-validation-recovery-v1.yaml
+failed_manifest_sha256: cda28b87f736b2cb2a6e5a0fa8f189f7de5190b6c69168cf1a3af422c9d119bb
+missing_judge: gpt
+missing_judgments: 4
+selection: first_missing_sample_id
+budget:
+  max_requests: 1
+  max_input_tokens: 20000
+  max_total_output_tokens: 4000
+  max_output_tokens: 4000
+  request_timeout_seconds: 120
+governance:
+  training_run: false
+  human_review_completed: false
+  formal_training_eligible: false
+  promotable: false

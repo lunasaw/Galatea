@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "galatea://wechat-persona/topic-reply-candidate-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sample_id", "session_id", "owner_scope", "split", "day", "policy_sha256", "messages", "context_messages", "target_messages", "context_message_ids", "target_message_ids", "cutoff", "topic", "reply_link", "tokens", "review_status", "human_review_completed", "formal_training_eligible", "candidate_sha256"],
+  "properties": {
+    "schema_version": {"const": "topic-reply-candidate-v1"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "owner_scope": {"type": "string", "minLength": 1},
+    "split": {"const": "train"},
+    "day": {"type": "string", "format": "date"},
+    "policy_sha256": {"$ref": "#/$defs/sha"},
+    "candidate_sha256": {"$ref": "#/$defs/sha"},
+    "messages": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["role", "content"], "properties": {"role": {"enum": ["system", "user", "assistant"]}, "content": {"type": "string", "minLength": 1}}}},
+    "context_messages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/message"}},
+    "target_messages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/message"}},
+    "context_message_ids": {"$ref": "#/$defs/ids"},
+    "target_message_ids": {"$ref": "#/$defs/ids"},
+    "cutoff": {"type": "object", "required": ["timestamp", "source_record_index"], "additionalProperties": false, "properties": {"timestamp": {"type": "string"}, "source_record_index": {"type": "integer", "minimum": 0}}},
+    "topic": {"type": "object", "required": ["schema_version", "topic_id", "topic_category", "context_ids", "prefix_sha256"], "properties": {"schema_version": {"const": "topic-segment-v1"}, "topic_category": {"enum": ["work", "study", "food", "health", "plans", "support", "relationship", "other", "unresolved"]}}},
+    "reply_link": {"type": "object", "required": ["schema_version", "target_message_ids", "responds_to_ids", "basis", "used_target_text_for_selection", "target_reference_used_as_input"], "properties": {"schema_version": {"const": "reply-link-v1"}, "used_target_text_for_selection": {"const": false}, "target_reference_used_as_input": {"const": false}}},
+    "tokens": {"type": "object", "required": ["prompt_tokens", "target_tokens", "serialized_tokens", "target_start", "target_end", "eos_policy", "truncation"], "properties": {"prompt_tokens": {"type": "integer", "minimum": 1}, "target_tokens": {"type": "integer", "minimum": 1}, "serialized_tokens": {"type": "integer", "minimum": 1}, "truncation": {"const": "none"}}},
+    "review_status": {"const": "uncertain"},
+    "human_review_completed": {"const": false},
+    "formal_training_eligible": {"const": false}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "message": {"type": "object", "additionalProperties": false, "required": ["message_id", "session_id", "owner_scope", "split", "timestamp", "order", "day", "role", "content", "kind", "reply_to"], "properties": {
+      "message_id": {"type": "string"}, "session_id": {"type": "string"}, "owner_scope": {"type": "string"}, "split": {"const": "train"},
+      "timestamp": {"type": "string"}, "order": {"type": "integer", "minimum": 0}, "day": {"type": "string"}, "role": {"enum": ["self", "target"]},
+      "content": {"type": "string"}, "kind": {"type": "string"}, "reply_to": {"type": ["string", "null"]}
+    }}
+  }
+}

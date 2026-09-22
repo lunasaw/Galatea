@@ -441,6 +441,106 @@ def _save_in_batches(
     return saved
 
 
+def _concurrency_repair_decision(
+    group: Mapping[str, Any],
+    events: list[Mapping[str, Any]],
+    current: Mapping[str, Any],
+) -> dict[str, Any]:
+    statuses = {str(event.get("review_status") or "") for event in events}
+    selected = {
+        event.get("selected_candidate_sha256")
+        for event in events
+        if event.get("review_status") == "confirmed"
+    }
+    if statuses == {"confirmed"} and len(selected) == 1:
+        selected_sha = next(iter(selected))
+        for index, candidate in enumerate(group["candidates"]):
+            if candidate["candidate_sha256"] == selected_sha:
+                return {
+                    "status": "confirmed",
+                    "selected_candidate_index": index,
+                    "reason_code": "evidence_confirmed",
+                }
+    if statuses == {"rejected"}:
+        return {
+            "status": "rejected",
+            "selected_candidate_index": None,
+            "reason_code": current["reason_code"],
+        }
+    if statuses == {"deferred"}:
+        return {
+            "status": "deferred",
+            "selected_candidate_index": None,
+            "reason_code": current["reason_code"],
+        }
+    return {
+        "status": "deferred",
+        "selected_candidate_index": None,
+        "reason_code": (
+            "conflict_unresolved"
+            if group["conflict_status"] == "conflicted"
+            else "needs_more_context"
+        ),
+    }
+
+
+def _repair_duplicate_revisions(
+    store: FactReviewStore, *, reviewer_id: str, batch_size: int
+) -> dict[str, int]:
+    audit_path = store.review_dir / "review-events.audit.jsonl"
+    by_revision: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    try:
+        with audit_path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, 1):
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise FactPrelabelError(
+                        f"invalid audit JSON at line {line_number}"
+                    ) from exc
+                if not isinstance(event, dict):
+                    raise FactPrelabelError(
+                        f"invalid audit event at line {line_number}"
+                    )
+                group_id = str(event.get("fact_group_id") or "")
+                revision = event.get("revision")
+                if not group_id or not isinstance(revision, int):
+                    raise FactPrelabelError(
+                        f"incomplete audit event at line {line_number}"
+                    )
+                by_revision.setdefault((group_id, revision), []).append(event)
+    except OSError as exc:
+        raise FactPrelabelError(f"cannot read fact review audit: {audit_path}") from exc
+
+    payloads: list[dict[str, Any]] = []
+    duplicate_revisions = 0
+    already_superseded = 0
+    for (group_id, revision), events in sorted(by_revision.items()):
+        if len(events) < 2:
+            continue
+        duplicate_revisions += 1
+        group = store.group(group_id)
+        current = group.get("decision")
+        if not isinstance(current, Mapping):
+            raise FactPrelabelError(f"duplicate audit revision has no state: {group_id}")
+        current_revision = int(current.get("revision") or 0)
+        if current_revision > revision:
+            already_superseded += 1
+            continue
+        if current_revision != revision:
+            raise FactPrelabelError(
+                f"audit revision is ahead of review state for {group_id}"
+            )
+        decision = _concurrency_repair_decision(group, events, current)
+        payloads.append(_decision_payload(group, decision, reviewer_id))
+    repaired = _save_in_batches(store, payloads, batch_size)
+    return {
+        "duplicate_revision_count": duplicate_revisions,
+        "repaired": repaired,
+        "already_superseded": already_superseded,
+    }
+
+
 def _arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshot-dir", type=Path, required=True)
@@ -473,6 +573,11 @@ def _arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="validate and report the plan without API calls or review writes",
     )
+    parser.add_argument(
+        "--repair-duplicate-revisions",
+        action="store_true",
+        help="append conservative successor decisions for concurrent duplicate revisions",
+    )
     return parser
 
 
@@ -494,6 +599,34 @@ def main() -> int:
         controlled_root=args.controlled_root,
         create_workspace=not args.check,
     )
+    if args.repair_duplicate_revisions:
+        if args.check or args.max_groups or args.revisit_all:
+            raise SystemExit(
+                "--repair-duplicate-revisions cannot be combined with "
+                "--check, --max-groups, or --revisit-all"
+            )
+        result = _repair_duplicate_revisions(
+            store,
+            reviewer_id=reviewer_id,
+            batch_size=args.save_batch_size,
+        )
+        print(
+            json.dumps(
+                {
+                    "status": "repaired",
+                    **result,
+                    "review_status_counts": store.bootstrap()["review"][
+                        "status_counts"
+                    ],
+                    "training_eligible": False,
+                    "confirmed_cards_built": False,
+                    "rag_index_built": False,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+        return 0
     groups = _groups(store, revisit_all=args.revisit_all)
     if args.max_groups:
         groups = groups[: args.max_groups]

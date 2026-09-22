@@ -1,0 +1,53 @@
+schema_version: topic-axes-review-config-v3
+method: topic-reply-axes-v3
+axes_contract: topic-reply-axes-v2
+synthetic_fixtures: fixtures/topic-axes-validation-v3.json
+seed: 43
+batch_size: 6
+workers: 2
+# Explicit route recovery after the standard name returned upstream HTTP 502.
+# This does not clear the historical sol identity mismatch; every response remains checked.
+prior_route_preflight_manifest_sha256: e25424aeb10ce4d208a30b2d905a021ef2ab9afccf482f6febb3adecda2f8226
+judges:
+  gpt:
+    model: gpt-5.6-sol
+    family: gpt
+    returned_model_prefix: gpt-5.6
+    transport: responses
+  claude:
+    model: claude-sonnet-4-6
+    family: claude
+    returned_model_prefix: claude-sonnet-4-6
+    transport: chat_completions
+preflight:
+  max_requests: 4
+  max_input_tokens: 24000
+  max_total_output_tokens: 12000
+  max_output_tokens: 3000
+  request_timeout_seconds: 120
+calibration:
+  population: 24
+  min_status_agreements: 22
+  min_core_agreements: 22
+  max_false_keeps: 0
+  max_requests: 8
+  max_input_tokens: 60000
+  max_total_output_tokens: 24000
+  max_output_tokens: 3000
+  request_timeout_seconds: 120
+private_review:
+  population: 200
+  previous_selected: 58
+  previous_pending: 142
+  previous_hard_risks: 12
+  max_requests: 72
+  max_input_tokens: 500000
+  max_total_output_tokens: 216000
+  max_output_tokens: 3000
+  request_timeout_seconds: 120
+  max_repair_requests: 4
+governance:
+  training_run: false
+  human_review_completed: false
+  formal_training_eligible: false
+  promotable: false

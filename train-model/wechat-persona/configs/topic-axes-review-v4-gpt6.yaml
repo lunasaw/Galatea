@@ -1,0 +1,42 @@
+schema_version: topic-axes-review-gpt6-config-v1
+method: topic-reply-axes-v4-gpt6-v1
+axes_contract: topic-reply-axes-v4
+synthetic_fixtures: fixtures/topic-axes-validation-v4.json
+seed: 47
+batch_size: 6
+workers: 2
+required_consecutive_route_preflights: 3
+confidence_role: uncalibrated_diagnostic_only
+basis_confidence_audit_manifest_sha256: 2b1d287aadcf1791087e1e4ab70ce9836f04cb11122f4473271d5e1f98d26512
+judges:
+  gpt:
+    model: gpt-6-sol
+    family: gpt
+    returned_model_prefix: gpt-6-sol
+    transport: responses
+  claude:
+    model: claude-sonnet-4-6
+    family: claude
+    returned_model_prefix: claude-sonnet-4-6
+    transport: chat_completions
+preflight:
+  max_requests: 4
+  max_input_tokens: 32000
+  max_total_output_tokens: 16000
+  max_output_tokens: 4000
+  request_timeout_seconds: 120
+calibration:
+  population: 24
+  min_status_agreements: 22
+  min_core_agreements: 22
+  max_false_keeps: 0
+  max_requests: 8
+  max_input_tokens: 80000
+  max_total_output_tokens: 32000
+  max_output_tokens: 4000
+  request_timeout_seconds: 120
+governance:
+  training_run: false
+  human_review_completed: false
+  formal_training_eligible: false
+  promotable: false

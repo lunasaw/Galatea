@@ -1,0 +1,49 @@
+schema_version: topic-validation-preparation-v1
+candidate_config: daily-topic-sft-v3.yaml
+review_config: topic-axes-review-v4.yaml
+protocol_document: ../docs/daily-topic-sft-validation-protocol.md
+development_manifest_sha256: 544b9fd8586b2fd26049eacd4ee0e65dc113edfa6c0224d220fdab0ce0d97407
+completed_review_manifest_sha256: 7c9d13d2ccd0c88cfd3b5d7fedcfa1419676804d116ed1e7c19f5da22a12da0a
+allowed_splits: [validation]
+selection:
+  seed: 53
+  max_days: 50
+  max_candidates: 200
+  max_target_attempts: 1000
+  max_selected_messages: 12000
+  method: hash_order_structurally_valid_without_label_selection
+  backfill_after_review: false
+strata:
+  minimum_count: 20
+  short_reply_max_characters: 8
+  low_confidence_threshold: 0.9
+  required: [ordinary, short_reply, explicit_reference, interleaved_proxy, low_confidence]
+  overlapping: true
+quality:
+  reply_link_min: 0.98
+  context_complete_min: 0.95
+  machine_keep_precision_min: 0.95
+  confidence_interval: wilson_95_descriptive
+  unknown_reference: count_as_unverified_in_denominator
+  reference: blinded_review_of_all_200_selected_inputs_and_available_past
+  machine_agreement_is_precision: false
+  automatic_p3_acceptance: false
+prospective_review:
+  batch_size: 1
+  workers: 2
+  max_requests: 440
+  max_input_tokens: 1800000
+  max_total_output_tokens: 1760000
+  max_output_tokens: 4000
+  request_timeout_seconds: 240
+  max_repair_requests: 40
+resources:
+  cpus: 2
+  memory_gb: 8
+  num_gpus: 0
+governance:
+  training_run: false
+  human_review_completed: false
+  formal_training_eligible: false
+  promotable: false
+  external_requests: 0

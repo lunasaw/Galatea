@@ -1,0 +1,32 @@
+schema_version: topic-blind-reference-index-recovery-v1
+model: claude-opus-4-6
+population: 200
+packet_manifest_sha256: afe3e682a9da34007921991c3f34ad228d398612d9a74c4dfee7bb66558be335
+stages: [selected, expanded]
+workers: 4
+inherited_references: 136
+missing_references: 64
+max_repair_requests: 16
+budget:
+  max_requests: 144
+  max_input_tokens: 3000000
+  max_total_output_tokens: 288000
+  max_output_tokens: 2000
+  request_timeout_seconds: 120
+preflight_budget:
+  max_requests: 12
+  max_input_tokens: 180000
+  max_total_output_tokens: 24000
+  max_output_tokens: 2000
+  request_timeout_seconds: 120
+input_guard:
+  multipliers: {reference: 3}
+  padding_tokens: 1024
+  headroom_tokens: 20000
+  release_unused_reservations: false
+  stop_on_reservation_exceeded: true
+governance:
+  training_run: false
+  human_review_completed: false
+  formal_training_eligible: false
+  promotable: false

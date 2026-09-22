@@ -1,0 +1,42 @@
+schema_version: daily-topic-sft-config-v1
+timezone: Asia/Shanghai
+target_role: target
+allowed_splits: [train]
+selection:
+  seed: 42
+  max_days: 50
+  max_candidates: 200
+context:
+  policy_version: prefix-topic-exchanges-v2
+  max_history_turns: 64
+  max_context_turns: 16
+  merge_gap_seconds: 120
+  cross_session: false
+  cross_day: false
+encoding:
+  model_id: Qwen/Qwen3.5-0.8B
+  tokenizer_revision: 2fc06364715b967f1860aea9cf38778875588b17
+  max_length: 1024
+  target_token_reserve: 256
+  system_prompt: 仅基于已提供的脱敏对话生成回复；不猜测或复述私人事实。
+review:
+  method: topic-reply-machine-audit-v1
+  model: gpt-5.6-sol
+  batch_size: 6
+  workers: 4
+  max_requests: 36
+  max_retries: 1
+  max_output_tokens: 2400
+  max_input_tokens: 350000
+  max_total_output_tokens: 172800
+  request_timeout_seconds: 120
+resources:
+  cpus: 2
+  memory_gb: 8
+  num_gpus: 0
+governance:
+  required_purposes: [processing, persona_style, evaluation]
+  training_run: false
+  human_review_completed: false
+  formal_training_eligible: false
+  promotable: false

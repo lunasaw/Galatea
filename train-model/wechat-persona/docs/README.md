@@ -81,6 +81,44 @@ checkpoint、adapter、备份和原型入口失效或进入删除账本。
 6. 授权者单独签发 `FORMAL_DATASET_READY`，再把不可变 snapshot 交给训练/索引流程。
 
 精确的全链路修复顺序和受控命令见 [wechat-persona governed execution plan](governed-execution-plan.md)。
+按天整理、识别话题并配对真实回复的新增实现，见
+[日级话题与回复训练实施计划](daily-topic-sft-implementation-plan.md)，包含阶段排期、文件任务和验收条件。
+已完成同一批 200 个目标的跨模型家族核验：原 117 条 GPT 共识中 59 条获 Claude 支持，最终导出
+58 条机器共识草案。进一步完成置信度审计和 v4 显式不确定性证据协议。
+最新 GPT/Claude 合成状态与核心轴匹配均为 24/24，非保留参考误保留均为 0/12；
+原 200 条已完成重审、批量恢复和逐条恢复：GPT/Claude 各 200/200，导出 99 条机器共识草稿。
+原 382 个有效判断及旧 58 条草稿保持原样，12 条旧硬风险继续排除；新草稿尚无正式训练资格。
+独立 validation 首轮因预算停止后，已新增按模型预留、超预留持久熔断及独立恢复入口。
+最后 4 项现已回收：GPT/Claude 各 200/200，87 条共识 keep、113 条未共同保留。
+Opus 双阶段盲参考及失败恢复完成 193/200，7 条错误角色锚点保留未知并生成待审页。
+原始回应锚点支持 57%、输入完整性支持 75.5%，未达 98%/95% 门槛；keep 支持 83/87（95.4%），
+普通/低置信层仍未达标。引用 0、交错代理 5，且现有 train/validation 的引用元数据全为空。
+验收明确判定 P3 返工，P4–P6 未开始，没有训练或发布；机器审计不等于人工真值。
+开发与验证两包之间及验证内部共检查 59,900 对，无冻结规则近重复命中；378 项项目测试通过。
+train 返工现已完成离线修复：99 条草稿中 55 条绑定修正后的原子锚点；
+连续上下文重建 200 个目标，86 条输入变化，隔离 1 条必要前文退化与 12 条旧硬风险后，
+冻结 187 条待复审候选。原始 7,074 条引用消息在当前 text-only consent 范围之外，
+引用键使用 serverId，不能直接当作规范化 message ID。详见
+[train 返工与新复审队列](daily-topic-sft-train-repair.md)。最新 398 项项目测试及 CLI 断网重放通过；
+新输入尚未质量验收，旧 validation 不变。
+新候选复审已增加原生 v2 协议和累计预算恢复：首次网关中断的 22 个有效判断封存，
+新探针通过后只补缺失判断，累计 196/374 有效、206 次请求后触发模型身份熔断：
+请求 `gpt-5.6-sol` 却返回 `gpt-6-sol`。仍缺 178 个判断，新草稿未导出；
+合成探针随后恢复原模型，但不代表真实路由稳定。需稳定路由或明确换模型后重新校准。
+见[新上下文复审与恢复](daily-topic-sft-repair-review.md)；最新 412 项项目测试、
+实际 CLI 断网重放和禁止不完整导出通过。
+最新结果与具体返工前置条件见[validation 收尾与验收](daily-topic-sft-validation-completion.md)；
+历史调用与预算修正见[validation 恢复记录](daily-topic-sft-validation-recovery.md)；
+首次预算停止记录见[validation 审核执行记录](daily-topic-sft-validation-review.md)；
+历史零调用的数据准备阶段见[独立 validation 准备记录](daily-topic-sft-validation.md)及
+[冻结核验协议](daily-topic-sft-validation-protocol.md)。
+见[最新 v4 证据协议与响应恢复](daily-topic-sft-axes-v4.md)、
+[v3 判据与路由核验](daily-topic-sft-axes-v3.md)、
+[v2 分轴协议检查](daily-topic-sft-axes-review.md)、
+[分歧分流与判据检查](daily-topic-sft-adjudication.md)、
+[跨模型核验](daily-topic-sft-cross-review.md)、
+[证据核验与结构修复](daily-topic-sft-evidence-audit.md)、
+[首轮试点](daily-topic-sft-pilot.md)及[第二轮对照](daily-topic-sft-v2.md)。
 
 ## 5. 项目 6：RAG 与记忆
 
@@ -136,6 +174,7 @@ candidate freeze → test-once → 人工/安全审查。`LoRA_vs_PromptOnly_win
 - [女友语气 AI 助手端到端优化方案](girlfriend-assistant-optimization-plan.md)
 - [本地数据用途筛选页](review.html)
 - [当前数据预处理设计](data-preprocessing.md)
+- [按天上下文、话题识别与真实回复训练实施计划](daily-topic-sft-implementation-plan.md)
 - [按天上下文的事实与记忆预处理方案](daily-memory-extraction-plan.md)
 - [当前 governed execution plan](governed-execution-plan.md)
 - [跨项目外部记忆评测协议](../../../doc/train-llm/memory-grounded-evaluation-protocol.md)
@@ -171,7 +210,12 @@ ssh -N -L 56961:127.0.0.1:51644 <user>@<host>
 ### 事实候选审核页
 
 事实候选审核页读取一个不可变 daily-memory snapshot，并将人工判定单独写入受控 review workspace。
-它不会修改源快照、构建 confirmed cards 或 RAG 索引，也不会授予训练资格。启动当前快照：
+它不会修改源快照、构建 confirmed cards 或 RAG 索引，也不会授予训练资格。
+
+机器确认组已按用户明确决定批量接受，并通过独立入口编译为记忆卡和 BM25 索引；当前产物及
+可复现命令见[机器确认事实的批量接受与记忆链路](accepted-fact-memory.md)。
+
+启动当前快照的审核页：
 
 ```bash
 /data/conda/envs/attend-ray-py312/bin/python \

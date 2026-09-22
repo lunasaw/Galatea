@@ -352,6 +352,76 @@ class FactReviewServerTests(unittest.TestCase):
                 2,
             )
 
+    def test_multiple_store_instances_serialize_revisions_and_refresh_reads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            controlled, snapshot, review = self._fixture(Path(temporary))
+            first_store = FactReviewStore(
+                snapshot_dir=snapshot,
+                review_dir=review,
+                controlled_root=controlled,
+            )
+            second_store = FactReviewStore(
+                snapshot_dir=snapshot,
+                review_dir=review,
+                controlled_root=controlled,
+            )
+            first = first_store.group("factgrp_00000000000000000001")
+            second = first_store.group("factgrp_00000000000000000002")
+            first_store.save_decision(
+                {
+                    "fact_group_id": first["fact_group_id"],
+                    "lineage_digest": first["lineage_digest"],
+                    "review_status": "rejected",
+                    "selected_candidate_sha256": None,
+                    "reason_code": "not_durable_memory",
+                    "reviewer_id": "first-process",
+                }
+            )
+            event = second_store.save_decision(
+                {
+                    "fact_group_id": first["fact_group_id"],
+                    "lineage_digest": first["lineage_digest"],
+                    "review_status": "confirmed",
+                    "selected_candidate_sha256": first["candidates"][0][
+                        "candidate_sha256"
+                    ],
+                    "reason_code": "evidence_confirmed",
+                    "reviewer_id": "second-process",
+                }
+            )
+            self.assertEqual(event["revision"], 2)
+            second_store.save_decision(
+                {
+                    "fact_group_id": second["fact_group_id"],
+                    "lineage_digest": second["lineage_digest"],
+                    "review_status": "deferred",
+                    "selected_candidate_sha256": None,
+                    "reason_code": "needs_more_context",
+                    "reviewer_id": "second-process",
+                }
+            )
+            self.assertEqual(
+                first_store.group(first["fact_group_id"])["decision"]["revision"],
+                2,
+            )
+            self.assertEqual(first_store.bootstrap()["review"]["decision_count"], 2)
+            state = json.loads(
+                (review / "review-state.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(len(state["decisions"]), 2)
+            self.assertEqual(
+                len(
+                    (review / "review-events.audit.jsonl")
+                    .read_text(encoding="utf-8")
+                    .splitlines()
+                ),
+                3,
+            )
+            self.assertEqual(
+                (review / ".review-workspace.lock").stat().st_mode & 0o777,
+                0o600,
+            )
+
     def test_ineligible_candidate_cannot_be_confirmed(self):
         with tempfile.TemporaryDirectory() as temporary:
             controlled, snapshot, review = self._fixture(Path(temporary))

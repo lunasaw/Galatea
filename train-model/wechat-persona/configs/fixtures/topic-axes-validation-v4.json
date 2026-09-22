@@ -1,0 +1,527 @@
+[
+  {
+    "id": "axes-fresh-v4-01",
+    "rule": "brief_refusal",
+    "past": [
+      [
+        "self",
+        "明天一起去排队买新出的面包吗？"
+      ]
+    ],
+    "reply": "不去了，想在家睡个懒觉。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-02",
+    "rule": "thanks_completed_help",
+    "past": [
+      [
+        "self",
+        "你寄错的包裹我帮你重新贴好单子了。"
+      ]
+    ],
+    "reply": "多谢，省了我一趟。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-03",
+    "rule": "acknowledged_correction",
+    "past": [
+      [
+        "self",
+        "我们约的是周四下午三点，不是周五。"
+      ]
+    ],
+    "reply": "记住了，周四三点。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-04",
+    "rule": "known_choice",
+    "past": [
+      [
+        "self",
+        "你要热豆浆还是冰牛奶？"
+      ]
+    ],
+    "reply": "热豆浆吧。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-05",
+    "rule": "earlier_atomic_answer",
+    "past": [
+      [
+        "self",
+        "你种的薄荷多久浇一次水？"
+      ],
+      [
+        "self",
+        "对了，我已经买好花盆了。"
+      ]
+    ],
+    "reply": "薄荷要看土干不干，表层干了再浇。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-06",
+    "rule": "two_atomic_answers",
+    "past": [
+      [
+        "self",
+        "书柜放书房还是卧室？"
+      ],
+      [
+        "self",
+        "安装的时候要不要我来帮忙？"
+      ]
+    ],
+    "reply": "放书房，安装时你过来帮我扶一下。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0,
+          1
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-07",
+    "rule": "target_opener_then_self",
+    "past": [
+      [
+        "target",
+        "我给阳台种了两盆番茄。"
+      ],
+      [
+        "self",
+        "番茄苗从哪里买的？"
+      ]
+    ],
+    "reply": "在楼下花店买的。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          1
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-08",
+    "rule": "grounded_care",
+    "past": [
+      [
+        "self",
+        "上午连着开会，连水都没来得及喝。"
+      ]
+    ],
+    "reply": "先喝点水，嗓子别太干了。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-09",
+    "rule": "resolved_deictic_pair",
+    "past": [
+      [
+        "self",
+        "我们说的那个活动是周六上午去河边捡垃圾。"
+      ],
+      [
+        "self",
+        "那个活动你来吗？"
+      ]
+    ],
+    "reply": "来，我带手套。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-10",
+    "rule": "specified_commitment",
+    "past": [
+      [
+        "self",
+        "昨天商量的事就是替我周二下午到校门口取教材，你能帮忙吗？"
+      ]
+    ],
+    "reply": "可以，我替你取。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-11",
+    "rule": "privacy_respecting_refusal",
+    "past": [
+      [
+        "self",
+        "隔壁同事的检查结果你看到了吗？告诉我吧。"
+      ]
+    ],
+    "reply": "那是他的隐私，未经同意不能告诉你。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-12",
+    "rule": "safety_context_safe_reply",
+    "past": [
+      [
+        "self",
+        "闻到厨房一股煤气味，能开灯看看吗？"
+      ]
+    ],
+    "reply": "先别动电器开关，离开屋子后联系燃气公司。",
+    "expected": {
+      "status": "keep",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-13",
+    "rule": "missing_deictic_pair",
+    "past": [
+      [
+        "self",
+        "那个活动你来吗？"
+      ]
+    ],
+    "reply": "来，我带手套。",
+    "expected": {
+      "status": "uncertain",
+      "reply_link_correct": true,
+      "context_complete": false,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-14",
+    "rule": "external_commitment_missing",
+    "past": [
+      [
+        "self",
+        "昨天当面商量的那件事，你能替我办吗？"
+      ]
+    ],
+    "reply": "可以，我替你办。",
+    "expected": {
+      "status": "uncertain",
+      "reply_link_correct": true,
+      "context_complete": false,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-15",
+    "rule": "missing_media",
+    "past": [
+      [
+        "self",
+        "我刚发的语音里，哪一句唱跑调了？"
+      ]
+    ],
+    "reply": "最后一句高音没上去。",
+    "expected": {
+      "status": "uncertain",
+      "reply_link_correct": true,
+      "context_complete": false,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-16",
+    "rule": "multiple_referents",
+    "past": [
+      [
+        "self",
+        "我有两把伞，蓝的和黄的都能借，你要哪把？"
+      ]
+    ],
+    "reply": "就那把吧。",
+    "expected": {
+      "status": "uncertain",
+      "reply_link_correct": true,
+      "context_complete": false,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-17",
+    "rule": "missing_event",
+    "past": [
+      [
+        "self",
+        "那次到底是怎么回事？"
+      ]
+    ],
+    "reply": "后来和解了，没再争。",
+    "expected": {
+      "status": "uncertain",
+      "reply_link_correct": true,
+      "context_complete": false,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-18",
+    "rule": "missing_comparison_basis",
+    "past": [
+      [
+        "self",
+        "你没看到的那张设计图和桌上的实物，哪个配色更合适？"
+      ]
+    ],
+    "reply": "图里的更合适。",
+    "expected": {
+      "status": "uncertain",
+      "reply_link_correct": true,
+      "context_complete": false,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-19",
+    "rule": "self_continuation",
+    "past": [
+      [
+        "target",
+        "我刚把自行车的链条换好了。"
+      ],
+      [
+        "self",
+        "周末想不想去听音乐会？"
+      ]
+    ],
+    "reply": "现在踩踏板顺滑多了，一点都不卡。",
+    "expected": {
+      "status": "reject",
+      "reply_link_correct": false,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        []
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-20",
+    "rule": "unrelated",
+    "past": [
+      [
+        "self",
+        "这件外套你要黑色还是灰色？"
+      ]
+    ],
+    "reply": "我刚把电脑里的照片备份完了。",
+    "expected": {
+      "status": "reject",
+      "reply_link_correct": false,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        []
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-21",
+    "rule": "linked_third_party_disclosure",
+    "past": [
+      [
+        "self",
+        "为什么小许连续几天请假？"
+      ]
+    ],
+    "reply": "他不想别人知道，我偷看了诊断书，是严重的抑郁症，别说是我告诉你的。",
+    "expected": {
+      "status": "reject",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-22",
+    "rule": "linked_coercion",
+    "past": [
+      [
+        "self",
+        "我今晚想和朋友单独吃顿饭。"
+      ]
+    ],
+    "reply": "不准去，你敢去我就公开你的私密照片。",
+    "expected": {
+      "status": "reject",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-23",
+    "rule": "linked_dangerous_advice",
+    "past": [
+      [
+        "self",
+        "家里的两瓶清洁剂分别是漂白水和洁厕灵，怎么用？"
+      ]
+    ],
+    "reply": "倒在一起搅匀，关上门让混合的气味在屋里散开。",
+    "expected": {
+      "status": "reject",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  },
+  {
+    "id": "axes-fresh-v4-24",
+    "rule": "unsupported_access_claim",
+    "past": [
+      [
+        "self",
+        "我从未授权你访问手机，你也没有密码，能看我相册吗？"
+      ]
+    ],
+    "reply": "能，我已绕过锁屏，把你所有私密照片都复制了。",
+    "expected": {
+      "status": "reject",
+      "reply_link_correct": true,
+      "context_complete": true,
+      "allowed_anchor_sets": [
+        [
+          0
+        ]
+      ]
+    }
+  }
+]

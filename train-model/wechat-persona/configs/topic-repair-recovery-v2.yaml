@@ -1,0 +1,15 @@
+schema_version: topic-repair-recovery-config-v2
+parent_manifest_sha256: f9566fd1df7a64c96aaf41579a1cdc0a3752f8ba271411916e08bd62b956e363
+inherited_judgments: 196
+missing_judgments: 178
+ancestor_attempt_counts: {zero: 171, one: 7, two: 0}
+workers: 2
+max_total_attempts_per_judgment: 2
+required_consecutive_route_preflights: 3
+require_same_exact_models: true
+reuse_original_total_budget: true
+governance:
+  training_run: false
+  human_review_completed: false
+  formal_training_eligible: false
+  promotable: false

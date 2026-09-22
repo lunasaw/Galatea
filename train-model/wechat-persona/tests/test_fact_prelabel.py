@@ -116,6 +116,42 @@ class FactPrelabelTests(unittest.TestCase):
             group["candidates"][0]["candidate_sha256"],
         )
 
+    def test_concurrency_repair_defers_disagreeing_machine_decisions(self):
+        group = self._group(conflict_status="conflicted")
+        current = {
+            "review_status": "rejected",
+            "reason_code": "duplicate_or_malformed",
+        }
+        decision = fact_prelabel._concurrency_repair_decision(
+            group,
+            [
+                {
+                    "review_status": "rejected",
+                    "selected_candidate_sha256": None,
+                },
+                {
+                    "review_status": "confirmed",
+                    "selected_candidate_sha256": group["candidates"][0][
+                        "candidate_sha256"
+                    ],
+                },
+            ],
+            current,
+        )
+        self.assertEqual(decision["status"], "deferred")
+        self.assertEqual(decision["reason_code"], "conflict_unresolved")
+
+        decision = fact_prelabel._concurrency_repair_decision(
+            group,
+            [
+                {"review_status": "rejected"},
+                {"review_status": "rejected"},
+            ],
+            current,
+        )
+        self.assertEqual(decision["status"], "rejected")
+        self.assertEqual(decision["reason_code"], "duplicate_or_malformed")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,22 @@
+schema_version: topic-evidence-audit-config-v1
+method: topic-reply-evidence-audit-v1
+seed: 42
+max_candidates: 200
+max_diagnostic_cases: 30
+max_source_turns: 512
+model: gpt-5.6-sol
+batch_size: 6
+workers: 4
+max_requests: 44
+max_retries: 1
+max_output_tokens: 3000
+max_input_tokens: 350000
+max_total_output_tokens: 132000
+max_batch_input_tokens: 16000
+request_timeout_seconds: 120
+minimum_confidence: 0.9
+governance:
+  training_run: false
+  human_review_completed: false
+  formal_training_eligible: false
+  promotable: false

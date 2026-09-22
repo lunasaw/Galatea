@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
+import fcntl
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -13,7 +15,7 @@ import re
 import stat
 import tempfile
 import threading
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 from urllib.parse import parse_qs, urlparse
 
 from ._common import canonical_json, digest, file_digest
@@ -138,6 +140,24 @@ def _append_audit_many(path: Path, events: list[Mapping[str, Any]]) -> None:
     path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
+@contextmanager
+def _exclusive_file_lock(path: Path) -> Iterator[None]:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=stat.S_IRWXU)
+    path.parent.chmod(stat.S_IRWXU)
+    descriptor = os.open(
+        path,
+        os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+        stat.S_IRUSR | stat.S_IWUSR,
+    )
+    try:
+        os.fchmod(descriptor, stat.S_IRUSR | stat.S_IWUSR)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
 def _candidate_digest(candidate: Mapping[str, Any]) -> str:
     return digest(dict(candidate))
 
@@ -226,8 +246,10 @@ class FactReviewStore:
 
         self._latest_path = self.review_dir / "review-state.json"
         self._audit_path = self.review_dir / "review-events.audit.jsonl"
+        self._process_lock_path = self.review_dir / ".review-workspace.lock"
         self._lock = threading.Lock()
         self.latest = self._load_existing()
+        self._latest_signature = self._state_signature()
 
     @property
     def snapshot_id(self) -> str:
@@ -454,6 +476,28 @@ class FactReviewStore:
                 "non-confirmed decision must not select a candidate"
             )
 
+    def _state_signature(self) -> tuple[int, int, int, int] | None:
+        try:
+            current = self._latest_path.stat()
+        except FileNotFoundError:
+            return None
+        return (
+            current.st_dev,
+            current.st_ino,
+            current.st_mtime_ns,
+            current.st_size,
+        )
+
+    def _refresh_latest(self) -> None:
+        signature = self._state_signature()
+        if signature == self._latest_signature:
+            return
+        with self._lock:
+            signature = self._state_signature()
+            if signature != self._latest_signature:
+                self.latest = self._load_existing()
+                self._latest_signature = signature
+
     def _status_counts(self) -> dict[str, int]:
         counts = Counter(
             str(event["review_status"]) for event in self.latest.values()
@@ -464,6 +508,7 @@ class FactReviewStore:
         }
 
     def bootstrap(self) -> dict[str, Any]:
+        self._refresh_latest()
         conflict_counts = Counter(str(row["conflict_status"]) for row in self.groups)
         eligible_groups = sum(
             any(candidate["confirmation_eligible"] for candidate in detail["candidates"])
@@ -541,6 +586,7 @@ class FactReviewStore:
         risk: str = "all",
         search: str = "",
     ) -> dict[str, Any]:
+        self._refresh_latest()
         if offset < 0:
             raise FactReviewServerError("offset must be non-negative")
         if limit < 1 or limit > MAX_PAGE_SIZE:
@@ -600,6 +646,7 @@ class FactReviewStore:
         }
 
     def group(self, fact_group_id: str) -> dict[str, Any]:
+        self._refresh_latest()
         detail = self._details.get(fact_group_id)
         if detail is None:
             raise FactReviewServerError("unknown fact_group_id")
@@ -693,26 +740,28 @@ class FactReviewStore:
         if not payloads:
             return []
         with self._lock:
-            latest = dict(self.latest)
-            events: list[dict[str, Any]] = []
-            for payload in payloads:
-                event = self._decision_event(payload, latest)
-                latest[event["fact_group_id"]] = event
-                events.append(event)
-            audit_events = [
-                {
-                    **event,
-                    "snapshot_id": self.snapshot_id,
-                    "manifest_sha256": self.manifest_sha256,
-                    "manifest_file_sha256": self.manifest_file_sha256,
-                    "fact_ledger_sha256": self.ledger_sha256,
-                    "review_candidates_sha256": self.candidates_sha256,
-                }
-                for event in events
-            ]
-            _append_audit_many(self._audit_path, audit_events)
-            _atomic_json(self._latest_path, self._workspace_state(latest))
-            self.latest = latest
+            with _exclusive_file_lock(self._process_lock_path):
+                latest = self._load_existing()
+                events: list[dict[str, Any]] = []
+                for payload in payloads:
+                    event = self._decision_event(payload, latest)
+                    latest[event["fact_group_id"]] = event
+                    events.append(event)
+                audit_events = [
+                    {
+                        **event,
+                        "snapshot_id": self.snapshot_id,
+                        "manifest_sha256": self.manifest_sha256,
+                        "manifest_file_sha256": self.manifest_file_sha256,
+                        "fact_ledger_sha256": self.ledger_sha256,
+                        "review_candidates_sha256": self.candidates_sha256,
+                    }
+                    for event in events
+                ]
+                _append_audit_many(self._audit_path, audit_events)
+                _atomic_json(self._latest_path, self._workspace_state(latest))
+                self.latest = latest
+                self._latest_signature = self._state_signature()
         return events
 
     def save_decision(self, payload: Mapping[str, Any]) -> dict[str, Any]:

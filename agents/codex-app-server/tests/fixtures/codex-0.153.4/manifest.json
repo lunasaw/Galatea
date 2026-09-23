@@ -1,0 +1,19 @@
+{
+  "codex_version": "codex-cli 0.153.4",
+  "package": {
+    "layoutVersion": 1,
+    "version": "0.153.4",
+    "target": "x86_64-unknown-linux-musl",
+    "variant": "codex",
+    "entrypoint": "bin/codex",
+    "resourcesDir": "codex-resources",
+    "pathDir": "codex-path"
+  },
+  "runtime_binary_sha256": "56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da",
+  "runtime_package_manifest_sha256": "43f8735a93a7947c6dc082c550d2ff2d795fccfd1c7eb27c93aa91cbead1e3f4",
+  "runtime_package_tree_sha256": "2574264f46dab839626ec0d7034d54c5454c2d619987107b93e208e1fbd5867a",
+  "app_server_protocol_schema_sha256": "74d5cdc8998ea238aac6af751caa40d95d6cceb01512d5cae542aa3786d2e87d",
+  "dynamic_tool_catalog_sha256": "fa23fbb0966f69788d6a0e6af3aab14296f7d7c5f44eda7037ae94f81ce1e0cf",
+  "contract_sha256": "99b680b1098f03a1508d98f9643770eba1d2a5c1b59692ad024332409ad5d120",
+  "source_provenance": "unverified-development-fixture"
+}

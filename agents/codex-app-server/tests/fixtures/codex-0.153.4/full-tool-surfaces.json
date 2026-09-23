@@ -1,0 +1,1514 @@
+[
+  {
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "galatea",
+        "description": "Governed Galatea training tools.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "galatea_cancel_campaign",
+            "description": "Request cancellation of an authorized campaign and reconcile its active operations; acknowledgement is not termination.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_compare_runs",
+            "description": "Compare compatible training and validation evidence only when dataset, split, preprocessing, metric and evaluation contracts match.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_ids"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_freeze_candidate",
+            "description": "Freeze an owned candidate against immutable compatible evidence and campaign revision; does not promote a production alias.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "evidence_digest": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_id",
+                "evidence_digest"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_artifact",
+            "description": "Read the permitted evidence projection through the Artifact API after ownership and digest verification; never expose raw artifacts or test samples.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "artifact_ref": {
+                  "type": "string"
+                },
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_id",
+                "artifact_ref"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_campaign",
+            "description": "Read a scoped campaign's current revision, authorization and resource budget.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_capabilities",
+            "description": "Read the supported Galatea protocol, actions and governance capabilities for the configured principal.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "protocol_version": {
+                  "type": "string",
+                  "enum": [
+                    "galatea.tools/v1"
+                  ]
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_metric_history",
+            "description": "Read bounded metric history for an owned MLflow run under the approved evidence protocol.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "metric": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_id",
+                "metric"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_operation",
+            "description": "Read an existing operation and its authoritative receipt for reconciliation.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "operation_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_inspect_project",
+            "description": "Inspect the approved project contract, immutable input identities and execution backend.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_list_operations",
+            "description": "List existing operations within the principal's campaign scope; this does not submit jobs.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_list_projects",
+            "description": "List projects visible to the configured principal using bounded pagination.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_observe_job",
+            "description": "Observe the existing governed job and its recorded backend identity without resubmitting it.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "operation_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_plan_run",
+            "description": "Persist a governed run plan bound to approved campaign revision, immutable inputs and budget; this is a mutation.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "attempt": {
+                  "type": "integer"
+                },
+                "campaign_id": {
+                  "type": "string"
+                },
+                "config_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "release_id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "baseline",
+                    "trial",
+                    "champion",
+                    "evaluate"
+                  ]
+                },
+                "step_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "step_id",
+                "attempt",
+                "release_id",
+                "config_id",
+                "role"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_query_runs",
+            "description": "Query scoped MLflow training and validation evidence through the Tracking API with bounded results.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "baseline",
+                    "trial",
+                    "champion",
+                    "evaluate"
+                  ]
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_stop_job",
+            "description": "Request stop of a scoped governed operation and preserve its receipt until backend termination is confirmed.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "operation_id",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_submit_job",
+            "description": "Submit an authorized immutable plan using the required business idempotency key. Reconcile unknown outcomes; never blindly resubmit.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "idempotency_key": {
+                  "type": "string"
+                },
+                "plan_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "plan_id",
+                "idempotency_key"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_verify_candidate",
+            "description": "Verify the frozen candidate using the existing ownership, artifact digest, test-once and quality gates; does not change a production alias.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "candidate_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "candidate_id"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "galatea",
+        "description": "Governed Galatea training tools.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "galatea_cancel_campaign",
+            "description": "Request cancellation of an authorized campaign and reconcile its active operations; acknowledgement is not termination.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_compare_runs",
+            "description": "Compare compatible training and validation evidence only when dataset, split, preprocessing, metric and evaluation contracts match.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_ids"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_freeze_candidate",
+            "description": "Freeze an owned candidate against immutable compatible evidence and campaign revision; does not promote a production alias.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "evidence_digest": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_id",
+                "evidence_digest"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_artifact",
+            "description": "Read the permitted evidence projection through the Artifact API after ownership and digest verification; never expose raw artifacts or test samples.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "artifact_ref": {
+                  "type": "string"
+                },
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_id",
+                "artifact_ref"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_campaign",
+            "description": "Read a scoped campaign's current revision, authorization and resource budget.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_capabilities",
+            "description": "Read the supported Galatea protocol, actions and governance capabilities for the configured principal.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "protocol_version": {
+                  "type": "string",
+                  "enum": [
+                    "galatea.tools/v1"
+                  ]
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_metric_history",
+            "description": "Read bounded metric history for an owned MLflow run under the approved evidence protocol.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "metric": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_id",
+                "metric"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_operation",
+            "description": "Read an existing operation and its authoritative receipt for reconciliation.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "operation_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_inspect_project",
+            "description": "Inspect the approved project contract, immutable input identities and execution backend.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_list_operations",
+            "description": "List existing operations within the principal's campaign scope; this does not submit jobs.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_list_projects",
+            "description": "List projects visible to the configured principal using bounded pagination.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_observe_job",
+            "description": "Observe the existing governed job and its recorded backend identity without resubmitting it.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "operation_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_plan_run",
+            "description": "Persist a governed run plan bound to approved campaign revision, immutable inputs and budget; this is a mutation.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "attempt": {
+                  "type": "integer"
+                },
+                "campaign_id": {
+                  "type": "string"
+                },
+                "config_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "release_id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "baseline",
+                    "trial",
+                    "champion",
+                    "evaluate"
+                  ]
+                },
+                "step_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "step_id",
+                "attempt",
+                "release_id",
+                "config_id",
+                "role"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_query_runs",
+            "description": "Query scoped MLflow training and validation evidence through the Tracking API with bounded results.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "baseline",
+                    "trial",
+                    "champion",
+                    "evaluate"
+                  ]
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_stop_job",
+            "description": "Request stop of a scoped governed operation and preserve its receipt until backend termination is confirmed.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "operation_id",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_submit_job",
+            "description": "Submit an authorized immutable plan using the required business idempotency key. Reconcile unknown outcomes; never blindly resubmit.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "idempotency_key": {
+                  "type": "string"
+                },
+                "plan_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "plan_id",
+                "idempotency_key"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_verify_candidate",
+            "description": "Verify the frozen candidate using the existing ownership, artifact digest, test-once and quality gates; does not change a production alias.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "candidate_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "candidate_id"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "galatea",
+        "description": "Governed Galatea training tools.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "galatea_cancel_campaign",
+            "description": "Request cancellation of an authorized campaign and reconcile its active operations; acknowledgement is not termination.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_compare_runs",
+            "description": "Compare compatible training and validation evidence only when dataset, split, preprocessing, metric and evaluation contracts match.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_ids"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_freeze_candidate",
+            "description": "Freeze an owned candidate against immutable compatible evidence and campaign revision; does not promote a production alias.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "evidence_digest": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_id",
+                "evidence_digest"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_artifact",
+            "description": "Read the permitted evidence projection through the Artifact API after ownership and digest verification; never expose raw artifacts or test samples.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "artifact_ref": {
+                  "type": "string"
+                },
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_id",
+                "artifact_ref"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_campaign",
+            "description": "Read a scoped campaign's current revision, authorization and resource budget.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_capabilities",
+            "description": "Read the supported Galatea protocol, actions and governance capabilities for the configured principal.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "protocol_version": {
+                  "type": "string",
+                  "enum": [
+                    "galatea.tools/v1"
+                  ]
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_metric_history",
+            "description": "Read bounded metric history for an owned MLflow run under the approved evidence protocol.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "metric": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "run_id",
+                "metric"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_get_operation",
+            "description": "Read an existing operation and its authoritative receipt for reconciliation.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "operation_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_inspect_project",
+            "description": "Inspect the approved project contract, immutable input identities and execution backend.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_list_operations",
+            "description": "List existing operations within the principal's campaign scope; this does not submit jobs.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_list_projects",
+            "description": "List projects visible to the configured principal using bounded pagination.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_observe_job",
+            "description": "Observe the existing governed job and its recorded backend identity without resubmitting it.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "operation_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_plan_run",
+            "description": "Persist a governed run plan bound to approved campaign revision, immutable inputs and budget; this is a mutation.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "attempt": {
+                  "type": "integer"
+                },
+                "campaign_id": {
+                  "type": "string"
+                },
+                "config_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "release_id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "baseline",
+                    "trial",
+                    "champion",
+                    "evaluate"
+                  ]
+                },
+                "step_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "step_id",
+                "attempt",
+                "release_id",
+                "config_id",
+                "role"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_query_runs",
+            "description": "Query scoped MLflow training and validation evidence through the Tracking API with bounded results.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "limit": {
+                  "type": "integer"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "baseline",
+                    "trial",
+                    "champion",
+                    "evaluate"
+                  ]
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_stop_job",
+            "description": "Request stop of a scoped governed operation and preserve its receipt until backend termination is confirmed.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "operation_id",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_submit_job",
+            "description": "Submit an authorized immutable plan using the required business idempotency key. Reconcile unknown outcomes; never blindly resubmit.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "idempotency_key": {
+                  "type": "string"
+                },
+                "plan_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "plan_id",
+                "idempotency_key"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "galatea_verify_candidate",
+            "description": "Verify the frozen candidate using the existing ownership, artifact digest, test-once and quality gates; does not change a production alias.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "campaign_id": {
+                  "type": "string"
+                },
+                "candidate_id": {
+                  "type": "string"
+                },
+                "project_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "campaign_id",
+                "candidate_id"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

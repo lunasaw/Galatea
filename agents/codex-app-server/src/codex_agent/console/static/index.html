@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Galatea Agent</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body><header><h1>Galatea Agent</h1><span id="health" role="status">尚未连接</span></header>
+<main><aside><form id="connect"><label>访问令牌<input id="token" type="password" autocomplete="off" required></label><button>连接</button></form>
+<button id="new" disabled>新建会话</button><ul id="sessions"></ul></aside>
+<section><h2 id="session-title">选择或新建会话</h2><p>此处显示会话和工具步骤的公开状态；完整输入、私有推理及后端日志不会展示。</p>
+<nav><button id="resume" disabled>核对并恢复</button><button id="interrupt" disabled>中断</button><button id="close" disabled>关闭会话</button></nav>
+<label>步骤筛选<select id="filter"><option value="all">全部</option><option value="reply">回复状态</option><option value="tool">工具</option><option value="summary">状态摘要</option><option value="error">错误</option></select> <span id="count">0 / 0</span></label>
+<ol id="events" aria-live="polite"></ol><form id="message"><label for="text">消息</label><textarea id="text" maxlength="65000" required></textarea><button id="send" disabled>发送</button></form>
+<p id="error" role="alert"></p></section></main></body></html>

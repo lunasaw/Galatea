@@ -4,7 +4,6 @@ import asyncio
 import hmac
 import json
 import logging
-import uuid
 from contextlib import asynccontextmanager
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
@@ -14,9 +13,8 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from .contracts import TOOLS
-from .errors import DomainError
+from .envelope import MUTATIONS, call_envelope
 
-MUTATIONS = {'plan_run','submit_job','stop_job','cancel_campaign','freeze_candidate','verify_candidate'}
 
 
 def make_server(service, principal):
@@ -32,21 +30,8 @@ def make_server(service, principal):
 
     @server.call_tool(validate_input=False)
     async def call_tool(name, arguments):
-        payload = {'schema_version': 'galatea.tools/v1', 'request_id': 'req-' + uuid.uuid4().hex}
-        try:
-            data = await asyncio.to_thread(service.call, principal, name, arguments)
-            payload.update(ok=True, data=data)
-        except DomainError as exc:
-            payload.update(ok=False, error=exc.details)
-        except Exception:
-            payload.update(ok=False, error={'category':'backend-or-state-unavailable', 'retryable':False,
-                'state_changed':'unknown', 'operation_id':None, 'next_action':'reconcile'})
+        payload = await asyncio.to_thread(call_envelope, service, principal, name, arguments)
         encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False)
-        if len(encoded.encode()) > 256 * 1024:
-            payload = {'schema_version':'galatea.tools/v1','request_id':payload['request_id'],'ok':False,
-                       'error':{'category':'response-too-large','retryable':False,'state_changed':'unknown',
-                                'operation_id':None,'next_action':'reduce-page-size-and-reconcile'}}
-            encoded = json.dumps(payload)
         return CallToolResult(isError=not payload['ok'], structuredContent=payload,
                               content=[TextContent(type='text', text=encoded)])
     return server

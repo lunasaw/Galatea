@@ -1,0 +1,11 @@
+/config/agent.json
+/config/codex-home/
+/config/codex-process-home/
+/config/runtime/
+/config/state/
+/config/events/
+/config/workspaces/
+/config/release/
+/build/
+/dist/
+/src/*.egg-info/

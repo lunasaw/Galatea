@@ -1,0 +1,45 @@
+[Unit]
+Description=Galatea native Codex Agent Host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=galatea-agent
+Group=galatea-agent
+WorkingDirectory=/var/lib/galatea-agent
+EnvironmentFile=/etc/galatea-agent/host.env
+Environment=PYTHONNOUSERSITE=1
+UnsetEnvironment=PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE PYTHONINSPECT
+ExecStart=/opt/galatea-agent/bin/codex-agent --config /var/lib/galatea-agent/agent.json serve --token-file /etc/galatea-agent/console-token
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectProc=invisible
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/galatea-agent/codex-home
+ReadWritePaths=/var/lib/galatea-agent/codex-process-home
+ReadWritePaths=/var/lib/galatea-agent/state
+ReadWritePaths=/var/lib/galatea-agent/events
+ReadWritePaths=/var/lib/galatea-agent/workspaces
+# Replace these with the exact existing Galatea state and artifact paths.
+ReadWritePaths=/var/lib/galatea-mcp
+ReadWritePaths=/var/lib/galatea-mcp/downloads
+ReadOnlyPaths=/var/lib/galatea-agent/codex-home/config.toml
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

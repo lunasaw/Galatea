@@ -77,3 +77,30 @@ class SubmissionTests(helpers.ServiceFixture):
         self.ray.jobs[op['submission_id']]['cluster_id'] = 'other'
         self.service.reconcile_all()
         self.assertEqual(self.call('get_operation', operation_id=op['operation_id'])['execution'], 'unknown')
+
+    def test_observe_receipt_without_committed_operation_never_dispatches(self):
+        plan = self.plan()
+        args = {'project_id': 'p1', 'campaign_id': 'campaign1', 'plan_id': plan, 'idempotency_key': 'observe'}
+        self.assertIsNone(self.service.observe_receipt(self.principal, 'galatea_submit_job', args))
+        self.assertFalse(self.ray.jobs)
+        self.assertEqual(self.call('get_campaign')['budget']['reserved_cpu_seconds'], 0)
+
+    def test_observe_receipt_keeps_ambiguous_operation_unknown(self):
+        plan = self.plan()
+        self.ray.lose_response = True
+        operation = self.submit(plan)
+        args = {'project_id': 'p1', 'campaign_id': 'campaign1', 'plan_id': plan, 'idempotency_key': 'observe'}
+        self.assertEqual(operation['execution'], 'unknown')
+        self.assertIsNone(self.service.observe_receipt(self.principal, 'galatea_submit_job', args))
+        self.assertEqual(len(self.ray.jobs), 1)
+
+    def test_observe_receipt_rechecks_authorization(self):
+        from galatea_mcp.auth import Principal
+        from galatea_mcp.errors import DomainError
+        plan = self.plan()
+        self.submit(plan)
+        args = {'project_id': 'p1', 'campaign_id': 'campaign1', 'plan_id': plan, 'idempotency_key': 'observe'}
+        outsider = Principal('outsider', frozenset({'p1'}), frozenset(), frozenset({'*'}))
+        with self.assertRaisesRegex(DomainError, 'forbidden'):
+            self.service.observe_receipt(outsider, 'galatea_submit_job', args)
+        self.assertEqual(len(self.ray.jobs), 1)

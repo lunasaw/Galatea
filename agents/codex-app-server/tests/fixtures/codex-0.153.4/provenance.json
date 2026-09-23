@@ -1,0 +1,21 @@
+{
+  "schema_version": "galatea.stage0.fixture/v1",
+  "runtime_version": "codex-cli 0.153.4",
+  "status": "blocked",
+  "captured_at": "2026-09-22",
+  "evidence_root": "outputs/codex-app-server-stage0-20260922",
+  "reference_codex_source_revision": "94174e44cbc54cece45f6052328ca0c2cd7a8a2a",
+  "binary_source_binding": "unverified; reference checkout is not proof of the installed binary source",
+  "galatea_base_revision": "05cdc2845514a73d5f2481ea3d26a2f707f07ef5",
+  "files": {
+    "full-tool-surfaces.json": "c4398a2f1073b0d898279c0d2ef4771c83bd5cdc8aeffc8a2efd3a4535107cd9",
+    "manifest.json": "5c136438cd83ed82227f85b3edbb0ba3c79bfcb2428e52d5f01212981a96f4ca",
+    "package-tree.json": "b2ccadace603389c8c2e4593636475bde1ad7a94cf300f31a8b12c238ad620e7",
+    "probe-config.toml": "2c58cd8b73d1e6e1f1debab4833d11c215d1453bae0bf7305bc6d9f835223358",
+    "schema/DynamicToolCallParams.json": "401bba20cfbd95762bef0467d840430c46be53369093ad9f26425ba757e34efc",
+    "schema/DynamicToolCallResponse.json": "abb082cad67f11fcc98ba75f2eff75d7d1723af0c657655329b83ff160451a02",
+    "schema/ThreadResumeParams.json": "324e96004c49de35935cade3386958431c93a4fd3997a839f9796772ea4c8072",
+    "schema/ThreadStartParams.json": "25f490368ec6df52a2a3b82a5469d2413307eb93439121b309f415b5648eee7a",
+    "subset-tool-surfaces.json": "5c1580229a04b919fdacc27878c0a71aa98182e56c98b09cef620136fbd63f25"
+  }
+}

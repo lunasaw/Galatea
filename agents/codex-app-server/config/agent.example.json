@@ -1,0 +1,52 @@
+{
+  "schema_version": "codex-agent/v1",
+  "agent": {
+    "id": "galatea-codex-agent",
+    "max_active_turns": 4
+  },
+  "paths": {
+    "codex_home": "./codex-home",
+    "runtime_dir": "./runtime",
+    "state_dir": "./state",
+    "event_dir": "./events",
+    "workspace_dir": "./workspaces",
+    "contracts": "./contracts/tools.json",
+    "catalog_metadata": "./contracts/catalog-metadata.json"
+  },
+  "codex": {
+    "binary": "./runtime/bin/codex",
+    "app_server_args": [
+      "--listen",
+      "stdio://",
+      "--strict-config"
+    ],
+    "runtime_version": "REPLACE_WITH_ACCEPTED_VERSION",
+    "model_api_key_file": "/etc/galatea-agent/model-api-key"
+  },
+  "galatea": {
+    "registry_path": "/absolute/path/to/registry.json",
+    "state_root": "/absolute/path/to/galatea-state",
+    "principal": {
+      "principal_id": "codex-agent",
+      "project_ids": [
+        "demo"
+      ],
+      "campaign_ids": [
+        "campaign-1"
+      ],
+      "actions": [
+        "galatea_get_capabilities"
+      ]
+    }
+  },
+  "console": {
+    "allowed_origins": [
+      "http://127.0.0.1:18880"
+    ],
+    "token_file": "/absolute/path/to/console-token"
+  },
+  "release": {
+    "manifest": "./release/manifest.json",
+    "stage0_record": "./release/stage0.json"
+  }
+}

@@ -1,0 +1,92 @@
+[
+  {
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "galatea",
+        "description": "Governed Galatea training tools.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "galatea_get_capabilities",
+            "description": "Read the supported Galatea protocol, actions and governance capabilities for the configured principal.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "protocol_version": {
+                  "type": "string",
+                  "enum": [
+                    "galatea.tools/v1"
+                  ]
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "galatea",
+        "description": "Governed Galatea training tools.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "galatea_get_capabilities",
+            "description": "Read the supported Galatea protocol, actions and governance capabilities for the configured principal.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "protocol_version": {
+                  "type": "string",
+                  "enum": [
+                    "galatea.tools/v1"
+                  ]
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "galatea",
+        "description": "Governed Galatea training tools.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "galatea_get_capabilities",
+            "description": "Read the supported Galatea protocol, actions and governance capabilities for the configured principal.",
+            "strict": false,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "protocol_version": {
+                  "type": "string",
+                  "enum": [
+                    "galatea.tools/v1"
+                  ]
+                }
+              },
+              "required": [],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

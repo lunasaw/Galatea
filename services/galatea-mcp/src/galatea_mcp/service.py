@@ -143,6 +143,34 @@ class Service:
             from .evidence import EvidenceService
             return EvidenceService(self).call(name, campaign, args, principal.principal_id)
 
+    def observe_receipt(self, principal, tool, args):
+        """Recover a committed submission by its immutable plan; never dispatch/retry.
+
+        None means evidence is insufficient. An absent operation is not proof
+        that a lost call had no effect, so callers must keep it unknown.
+        """
+        if tool != 'galatea_submit_job':
+            return None
+        try:
+            jsonschema.Draft202012Validator(TOOLS[tool]).validate(args)
+            canonical(args)
+        except (jsonschema.ValidationError, ValueError, TypeError) as exc:
+            raise DomainError('invalid-input') from exc
+        principal.check(tool, args.get('project_id'), args.get('campaign_id'))
+        with self.store.mutex:
+            campaign = self.store.read('campaigns', args['campaign_id'])
+            if campaign['spec']['project_id'] != args['project_id']:
+                raise DomainError('forbidden')
+            plan = campaign['plans'].get(args['plan_id'])
+            if plan is None:
+                return None
+            operation = campaign['operations'].get(self.logical_id(campaign, plan))
+            if operation is None or operation['execution'] in {'pending', 'submitting', 'unknown'}:
+                return None
+            if any(operation[key] != plan[key] for key in ('input_digest', 'config_id', 'release_id', 'role')):
+                raise DomainError('operation-conflict')
+            return self.public_op(operation)
+
     def save(self, campaign):
         self.store.save('campaigns', campaign['spec']['campaign_id'], campaign)
 

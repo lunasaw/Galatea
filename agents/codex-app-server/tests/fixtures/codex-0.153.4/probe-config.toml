@@ -1,0 +1,52 @@
+model = "mock-model"
+model_provider = "mock_provider"
+web_search = "disabled"
+approval_policy = "never"
+sandbox_mode = "read-only"
+[model_providers.mock_provider]
+name = "Local synthetic acceptance model"
+base_url = "http://127.0.0.1:26887/v1"
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+request_max_retries = 0
+stream_max_retries = 0
+[features]
+apps = false
+plugins = false
+remote_plugin = false
+recommended_plugins = false
+tool_suggest = false
+multi_agent = false
+multi_agent_v2 = false
+shell_tool = false
+unified_exec = false
+view_image = false
+sleep_tool = false
+goals = false
+hooks = false
+image_generation = false
+browser_use = false
+computer_use = false
+code_mode = false
+code_mode_only = false
+code_mode_host = false
+workspace_dependencies = false
+skill_mcp_dependency_install = false
+skill_search = false
+enable_request_compression = false
+current_time_reminder = false
+token_budget = false
+deferred_executor = false
+[orchestrator.skills]
+enabled = false
+[orchestrator.mcp]
+enabled = false
+[skills]
+include_instructions = false
+[skills.bundled]
+enabled = false
+[tools.experimental_request_user_input]
+enabled = false
+[tools.update_plan]
+enabled = false

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "galatea-codex-app-server"
+version = "0.1.0"
+description = "Native Codex app-server Host with governed Galatea tools and authenticated Console"
+requires-python = ">=3.11"
+dependencies = ["jsonschema>=4.25,<5", "uvicorn>=0.35,<0.41", "galatea-mcp==0.1.0"]
+
+[project.optional-dependencies]
+test = ["httpx>=0.28,<0.29"]
+
+[project.scripts]
+codex-agent = "codex_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"codex_agent.console" = ["static/*.html", "static/*.js", "static/*.css"]

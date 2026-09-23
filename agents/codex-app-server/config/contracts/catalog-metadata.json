@@ -1,0 +1,24 @@
+{
+  "schema_version": "galatea.catalog/v1",
+  "namespace": "galatea",
+  "description": "Governed Galatea training tools.",
+  "tools": {
+    "galatea_get_capabilities": {"description": "Read the supported Galatea protocol, actions and governance capabilities for the configured principal.", "read_only": true, "idempotent": true, "public_fields": []},
+    "galatea_list_projects": {"description": "List projects visible to the configured principal using bounded pagination.", "read_only": true, "idempotent": true, "public_fields": ["limit"]},
+    "galatea_inspect_project": {"description": "Inspect the approved project contract, immutable input identities and execution backend.", "read_only": true, "idempotent": true, "public_fields": ["project_id"]},
+    "galatea_get_campaign": {"description": "Read a scoped campaign's current revision, authorization and resource budget.", "read_only": true, "idempotent": true, "public_fields": ["project_id", "campaign_id"]},
+    "galatea_list_operations": {"description": "List existing operations within the principal's campaign scope; this does not submit jobs.", "read_only": true, "idempotent": true, "public_fields": ["project_id", "campaign_id", "limit"]},
+    "galatea_get_operation": {"description": "Read an existing operation and its authoritative receipt for reconciliation.", "read_only": true, "idempotent": true, "public_fields": ["project_id", "campaign_id", "operation_id"]},
+    "galatea_observe_job": {"description": "Observe the existing governed job and its recorded backend identity without resubmitting it.", "read_only": true, "idempotent": true, "public_fields": ["project_id", "campaign_id", "operation_id"]},
+    "galatea_plan_run": {"description": "Persist a governed run plan bound to approved campaign revision, immutable inputs and budget; this is a mutation.", "read_only": false, "idempotent": true, "public_fields": ["project_id", "campaign_id"]},
+    "galatea_submit_job": {"description": "Submit an authorized immutable plan using the required business idempotency key. Reconcile unknown outcomes; never blindly resubmit.", "read_only": false, "idempotent": true, "public_fields": ["project_id", "campaign_id", "plan_id"]},
+    "galatea_stop_job": {"description": "Request stop of a scoped governed operation and preserve its receipt until backend termination is confirmed.", "read_only": false, "idempotent": true, "public_fields": ["project_id", "campaign_id", "operation_id"]},
+    "galatea_cancel_campaign": {"description": "Request cancellation of an authorized campaign and reconcile its active operations; acknowledgement is not termination.", "read_only": false, "idempotent": true, "public_fields": ["project_id", "campaign_id"]},
+    "galatea_query_runs": {"description": "Query scoped MLflow training and validation evidence through the Tracking API with bounded results.", "read_only": true, "idempotent": true, "public_fields": ["project_id", "campaign_id", "limit"]},
+    "galatea_get_metric_history": {"description": "Read bounded metric history for an owned MLflow run under the approved evidence protocol.", "read_only": true, "idempotent": true, "public_fields": ["project_id", "campaign_id", "run_id", "limit"]},
+    "galatea_get_artifact": {"description": "Read the permitted evidence projection through the Artifact API after ownership and digest verification; never expose raw artifacts or test samples.", "read_only": true, "idempotent": true, "public_fields": ["project_id", "campaign_id", "run_id"]},
+    "galatea_compare_runs": {"description": "Compare compatible training and validation evidence only when dataset, split, preprocessing, metric and evaluation contracts match.", "read_only": true, "idempotent": true, "public_fields": ["project_id", "campaign_id"]},
+    "galatea_freeze_candidate": {"description": "Freeze an owned candidate against immutable compatible evidence and campaign revision; does not promote a production alias.", "read_only": false, "idempotent": true, "public_fields": ["project_id", "campaign_id"]},
+    "galatea_verify_candidate": {"description": "Verify the frozen candidate using the existing ownership, artifact digest, test-once and quality gates; does not change a production alias.", "read_only": false, "idempotent": true, "public_fields": ["project_id", "campaign_id", "candidate_id"]}
+  }
+}

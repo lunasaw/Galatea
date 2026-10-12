@@ -1,4 +1,7 @@
-# 独立训练 Agent TDD 实施记录
+# 独立训练 Agent TDD 实施记录（历史归档）
+
+> 本记录对应的 `agents/training-agent-runtime` 已于 2026-09-22 删除；历史测试通过不构成当前
+> Codex app-server 方案的验收证据。
 
 日期：2026-09-06；本地整体验证更新：2026-09-07。需求依据：[总览](../README.md)及工作包 01–08。
 

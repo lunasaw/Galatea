@@ -1,4 +1,7 @@
-# 本地总体验证记录
+# 本地总体验证记录（历史归档）
+
+> 记录中的独立 Runner 已于 2026-09-22 删除；以下 Runner 数字和命令只描述历史工作树，
+> 不代表当前仓库存在对应制品。当前验收入口见 [`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md)。
 
 日期：2026-09-07。范围：独立发布包、跨组件协议与故障边界、部署/真实验收文档。
 环境：macOS，Python 3.11.13；官方 SDK 源码 characterization 使用 `459a79e`。
@@ -9,11 +12,11 @@
 | 验证范围 | 结果 | 证据位置 |
 | --- | --- | --- |
 | MCP 包 | 37 项通过 | `services/galatea-mcp/tests/` |
-| Runner 包（启用官方 SDK 源码测试） | 30 项通过 | `agents/training-agent-runtime/tests/` |
+| 历史 Runner 包（已删除） | 30 项历史通过 | 旧工作树，不再存在 |
 | Skill 包 | 10 项通过；六个 Skill、十个冻结场景 | `packages/galatea-training-skills/tests/` |
 | reference workload | 22 项通过 | `train-model/ray-tabular-regression/tests/` |
 | 仓库级跨组件/契约 | 9 项通过 | `tests/` |
-| 两个 wheel 独立安装与 Skill 解包 | 19 个检查步骤通过；包内 76 项通过、1 项按设计跳过 | `verify_train_agent_installation.py` 的 `result.json` 和逐项日志 |
+| 历史两个 wheel 独立安装与 Skill 解包 | 19 个历史检查步骤通过 | 旧安装脚本和结果不再存在 |
 | 原插件 | `git diff HEAD -- plugins` 无变化，工作区无新增插件文件 | Git 核对 |
 | Linux unit 实际检查 | pending；本机没有 systemd-analyze | 目标 Linux 部署验收执行 |
 
@@ -53,20 +56,13 @@
 ```bash
 PYTHON=/path/to/python3.11
 PYTHONPATH=services/galatea-mcp/src "$PYTHON" -m unittest discover -s services/galatea-mcp/tests -v
-PYTHONPATH=agents/training-agent-runtime/src "$PYTHON" -m unittest discover -s agents/training-agent-runtime/tests -v
 "$PYTHON" -m unittest discover -s packages/galatea-training-skills/tests -v
 "$PYTHON" -m unittest discover -s train-model/ray-tabular-regression/tests -v
 "$PYTHON" -m unittest discover -s tests -v
-CODEX_SDK_SOURCE=/path/to/accepted-source/sdk/python/src \
-  PYTHONPATH=agents/training-agent-runtime/src "$PYTHON" -m unittest discover \
-  -s agents/training-agent-runtime/tests -p test_official_sdk.py -v
-"$PYTHON" scripts/verify_train_agent_installation.py \
-  --wheelhouse /secure/build/wheelhouse --output /secure/build/new-installation-check
 ```
 
-[独立安装脚本](../../scripts/verify_train_agent_installation.py)只使用预备 wheelhouse，保存解析后的
-依赖快照与发布制品摘要。无额外源码的 venv 是独立性证据，不能代替目标 Linux/Python ABI 和
-完整平台 extra 的部署验收。不要把本次临时日志目录作为长期恢复状态；发布时将证据复制到受保护验收目录。
+旧 Runner 的独立安装脚本已删除；上述命令只保留当前仍存在的 MCP/Skill/workload/仓库级检查。
+Codex app-server 的 runtime 和协议验收改按新方案文档执行。
 
 ## 4. 尚待真实环境验收
 
@@ -75,5 +71,5 @@ CODEX_SDK_SOURCE=/path/to/accepted-source/sdk/python/src \
 systemd/cgroup 清理、Ray trainer/evaluator 身份与数据权限、真实 MLflow Artifact 下载/干净加载、
 有明确预算的受治理训练与最终测试一次性使用。已有本地故障测试只能作为这些演练的准备证据。
 
-随包 runtime-lock 保持 pending。参考 Campaign 仍默认三槽位且不授权 Trial；四任务真实验收需
+历史随包 runtime-lock 保持 pending。参考 Campaign 仍默认三槽位且不授权 Trial；四任务真实验收需
 管理员提前配置批准槽位与预算。模型输出和替身平台报告不能升级成真实 accepted 训练证据。

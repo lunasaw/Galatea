@@ -1,4 +1,7 @@
-# 方案 08：独立部署与验收实施计划
+# 方案 08：独立部署与验收实施计划（历史归档）
+
+> 本方案依赖的独立 Runner 已于 2026-09-22 删除，不再是当前部署入口；当前方案见
+> [`agents/codex-app-server/docs`](../../../agents/codex-app-server/docs/README.md)。
 
 > 后续实现使用 superpowers:executing-plans；部署和算力执行限定在已有授权范围。
 
@@ -17,7 +20,7 @@
 | --- | --- |
 | MCP 包 deploy/inventory.example.yaml | 非秘密版本、路径、端口、账号/密钥引用 |
 | Galatea/systemd/galatea-mcp.service | 独立 MCP 与后台对账模板，无 Agent 依赖 |
-| Runner 仓库 deploy/training-agent.service | 单 Runner、worker 监督和文件状态 |
+| 历史 Runner 仓库 unit（已删除） | 单 Runner、worker 监督和文件状态 |
 | Runner 仓库 deploy/runtime-lock.json | Python/SDK/匹配 Runtime/Skill/Schema 的版本与摘要 |
 | 各组件 tests/ | Python 契约、进程和故障测试 |
 | 私有 acceptance/<release-id>/ | expected/observed/pass、版本、时间和脱敏引用 |

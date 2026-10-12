@@ -1,7 +1,9 @@
 # Galatea × Python Codex 训练 Agent 方案
 
-更新：2026-09-07。状态：独立 MCP、Runner、Skill 和参考 workload 已实现，
-本地跨组件验收见验证记录；真实部署、模型调用和训练仍待单独验收。
+更新：2026-09-22。状态：历史方案归档。此前的独立 `training-agent-runtime` 已删除，
+其实现、安装验证和部署命令不再是当前可发布入口。当前 Agent 方案请以
+[`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md) 为准；本目录
+保留 MCP、Skill 和 workload 契约的历史设计记录，旧 Runner 的通过数字不能作为当前验收证据。
 
 ## 1. 确定的架构边界
 

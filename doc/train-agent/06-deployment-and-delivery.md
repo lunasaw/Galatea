@@ -1,4 +1,8 @@
-# 独立部署与实施路线
+# 独立部署与实施路线（历史归档）
+
+> 本文描述的独立 Python Runner 已于 2026-09-22 删除，不再对应当前部署方案。当前方案见
+> [`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md)。下文仅保留历史决策，
+> 不应按其中的 Runner 路径或命令部署。
 
 ## 1. 源码和发布归属
 
@@ -9,7 +13,7 @@
 | 单元 | 源码位置 | 发布依赖 |
 | --- | --- | --- |
 | Python Galatea MCP | Galatea 的 services/galatea-mcp | Python、官方 MCP SDK、Ray/MLflow/S3 客户端 |
-| Python Runner + Codex adapter | agents/training-agent-runtime，独立 wheel | Python、另行验收的 openai-codex、MCP 客户端、发布的 JSON Schema |
+| 历史 Python Runner + Codex adapter | `agents/training-agent-runtime`（已删除） | 不再是当前发布组件 |
 | Skill 包 | packages/galatea-training-skills，独立归档 | SKILL.md、自包含参考、版本清单 |
 | Workload | Galatea 的 train-model/<project-name> | 该项目自己的环境、入口、配置和测试 |
 | 既有 DeepSeek plugin | Galatea 的 plugins/dsh-galatea | 保持当前内容、依赖、接口与能力 |

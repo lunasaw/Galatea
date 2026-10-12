@@ -1,4 +1,7 @@
-# Python 解耦架构实施工作包
+# Python 解耦架构实施工作包（历史归档）
+
+> 本工作包对应的独立 `training-agent-runtime` 已于 2026-09-22 删除。当前 Agent 设计已经转为
+> Codex app-server 宿主，见 [`agents/codex-app-server/docs`](../../../agents/codex-app-server/docs/README.md)。
 
 更新：2026-09-07。以下是原实施工作包，当前实现状态见
 [开发记录](09-development-record.md)及[本地验证](../09-local-validation.md)；未部署服务或运行真实训练。

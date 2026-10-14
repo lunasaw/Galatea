@@ -159,7 +159,7 @@ Codex 自有会话卷，以及匹配的只读 Release、Registry、config、Skil
 升级/回退顺序：暂停新 Turn/提交 → 处理旧 worker 和不明提交 → 备份 → 切换兼容制品 →
 保留原 IDs 与 test-once marker → API 对账 → 恢复调度。旧版本不支持当前 Schema 时停止回退并做
 显式转换，不能清空状态。跨主机恢复必须搬迁受保护卷并确认旧执行组已停止；首版无自动接管。
-`plugins/` 不承担新服务的代发或回退，不修改其源码、配置、Release 或运行入口。
+当前恢复与回退使用 Codex Host 的状态和接纳记录，不通过其他 Runtime 代发作业。
 
 ## 7. 真实上线判定
 

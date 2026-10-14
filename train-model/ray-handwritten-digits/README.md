@@ -42,7 +42,7 @@ scripts/train.py
 ```text
 train-model/ray-handwritten-digits/
 ├── README.md
-├── galatea.project.yaml   # dsh-galatea 项目能力、证据和质量门禁声明
+├── galatea.project.yaml   # Galatea 项目能力、证据和质量门禁声明
 ├── conda.yaml
 ├── pyproject.toml
 ├── configs/
@@ -267,7 +267,7 @@ python train-model/ray-handwritten-digits/scripts/train.py \
 验证集最佳 Checkpoint，对固定测试集评估一次，记录 Accuracy、Precision、Recall、F1、
 ROC AUC、预测摘要和质量门禁，并生成 MLflow Logged Model。模型会在 Logged Model 回读后
 再次发布为 Run 下的 `model/` Artifact，并通过 Artifact API 回读 `model/MLmodel`；这样
-[`dsh-galatea`](../../plugins/dsh-galatea/) 可以只依赖 Run ID 和正式 API 重算推广证据。未通过门禁的 Run 仍完整保留，
+Galatea 平台治理可以只依赖 Run ID 和正式 API 重算推广证据。未通过门禁的 Run 仍完整保留，
 但不会注册、设置或修改任何生产模型 Alias；发布必须另行人工审查和显式执行。
 
 这套边界表示“验证集最佳的已观察配置”，不表示有限参数试验已经找到全局最优模型。
@@ -299,9 +299,12 @@ ROC AUC、预测摘要和质量门禁，并生成 MLflow Logged Model。模型�
 Controller 只把 Rank 0 指标写入既有 MLflow Run 的所有权规则。`test_galatea_contract.py`
 还验证项目声明与入口、MLflow Param/Tag、阶段 Artifact 和 Run-scoped 模型 URI 一致。
 
-项目声明的主目标是 `val_accuracy`/`max`，并显式声明当前 `pauseResume: false`。通过 Harness
-操作本项目时，先按 [`dsh-galatea` 运维手册](../../doc/dsh-galatea-operations.md) 发布不可变
-`release.json`，再由插件计划、审批和提交；插件不会替项目构建 Release。
+项目声明的主目标是 `val_accuracy`/`max`，并显式声明当前 `pauseResume: false`。通过 Codex
+操作本项目时，先按项目 `job/README.md` 发布不可变 `release.json`，再使用固定治理入口
+完成计划、证据绑定和提交。仓库入口使用独立的
+[`galatea-governance`](../../packages/galatea-governance/README.md)；
+Web Agent 的 Campaign 接入需要另行按
+[`Codex Host 部署说明`](../../agents/codex-app-server/docs/06-config-deployment.md)登记与验收。
 
 ## 9. Runtime Env 排错
 

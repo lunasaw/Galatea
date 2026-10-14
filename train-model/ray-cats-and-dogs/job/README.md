@@ -25,6 +25,17 @@ cd /data/ai/chenzhangyue/galatea-model/galatea/train-model/ray-cats-and-dogs
 默认 CD 模式为 `check-config`，会提交 Ray Job 验证 Runtime Env 和配置，但不会启动训练。
 通用 CD 的 `--mode train` 已禁用；训练使用 `governed.mjs`，参见项目 README。
 
+`governed.mjs` 由 Codex 仓库工作流调用，使用独立的
+[`galatea-governance`](../../../packages/galatea-governance/README.md)校验 Release、
+Readiness 和提交授权。首次使用先在仓库根目录安装该库的锁定依赖：
+
+```bash
+npm ci --prefix packages/galatea-governance
+```
+
+Web Agent 使用 [`Codex app-server Host`](../../../agents/codex-app-server/README.md)；
+接入其 Campaign 工具集需要单独登记 workload 与批准配置。
+
 新机器和同机多集群先读 [`平台运行记忆`](../../../doc/platform-runtime-memory.md)。本页通用
 CI/CD 中的 loopback 默认值只适用于核对过的同机目标；选择其他集群时显式设置
 `RAY_API_SERVER_ADDRESS` 或传 `--address`，不能据此推算生产地址。训练提交器要求显式

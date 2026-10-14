@@ -5,8 +5,8 @@ description: Plan, submit, observe, or update an inference-only Ray Serve deploy
 
 # Governed Inference Workflow
 
-Use `scripts/governed_inference.py` as the controller for inference-only Ray Jobs. It is independent of
-DeepSeek Harness and `plugins/dsh-galatea`. Do not invoke those components from this workflow.
+Use `scripts/governed_inference.py` as the fixed controller for inference-only Ray Jobs in Codex workflows.
+Its Release, preflight and evidence-bound authorization checks are platform responsibilities.
 
 ## Boundaries
 

@@ -17,7 +17,6 @@
 | reference workload | 22 项通过 | `train-model/ray-tabular-regression/tests/` |
 | 仓库级跨组件/契约 | 9 项通过 | `tests/` |
 | 历史两个 wheel 独立安装与 Skill 解包 | 19 个历史检查步骤通过 | 旧安装脚本和结果不再存在 |
-| 原插件 | `git diff HEAD -- plugins` 无变化，工作区无新增插件文件 | Git 核对 |
 | Linux unit 实际检查 | pending；本机没有 systemd-analyze | 目标 Linux 部署验收执行 |
 
 源码测试合计 **108 项通过**。独立安装故意不提供相邻 Codex checkout，因此官方 SDK 源码测试

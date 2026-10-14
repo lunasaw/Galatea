@@ -79,4 +79,4 @@ workload 自身执行 deadline；MCP 后台做独立于 Runner 的超时检查�
 
 从本服务根运行：`python -m unittest discover -s tests -p 'test_*.py' -v`。
 真实端点先只读核验，再使用明确授权的专用小任务，不能对用户已有 Job 注入故障。
-通过条件：无 Codex、无 Harness、无 plugins 依赖的环境仍完成完整协议测试。
+通过条件：无 Agent Runtime 依赖的环境仍完成完整协议测试。

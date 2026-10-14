@@ -5,7 +5,7 @@
 **目标：**训练方法和分析流程独立安装，不依赖 Galatea checkout 或现有插件。
 **架构：**Skill 提供工作流程，Codex 原生加载，MCP 实施约束，Runner 管理等待。
 **技术栈：**SKILL.md、自包含 references、Python 打包/静态校验、冻结行为场景。
-**共同约束：**遵守 [实施索引](README.md)，不放进 Galatea/plugins，不改插件能力。
+**共同约束：**遵守 [实施索引](README.md)，Skill 包独立发布并按 Codex 发现路径验收。
 
 ## 1. 独立包结构
 

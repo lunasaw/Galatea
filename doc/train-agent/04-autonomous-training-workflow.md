@@ -12,7 +12,7 @@ Agent 可以建议这些字段，但不能给自己的草案授予权限。已�
 不要求用户逐 Trial 再确认；缺少验收口径或超出预算才请求补充。
 
 首版使用已注册项目、既有数据和预建配置。全新数据/模板入口是
-[方案 06](implementation/06-data-and-releases.md)的扩展，不以改造旧插件开路。
+[方案 06](implementation/06-data-and-releases.md)的扩展，按平台与 workload 的契约扩展。
 
 ## 2. 阶段、判断与执行
 

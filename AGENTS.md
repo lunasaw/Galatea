@@ -153,11 +153,14 @@ for the project. The Skill must remain reusable across frameworks and experiment
 - Seed randomized work and document any operation that cannot be made deterministic.
 - Never overwrite a source notebook with executed smoke-test output; write it to a temporary directory.
 
-## Agent SDK and Capability Alignment
+## Codex Runtime and Capability Alignment
 
-- Implement Agent features against source-level SDK abstractions and Claude Code-compatible behavior where
-  available. Do not invent behavior from prompts when the SDK or upstream source already defines a tool,
-  permission, event, hook, or capability model.
+- Codex is the sole Agent Runtime. Repository workflows use Codex and `.codex/skills/`; the Web Agent uses
+  `agents/codex-app-server/`, which hosts the native `codex app-server` process. Implement Agent features
+  against its actual protocol and source-level tool, permission, event, and capability abstractions.
+- `services/galatea-mcp/` owns Python platform governance and can serve Codex over MCP or run in process
+  through the app-server Host's Dynamic Tool Registry. `packages/galatea-governance/` owns the independent
+  project-YAML policies used by fixed repository entrypoints. Neither owns an Agent Loop or model client.
 - Support Skill capabilities as first-class runtime capabilities: discover, load, route, and execute Skills
   through the repository or configured Skill interfaces rather than hard-coding project-specific prompt text.
 - Model allowlists and permission grants through the SDK permission layer. A denied or unknown action should
@@ -165,7 +168,7 @@ for the project. The Skill must remain reusable across frameworks and experiment
   grant scoped access directly when the runtime supports it.
 - Keep permission requests structured and reusable, including command/tool identity, scope, reason,
   persistence choice, and denial handling. Avoid one-off natural-language prompts for each new action.
-- Before implementing Agent behavior, inspect the existing SDK and relevant Claude Code source-level patterns,
+- Before implementing Agent behavior, inspect the existing Codex protocol and relevant source-level patterns,
   then align naming, state transitions, callbacks, and error handling with those abstractions. If parity is
   impossible, document the gap and the local compatibility boundary.
 - Treat prompts as policy or presentation, not as the primary implementation mechanism for capabilities,

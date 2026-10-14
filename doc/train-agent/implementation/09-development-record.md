@@ -9,7 +9,7 @@
 交付可重复本地测试与真实环境端到端联调步骤。
 
 **Architecture:** 平台约束由 MCP 实施，原版 Codex 执行 Skill 和 MCP 工具，Runner 只调度一次
-Turn 与外部等待。三个发布目录各自打包，无相互源码 import、无旧插件依赖。
+Turn 与外部等待。三个发布目录各自打包，无相互源码 import、无其他 Agent Runtime 依赖。
 
 **Tech Stack:** Python 3.11+、官方 MCP SDK、Ray Jobs SDK、MLflow/S3 API、openai_codex。
 

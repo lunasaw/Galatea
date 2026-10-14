@@ -1,13 +1,13 @@
 # 独立 Python Galatea MCP 契约
 
 下列 `galatea_` 工具为新协议 `galatea.tools/v1` 草案，尚未实现。
-名称即使与旧插件相同，也不表示共享其实现、Session、权限或配置。
+工具名称属于本 MCP 契约，权限与配置由平台服务验证。
 
 ## 1. 实现与身份
 
 官方 Python MCP SDK → 输入与身份校验 → Python 项目/作业/证据模块 → Ray / MLflow / S3 API。
 所有模块放在一个独立 MCP 包中，首版不增加领域控制微服务或私有 HTTP 控制 API。
-服务不 import Codex、DeepSeek Harness 或 `plugins/dsh-galatea`。
+服务不 import Agent Runtime；Codex 可经 MCP transport 或 Host 进程内 Registry 使用同一平台约束。
 
 由管理员登记项目根、Release 根及批准任务清单；模型仅提交 `project_id/campaign_id` 和不可变引用。
 认证入口将凭据映射到允许的项目、Campaign 与动作；不能信任请求中的 `approved=true`。
@@ -68,7 +68,7 @@ Plan 绑定需求版本、项目、配置/Release 摘要、数据/split 身份�
 
 首版将每次已开始或可能已开始的计算按批准最大资源时长累计占用，不自动按提前结束退款。
 搜索必须保留最后重训与评价的额度。真实用量作为报告证据另列，不把这个保守上界称为实际账单。
-限制覆盖此 MCP 入口的 Campaign，不能阻止旧插件或管理员使用共享集群。
+限制覆盖此 MCP 入口的 Campaign，不能阻止其他入口或管理员使用共享集群。
 
 ## 4. 结果、错误与对账
 

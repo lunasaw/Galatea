@@ -10,13 +10,13 @@
 
 ## 1. 确定的架构边界
 
-**独立 Galatea MCP + 原版 Codex + 独立 Skill 包 + Python Runner。平台与 Agent 解耦，
-无需修改 Codex Core，也不改造现有 `plugins/`。**
+2026-10-14：Agent Runtime 已统一为 Codex；当前 Web Agent 使用原生 `codex app-server`
+Host 和进程内 Galatea Registry。仓库固定入口所需的项目治理逻辑位于
+[`packages/galatea-governance`](../../packages/galatea-governance/README.md)。
+当前组件边界见 [Codex 与 Galatea 架构](../agent-galatea.md)。
 
-`plugins/dsh-galatea/` 的 TypeScript 文件属于 DeepSeek Harness/Cordis 工作流。
-该插件保持现有能力、接口和运行方式。新方案独立实现 Python MCP，通过官方 Ray、MLflow、
-S3 API 接入现有平台；不从旧插件抽取模块，不 import 它，不让旧插件转接新服务。
-旧方案仍见 [agent-galatea.md](../agent-galatea.md)。
+下面保留的是独立 Galatea MCP + 原版 Codex + 独立 Skill 包 + Python Runner 的历史方案，
+平台与 Agent 解耦；其中 Python Runner 已删除，不能作为当前部署入口。
 
 Python Runner 对接已做源码接口核验的官方 `openai_codex` SDK，由 SDK 启动原版 `codex app-server`。
 发布 SDK/Runtime 配对仍待真实验收，随包 Runtime 锁保持 pending。
@@ -25,9 +25,7 @@ Python Runner 对接已做源码接口核验的官方 `openai_codex` SDK，由 S
 
 ## 2. 组件与调用关系
 
-![Python Codex 与独立 Galatea MCP](assets/platform-agent-architecture.png)
-
-[可编辑架构图](assets/platform-agent-architecture.drawio)
+当前架构图见 [Codex 与 Galatea 架构](../agent-galatea.md)；下表保留历史方案的组件取舍。
 
 | 单元 | 职责 | 拥有的状态 |
 | --- | --- | --- |
@@ -83,7 +81,7 @@ MLflow 与集群身份，随后通过 MCP 执行。实现报告见
 
 | 文档 | 内容 |
 | --- | --- |
-| [01 现状与选型](01-current-state-and-official-components.md) | 旧 TS 插件归属、Python SDK 源码证据、后端选型 |
+| [01 现状与选型](01-current-state-and-official-components.md) | 当前源码归属、历史 Python SDK 源码证据、后端选型 |
 | [02 MCP 契约](02-platform-mcp-contract.md) | 首版工具、项目身份、提交幂等和状态 |
 | [03 Python Codex 与 Skill](03-codex-runtime-and-skills.md) | SDK 的真实调用、会话、权限和用量语义 |
 | [04 训练工作流](04-autonomous-training-workflow.md) | 数据、基线、优化、重训、评价与交付 |
@@ -97,4 +95,4 @@ MLflow 与集群身份，随后通过 MCP 执行。实现报告见
 | [Codex 配置](examples/codex-config.example.toml) | 首版 MCP 配置草案 |
 | [Turn 输出 Schema](examples/agent-turn.schema.json) | 模型建议的结构，不能替代执行事实 |
 
-新实现保持旧插件与 Codex Core 不变；本地验收没有启动真实训练或变更远端服务。
+历史验收未修改 Codex Core、启动真实训练或变更远端服务；当前实现与接纳以 Codex Host 文档为准。

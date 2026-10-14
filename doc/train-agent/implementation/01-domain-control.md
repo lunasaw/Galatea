@@ -5,7 +5,7 @@
 **目标：**用少量持久文件支持安全提交和恢复，不建设独立控制平台。
 **架构：**所有业务校验位于 Python MCP 包内；单写进程更新有界 Campaign JSON。
 **技术栈：**Python、pathlib、JSON、文件锁、原子替换；无 SQL/ORM。
-**共同约束：**遵守 [实施索引](README.md)，不抽取或改造 plugins 中任何代码。
+**共同约束：**遵守 [实施索引](README.md)，平台状态与 Agent 会话分离。
 
 ## 1. 文件与接口
 
@@ -93,5 +93,5 @@ pending 表示尚未进入网络调用；submitting 之后可能已有外部副�
 - [ ] 注入 pending 后退出、submitting 后退出、Ray 查询不可用和历史 404；验证恢复或 unknown。
 - [ ] 运行 `python -m unittest discover -s tests -p 'test_submission.py' -v`，未知状态不得产生新 ID。
 
-提交相关成功条件通过后再接真实 API；没有任何旧插件切换或兼容 adapter 任务。
+提交相关成功条件通过后再接真实 API；当前 Agent 接入使用 Codex Host。
 回退保留状态和 ID，不用恢复旧入口重新发送新 Campaign。

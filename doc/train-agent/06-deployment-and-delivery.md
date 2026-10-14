@@ -16,9 +16,8 @@
 | 历史 Python Runner + Codex adapter | `agents/training-agent-runtime`（已删除） | 不再是当前发布组件 |
 | Skill 包 | packages/galatea-training-skills，独立归档 | SKILL.md、自包含参考、版本清单 |
 | Workload | Galatea 的 train-model/<project-name> | 该项目自己的环境、入口、配置和测试 |
-| 既有 DeepSeek plugin | Galatea 的 plugins/dsh-galatea | 保持当前内容、依赖、接口与能力 |
 
-没有 training-control 微服务、共享 TS contracts 包、数据库迁移目录或旧插件切换任务。
+没有 training-control 微服务、共享 TS contracts 包或数据库迁移目录。
 MCP 内部普通 Python 模块即可完成项目、作业、证据和少量状态管理。
 协议以 JSON Schema 随 MCP 发布，Runner/Skill 消费已发布制品，不 import 平台内部 Python 模块。
 
@@ -35,16 +34,15 @@ MCP 内部普通 Python 模块即可完成项目、作业、证据和少量状�
 | Runner | 用 MCP 查询状态，调用 SDK；维护本地 JSON、锁和有限日志 |
 | 训练/评价入口 | 运行批准 Release；按角色得到数据和 Artifact 权限，隔离 holdout |
 
-首版仅一个活跃 Campaign 和串行作业。与旧插件共享资源时，独立提交前缀、任务来源和证据来源；
-MCP 只计自己入口的授权预算。若需要全局配额或不同信任方隔离，在部署层分配专用资源。
-既有插件不中断、不改为新 MCP 客户端、不关闭它的写能力。
+首版仅一个活跃 Campaign 和串行作业。MCP 只计自己入口的授权预算；
+需要全局配额或不同信任方隔离时，在部署层分配专用资源。
 
 ## 3. 实施顺序
 
 | 阶段 | 工作 | 退出条件 |
 | --- | --- | --- |
 | P0 Python 接口验证 | 锁定 openai-codex/配套 Runtime、MCP SDK、Python；fake MCP + Skill + SDK smoke | 真实发布组合支持 start/run/resume/output_schema |
-| P1 Python MCP | 独立注册、核心工具、API 适配、文件提交记录和幂等 | 普通 MCP 客户端可检查/提交/观察；无 Codex/Harness 依赖 |
+| P1 Python MCP | 独立注册、核心工具、API 适配、文件提交记录和幂等 | 普通 MCP 客户端可检查/提交/观察；无 Agent Runtime 依赖 |
 | P2 Runner 与 Skill | 文件状态、进程监督、等待/恢复、有限决策 | 训练等待不调用模型；崩溃后找到原 Job |
 | P3 一个 workload 闭环 | 固定配置、验证选优、干净重训、隔离最终评价、Artifact 交付 | 有明确预算的最小真实闭环通过 |
 | P4 新数据与 LoRA | 上传、不可变配置/构建、模型目录、业务评价 | 按开放的能力分别验收，不把 Toy smoke 当产品完成 |
@@ -57,7 +55,7 @@ MCP 只计自己入口的授权预算。若需要全局配额或不同信任方�
 
 1. 通过只读 API 重新核对目标主机服务、版本、数据、Release 和资源；历史快照不当当前状态。
 2. 创建专用账号、Python 环境和受保护本地卷，固定依赖锁/二进制与 Skill 摘要。
-3. 登记新 MCP 的项目、受限身份和已批准 Campaign；不导入旧插件 Session 或伪造历史授权。
+3. 登记新 MCP 的项目、受限身份和已批准 Campaign；不导入外部会话或伪造历史授权。
 4. 先验证 stdio/local fake，再验证实际 HTTPS 身份、initialize、tools/list、只读调用。
 5. 独立 Agent 环境安装 Skill 与原版 Codex，验证环境隔离、工作区、会话持久化和恢复。
 6. 故障测试使用临时目录和 fake 后端；实际训练使用专门批准的小预算，不干扰既有 Job。
@@ -74,11 +72,11 @@ MCP/Runner unit 模板已创建，尚未安装。目标 Linux 上按仓库规则
 ## 5. 验收与回退
 
 关键验收：无 Codex 环境 MCP 正常；无 Galatea checkout 的 Agent 可使用发布 Skill/MCP；
-插件目录内容不变；单写锁生效；提交丢响应后不重复 Job；等待无模型调用；
+单写锁生效；提交丢响应后不重复 Job；等待无模型调用；
 未知状态不退款重发；失败/中断不当成功；最终测试不用于调参；Artifact 可下载加载；未授权不推广。
 
 分别备份 MCP JSON 状态、测试使用标记、Runner JSON 和 Codex 自有会话卷。
 MLflow/MinIO 沿用既有一致备份流程，客户端恢复验证通过 API。
 回退先停止新增 Turn/提交，保留已有操作 ID、观察和超时检查，再切回兼容版本。
 文件 Schema 升级保留旧快照并显式转换，不能清空状态重建所有 Job。
-旧 DeepSeek 路线始终独立，不作为新任务自动重发或回滚入口。
+当前任务统一由 Codex 执行；恢复和回退不能自动重发未知提交。

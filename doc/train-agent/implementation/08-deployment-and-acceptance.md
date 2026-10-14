@@ -8,7 +8,7 @@
 **目标：**验证四个独立组件协作，不改变既有 plugin 能力和原版 Codex。
 **架构：**现有平台 + 一个 Python MCP 进程；独立 Python Runner 监督原版 Codex；Skill 独立发布。
 **技术栈：**专用 Python 环境、原版 Runtime、systemd/容器、受保护本地文件卷、HTTPS；无新增数据库。
-**共同约束：**遵守 [实施索引](README.md)，不以旧插件切换作为上线步骤。
+**共同约束：**遵守 [实施索引](README.md)，当前上线步骤以 Codex Host 接纳记录为准。
 
 2026-09-07：本地实现和独立安装结果见[验证记录](../09-local-validation.md)，
 实际部署及故障恢复命令见[端到端手册](../08-e2e-integration-runbook.md)。
@@ -46,7 +46,7 @@ SDK 的 env 合并行为要求 supervisor 先清理继承环境；不把运行�
 
 | ID | 场景 | 预期 |
 | --- | --- | --- |
-| A01 | 无 Codex/Harness/plugins 的 MCP 环境 | Python 服务和 fake 后端契约正常 |
+| A01 | 无 Agent Runtime 的 MCP 环境 | Python 服务和 fake 后端契约正常 |
 | A02 | Agent 主机无 Galatea checkout | 仅发布 Skill、协议和 MCP 即可决策 |
 | A03 | 普通 MCP client 替代 Codex | 同权限、幂等和证据结果 |
 | A04 | 相同 Plan 换请求键、相同 step 换 Thread | 只有一个 operation/Job |
@@ -61,7 +61,7 @@ SDK 的 env 合并行为要求 supervisor 先清理继承环境；不把运行�
 | A13 | Trial 读取测试、重复最终测试 | 真实权限拒绝，marker 保留 |
 | A14 | Ray success、质量失败或 Artifact 缺失 | 不 accepted，完整性失败不可交付 |
 | A15 | Artifact 干净环境加载 | 摘要、接口和合成推理符合合同 |
-| A16 | 旧插件目录与行为 | 内容/配置/依赖/Release 不变，无切换步骤 |
+| A16 | Runtime 归属 | 当前以 Codex Host 与平台治理库的契约测试为准 |
 | A17 | 回退新 MCP/Runtime | 原任务引用与测试使用标记保留，不重发全部 Job |
 
 首次真实测试：一个固定 workload、一个 Trial、明确 CPU/GPU/时长，关闭自动搜索。
@@ -87,4 +87,4 @@ Linux unit 修改后执行 `systemd-analyze verify`；workload 在项目声明�
 
 暂停新 Turn/submit，处理旧 worker 和未知提交后切换兼容包；原 Job 继续观察。
 新旧 Skill/Runtime 固定到具体 Campaign，缺旧版本就先报告恢复条件。
-旧 DeepSeek 插件保持独立运行，不自动代发新架构的未确认作业，不变更其权限或入口。
+当前执行入口统一为 Codex；恢复与回退不得自动重发未确认作业。

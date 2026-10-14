@@ -24,8 +24,8 @@ class GovernedTargetTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         version = subprocess.check_output([NODE, "--version"], text=True).strip().lstrip("v")
         parts = tuple(int(part) for part in version.split("."))
-        if parts < (22, 18, 0):
-            raise unittest.SkipTest("Node 22.18+ is required for native TypeScript imports")
+        if parts < (22, 19, 0):
+            raise unittest.SkipTest("Node 22.19+ is required for native TypeScript imports")
 
     def _assert_rejected(self, overrides: dict[str, str], expected: str) -> None:
         environment = {
@@ -65,3 +65,24 @@ class GovernedTargetTests(unittest.TestCase):
             {**TARGET_ENV, "MLFLOW_TRACKING_URI": "http://user:fixture-secret@localhost:18103"},
             "Set MLFLOW_TRACKING_URI",
         )
+
+    def test_valid_target_loads_governance_without_the_retired_plugin(self) -> None:
+        environment = {
+            key: value for key, value in os.environ.items()
+            if key not in {*TARGET_ENV, "RAY_DASHBOARD_URL"}
+        }
+        result = subprocess.run(
+            [NODE, "job/governed.mjs", "plan", "configs/smoke.yaml",
+             "/nonexistent/galatea-release/release.json", "-", "migration-test"],
+            cwd=PROJECT_ROOT,
+            env={**environment, **TARGET_ENV},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("ERR_MODULE_NOT_FOUND", output)
+        self.assertNotIn("ECONNREFUSED", output)
+        self.assertIn('"category":"precondition-failed"', output)
+        self.assertIn("path resolves outside project root", output)

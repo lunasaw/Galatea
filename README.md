@@ -10,10 +10,10 @@ Ray Train 及其他能够接入 MLflow 的训练项目，覆盖分类、回归�
 
 README 分为两层：先沿着四张图理解平台如何运转，再进入可检索的部署与运维手册。
 
-Codex 通过仓库级 [`.codex/skills/`](.codex/skills/) 执行 Galatea 治理流程并安全地操作
-Ray/MLflow。选择 DeepSeek 作为 Agent Runtime 时，使用 [`dsh-galatea`](plugins/dsh-galatea/)
-接入 Cordis Tool、Harness Session 审批和项目声明；该集成不适用于 Codex，架构见
-[`doc/agent-galatea.md`](doc/agent-galatea.md)。
+Agent Runtime 统一使用 Codex。仓库工作流通过 [`.codex/skills/`](.codex/skills/) 和项目固定治理
+入口操作 Ray/MLflow；Web Agent 使用 [`agents/codex-app-server`](agents/codex-app-server/)，
+由原生 `codex app-server` 管理 Thread、Turn、Skill 和 Agent Loop，Host 接入 Galatea 平台工具。
+架构和迁移边界见 [`doc/agent-galatea.md`](doc/agent-galatea.md)。
 
 ## 图解导览
 
@@ -301,7 +301,10 @@ python .codex/skills/mlflow-optimize-models/scripts/analyze_experiment.py \
 ```text
 train/
 ├── .codex/skills/                 # 工程级 Codex Skills
-├── plugins/dsh-galatea/           # DeepSeek Harness 训推平台插件
+├── agents/codex-app-server/       # 原生 Codex app-server Host 与 Console
+├── services/galatea-mcp/          # Python 平台治理与 MCP 接口
+├── packages/galatea-governance/   # 项目固定入口的 Release、证据和提交校验
+├── packages/galatea-training-skills/ # 可独立发布的训练 Skill 包
 ├── train-model/                   # 多个训练项目和模型工作负载
 │   ├── cats-and-dogs/             # TensorFlow/Keras 示例
 │   └── ray-cats-and-dogs/         # Ray Train/PyTorch 治理示例
@@ -347,8 +350,9 @@ jupyter nbconvert --execute --to notebook \
 - [数据到训练到模型的端到端实施手册](doc/train-guide/data-to-training-to-model-imp-guide.md)
 - [Ray 训练接入与运行规范](doc/train-guide/ray-training-guide.md)
 - [MLflow 训练指标手册](doc/train-guide/mlflow-training-integration-spec.md)
-- [DeepSeek Harness 与 Galatea 架构](doc/agent-galatea.md)
-- [dsh-galatea 部署与运维](doc/dsh-galatea-operations.md)
+- [Codex 与 Galatea 架构](doc/agent-galatea.md)
+- [Codex app-server 安装与运行](agents/codex-app-server/README.md)
+- [Codex app-server 配置与部署](agents/codex-app-server/docs/06-config-deployment.md)
 - [仓库开发规范](AGENTS.md)
 
 ### 安全与持久化

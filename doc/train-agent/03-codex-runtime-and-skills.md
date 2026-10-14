@@ -4,7 +4,7 @@
 
 Python Runner → 官方 `openai_codex` SDK → 原版 `codex app-server` → 独立 Galatea MCP。
 SDK 负责协议连接、Thread 和 Turn，Codex 负责工具和 Skill 执行；Runner 只负责外部任务调度。
-不使用 TS SDK 主线，不修改 Codex Core，不实现第二套 Agent，也不改动 DeepSeek 插件。
+不使用 TS SDK 主线，不修改 Codex Core，不实现第二套 Agent，统一使用 Codex Runtime。
 
 本地接口依据：[Python README](../../../codex/sdk/python/README.md)、
 [API reference](../../../codex/sdk/python/docs/api-reference.md)、
@@ -121,7 +121,7 @@ Runner 在启动 worker 时通过受控 `subprocess` 环境或容器配置形成
 | model-delivery | 交付内容、门禁、可复现性与限制 |
 
 每个技能携带自包含 references，按固定版本和摘要安装；不指向 Galatea checkout 的相对路径。
-不打包到 `Galatea/plugins/`，也不改变当前插件注册和发现能力。
+Skill 包独立发布，仓库工作流保存在 `.codex/skills/`。
 发现路径按锁定 Codex 版本验收，关键入口用 `SkillInput` 显式指定；不要把开发机个人 Skill 全量装入服务。
 生产 Skill 只读，更新只作用于新任务，旧任务恢复使用原 digest。
 

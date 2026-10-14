@@ -10,8 +10,8 @@
 ## 1. 共同约束
 
 - 新主线：Python Galatea MCP + 原版 Codex + 独立 Skill 包 + Python Runner。
-- `Galatea/plugins/` 所有源码、配置、测试、依赖和现有功能保持不动，无迁移步骤。
-- 不修改 Codex Core，不新建自研 Agent，不依赖 DeepSeek Harness。
+- 当前源码归属以 [Codex 与 Galatea 架构](../../agent-galatea.md)为准；此处保留历史 Runner 工作包。
+- 不修改 Codex Core，不新建自研 Agent，不依赖其他 Agent Runtime。
 - 首版不新增数据库、ORM、SQL migrations、队列或 training-control 服务。
 - 单 MCP 写进程、单 Runner、一个活跃 Campaign、串行受信 Job，本地持久卷与进程锁。
 - 通过官方 Ray、MLflow、S3 API 使用平台；不直读 MLflow 数据库或 MinIO 服务端目录。

@@ -1,6 +1,8 @@
 # Galatea MCP
 
-独立 Python 服务；无 Codex、Harness、旧插件或模型框架的源码依赖。
+独立 Python 平台治理服务，无 Agent Runtime 或模型框架的源码依赖。
+Codex 可通过 MCP transport 调用；[`codex-app-server` Host](../../agents/codex-app-server/README.md)
+通过进程内 Dynamic Tool Registry 复用同一 Service 和权限约束。
 实现 `galatea.tools/v1` 的 17 个工具、单写 JSON 状态、批准槽位/预算、幂等提交与恢复、
 验证集比较、冻结候选、干净 Champion、test-once 和 API Artifact 核验。
 

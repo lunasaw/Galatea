@@ -1342,7 +1342,8 @@ checkpoint、adapter、报告和 MLflow Artifact 应写入配置的 Artifact 服
 - .codex/skills/governed-training-workflow/SKILL.md
 - .codex/skills/governed-training-workflow/references/execution-classification.md
 - .codex/skills/governed-training-workflow/references/evidence-contract.md
-- doc/dsh-galatea-operations.md
+- doc/agent-galatea.md
+- agents/codex-app-server/docs/06-config-deployment.md
 - doc/train-llm/fine-tuning-evaluation-protocol.md
 
 # 11. 文档完成时的状态

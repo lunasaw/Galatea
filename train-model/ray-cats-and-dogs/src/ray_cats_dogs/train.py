@@ -26,9 +26,9 @@ from ray_cats_dogs.evaluate import evaluate_checkpoint
 from ray_cats_dogs.integrity import build_integrity_report, integrity_digest
 from ray_cats_dogs.runtime import (
     controller_pickle_by_value,
-    execution_provenance,
     ray_init_runtime_env,
     worker_runtime_env,
+    require_governed_execution,
 )
 from ray_cats_dogs.tracking import (
     RayMlflowCallback,
@@ -79,6 +79,11 @@ def config_plan(
             "training_workers": config.ray.num_workers,
             "cpu_per_worker": config.ray.cpus_per_worker,
             "gpu_per_worker": 1 if config.ray.use_gpu else 0,
+            # Galatea maps these fields to Ray Job Driver reservations.
+            # GPUs are reserved separately by the Train placement group.
+            "cpus": 1,
+            "num_gpus": 0,
+            "memory_gb": 1,
             "memory_per_worker_bytes": config.ray.memory_per_worker_bytes,
             "ray_data_decode_workers": config.ray.data_decode_workers,
             "ray_data_num_blocks": config.ray.data_num_blocks,
@@ -219,6 +224,25 @@ def _log_checkpoint_and_selection(
         downloaded_digest = hashlib.sha256(
             Path(downloaded_model).read_bytes()
         ).hexdigest()
+        if downloaded_digest != local_model_digest:
+            raise RuntimeError("MLflow checkpoint Artifact failed SHA-256 verification")
+        # Load the retrieved checkpoint in a fresh CPU process before accepting
+        # the artifact. This forward-only fixture never reads holdout images.
+        import subprocess
+        import sys
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(config.project_root / "scripts" / "verify_checkpoint.py"),
+                downloaded_model,
+            ],
+            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
     if downloaded_digest != local_model_digest:
         raise RuntimeError("MLflow checkpoint Artifact failed SHA-256 verification")
     mlflow.log_dict(
@@ -230,6 +254,7 @@ def _log_checkpoint_and_selection(
             "ray_checkpoint_uri": str(result.checkpoint.path),
             "best_model_sha256": local_model_digest,
             "mlflow_artifact_roundtrip_verified": True,
+            "fresh_process_load_verified": True,
             "test_evaluated_during_selection": False,
         },
         "reports/model-selection.json",
@@ -367,10 +392,24 @@ def _log_mlflow_model(
     return f"runs:/{run_id}/model"
 
 
-@mlflow.trace(name="ray_cats_dogs_training", span_type=SpanType.WORKFLOW)
+@mlflow.trace(name="ray_cats_dogs.training", span_type=SpanType.CHAIN)
 def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any]:
     """Run one idempotent Ray Train workload and one authoritative MLflow Run."""
 
+    mlflow.update_current_trace(
+        tags={
+            "project": config.project_name,
+            "run.role": config.run.role,
+            "execution.type": "ray-train",
+        },
+        metadata={
+            "mlflow.trace.session": config.project_name,
+            "training.objective_metric": config.training.objective_metric,
+            "training.objective_mode": config.training.objective_mode,
+            "ray.num_workers": str(config.ray.num_workers),
+        },
+    )
+    provenance = require_governed_execution(config.project_name, config.run.promotable)
     tracking = preflight_tracking(config)
     dataset = prepare_dataset(config.data, config.run.seed)
     validate_equal_shards(dataset, config.ray.num_workers)
@@ -435,7 +474,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
             "ray.task_timeline.requested": str(
                 config.ray.record_task_timeline
             ).lower(),
-            **execution_provenance(config.project_name),
+            **provenance,
         }
         phase = "run-setup"
         with mlflow.start_run(

@@ -1,4 +1,4 @@
-/platform-data/
+/platform-data
 /outputs/
 /packages/galatea-training-skills/dist/
 /mlflow.db

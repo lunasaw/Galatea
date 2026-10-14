@@ -77,7 +77,6 @@ def _source_files(config: ProjectConfig) -> list[Path]:
         config.project_root / "src",
         config.project_root / "scripts",
         config.project_root / "configs",
-        config.project_root / "job",
     )
     files = [
         path

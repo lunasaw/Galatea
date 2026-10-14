@@ -66,6 +66,9 @@ def main() -> None:
 
         result = read_only_plan(config)
     else:
+        from ray_cats_dogs.runtime import require_governed_execution
+
+        require_governed_execution(config.project_name, config.run.promotable)
         import mlflow
 
         mlflow.set_tracking_uri(config.mlflow.tracking_uri)

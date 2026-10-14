@@ -297,11 +297,16 @@ def log_run_inputs(
         mlflow.log_artifact(str(path), artifact_path="source")
 
     columns = ["relative_path", "class_name", "label", "bytes", "sha256"]
+    # MLflow has no resolver for Kaggle's logical URI scheme. Its HTTPS
+    # version page preserves the same immutable origin in the dataset UI.
+    source = dataset.source_uri
+    if source.startswith("kaggle://"):
+        source = source.replace("kaggle://", "https://www.kaggle.com/datasets/", 1)
     for split_name in ("training", "validation", "test"):
         split_frame = dataset.split_frame(split_name)[columns]
         mlflow_dataset = mlflow.data.from_pandas(
             split_frame,
-            source=dataset.source_uri,
+            source=source,
             targets="label",
             name=f"microsoft-cats-vs-dogs-{split_name}",
             digest=_split_digest(split_frame),

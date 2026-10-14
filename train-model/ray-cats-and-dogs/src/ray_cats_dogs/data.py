@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -84,8 +85,14 @@ def _validated_class_records(
         try:
             if path.stat().st_size == 0:
                 raise OSError("empty image")
-            with Image.open(path) as image:
-                image.verify()
+            # ``verify`` checks container metadata, but some JPEGs still fail
+            # while decoding pixels in the training input pipeline.
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                with Image.open(path) as image:
+                    image.verify()
+                with Image.open(path) as image:
+                    image.load()
             valid.append(
                 {
                     "relative_path": relative_path,
@@ -95,7 +102,7 @@ def _validated_class_records(
                     "sha256": _file_sha256(path),
                 }
             )
-        except (OSError, UnidentifiedImageError) as error:
+        except (OSError, UnidentifiedImageError, Warning) as error:
             invalid.append(
                 {
                     "relative_path": relative_path,

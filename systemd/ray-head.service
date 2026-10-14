@@ -12,6 +12,12 @@ Group=root
 WorkingDirectory=/data/ai/chenzhangyue/galatea-model/galatea
 Environment="PATH=/data/miniconda3/envs/attend-ray-py312/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="RAY_CONDA_HOME=/data/miniconda3"
+# Train's internal cleanup actors must resolve this cluster on the shared host.
+Environment="RAY_ADDRESS=10.26.0.140:18104"
+Environment="RAY_API_SERVER_ADDRESS=http://10.26.0.140:8265"
+EnvironmentFile=/etc/minio/ray-runtime-s3.env
+# Reserve only the idle physical GPUs for this development cluster.
+Environment="CUDA_VISIBLE_DEVICES=0,3,6"
 Environment="MLFLOW_TRACKING_URI=http://10.26.0.140:18103"
 Environment="RAY_REDIS_ADDRESS=127.0.0.1:6379"
 Environment="RAY_external_storage_namespace=galatea-dev"
@@ -25,8 +31,10 @@ Environment="PIP_CACHE_DIR=/var/cache/ray/pip"
 Environment="PYTHONUNBUFFERED=1"
 ExecStartPre=/usr/bin/install -d -o root -g root -m 0755 /var/cache/ray/pip
 ExecStartPre=/usr/bin/install -d -o root -g root -m 0755 /data/ai/ray
-# GCS 18104 must stay outside the worker range; Redis independently uses 6379.
-ExecStart=/data/miniconda3/envs/attend-ray-py312/bin/ray start --head --port=18104 --dashboard-host=0.0.0.0 --dashboard-port=8265 --node-ip-address=10.26.0.140 --min-worker-port=18200 --max-worker-port=18399 '--resources={"dev":4}' --temp-dir=/data/ai/ray --disable-usage-stats --block
+# Keep control-plane agent ports outside the worker range. Random agent ports
+# can become inconsistent after an in-place head-node restart, taking down the
+# raylet and the Job log API after otherwise successful runs.
+ExecStart=/data/miniconda3/envs/attend-ray-py312/bin/ray start --head --port=18104 --dashboard-host=0.0.0.0 --dashboard-port=8265 --dashboard-agent-listen-port=18105 --dashboard-agent-grpc-port=18106 --runtime-env-agent-port=18107 --node-ip-address=10.26.0.140 --num-gpus=3 --min-worker-port=18200 --max-worker-port=18399 '--resources={"dev":4}' --temp-dir=/data/ai/ray --disable-usage-stats --block
 # systemd stops only this unit's process group; a global ray stop would also
 # target the existing business worker on this shared host.
 Restart=on-failure

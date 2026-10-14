@@ -5,6 +5,7 @@ import unittest
 from contextlib import redirect_stderr
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,7 @@ from ray_cats_dogs.worker import (  # noqa: E402
     _is_better,
     _prepare_images,
     _run_epoch,
+    train_loop_per_worker,
 )
 
 
@@ -25,6 +27,36 @@ class ObjectiveTest(unittest.TestCase):
         self.assertFalse(_is_better(0.7, 0.8, "max"))
         self.assertTrue(_is_better(0.2, 0.3, "min"))
         self.assertFalse(_is_better(0.4, 0.3, "min"))
+
+
+class WorkerShutdownTest(unittest.TestCase):
+    def test_single_worker_cleanup_runs_on_success_and_failure(self) -> None:
+        for error in (None, RuntimeError("worker failed")):
+            with (
+                patch("ray_cats_dogs.worker._train_loop_per_worker", side_effect=error),
+                patch("torch.distributed.is_available", return_value=True),
+                patch("torch.distributed.is_initialized", return_value=True),
+                patch("torch.distributed.get_world_size", return_value=1),
+                patch("torch.distributed.destroy_process_group") as destroy,
+            ):
+                if error is None:
+                    train_loop_per_worker({})
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "worker failed"):
+                        train_loop_per_worker({})
+                destroy.assert_called_once_with()
+
+    def test_multi_worker_and_uninitialized_cleanup_remain_ray_owned(self) -> None:
+        for initialized, world_size in ((False, 1), (True, 2)):
+            with (
+                patch("ray_cats_dogs.worker._train_loop_per_worker"),
+                patch("torch.distributed.is_available", return_value=True),
+                patch("torch.distributed.is_initialized", return_value=initialized),
+                patch("torch.distributed.get_world_size", return_value=world_size),
+                patch("torch.distributed.destroy_process_group") as destroy,
+            ):
+                train_loop_per_worker({})
+                destroy.assert_not_called()
 
 
 class EpochMetricsTest(unittest.TestCase):

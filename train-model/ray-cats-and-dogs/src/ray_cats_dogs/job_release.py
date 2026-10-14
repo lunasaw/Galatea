@@ -27,7 +27,7 @@ DEFAULT_BUCKET = "training-data"
 DEFAULT_ENDPOINT_URL = "http://127.0.0.1:9000"
 DEFAULT_PREFIX = "ray-runtime/ray-cats-and-dogs"
 DEFAULT_RAY_ADDRESS = "http://127.0.0.1:8265"
-DEFAULT_CONDA_PREFIX = "/data/conda/envs/ray-cats-and-dogs-py312"
+DEFAULT_CONDA_PREFIX = "/data/miniconda3/envs/ray-cats-and-dogs-py312"
 DEFAULT_RUNTIME_MODE = "preinstalled"
 RUNTIME_MODES = ("preinstalled", "conda", "pip")
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -987,6 +987,8 @@ def deploy_release_manifest(
 ) -> dict[str, Any]:
     """Validate a release manifest and optionally submit it to Ray Jobs."""
 
+    if mode == "train" and not dry_run:
+        raise ValueError("Training must use Galatea readiness and evidence-bound authorization; use job/governed.mjs")
     manifest = load_release_manifest(manifest_path)
     if (
         runtime_mode is not None

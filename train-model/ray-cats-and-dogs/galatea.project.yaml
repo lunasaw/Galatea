@@ -22,19 +22,19 @@ spec:
   configRoot: configs
   entrypoints:
     checkConfig:
-      - /data/conda/envs/attend-ray-py312/bin/python
+      - /data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python
       - scripts/train.py
       - --config
       - "{config}"
       - --check-config
     plan:
-      - /data/conda/envs/attend-ray-py312/bin/python
+      - /data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python
       - scripts/train.py
       - --config
       - "{config}"
       - --plan
     train:
-      - /data/conda/envs/attend-ray-py312/bin/python
+      - /data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python
       - scripts/train.py
       - --config
       - "{config}"

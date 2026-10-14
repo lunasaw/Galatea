@@ -20,8 +20,8 @@ Object Store。训练 Worker 以 4 Batch 预取，传入 GPU 后执行向量化�
 Channels Last 和 TF32 训练。`iter_torch_batches(device="auto", pin_memory=True)` 在独立线程
 完成 Tensor 拼装和主机到设备传输，使 CPU 数据准备与 GPU 计算各用适合自己的 Ray 资源。
 
-正式训练入口会在导入训练框架前启用 `mlflow.autolog()`，并为完整 Driver 工作流写入一条
-MLflow Trace。Tracking URI 优先读取 `MLFLOW_TRACKING_URI`，未设置时使用 YAML 中的
+正式训练入口先验证实际 Ray Driver 与 Galatea Release、Readiness 元数据的绑定，再启用
+`mlflow.autolog()`。Tracking URI 优先读取 `MLFLOW_TRACKING_URI`，未设置时使用 YAML 中的
 `mlflow.tracking_uri`；Trace 和 Run 都写入同一 `ray-cats-and-dogs` Experiment。
 
 ```text
@@ -70,25 +70,24 @@ train-model/ray-cats-and-dogs/
 └── tests/
 ```
 
-Notebook 不是正式训练依赖，只用于检查、提交和查看结果；长任务仍由 `scripts/train.py`
-或 Ray Job 执行。
+Notebook 不是正式训练依赖，只用于检查、提交和查看结果；训练统一由 Galatea 授权后通过固定 Ray Job Driver 执行。
 
 ## 1. 环境
 
 从仓库根目录在每个 Ray 节点预装项目环境（只做一次）：
 
 ```bash
-source /data/conda/etc/profile.d/conda.sh
-export RAY_CONDA_HOME=/data/conda
+source /data/miniconda3/etc/profile.d/conda.sh
+export RAY_CONDA_HOME=/data/miniconda3
 export CONDA_DEFAULT_CHANNELS=
-export CONDA_PKGS_DIRS=/data/conda/pkgs
+export CONDA_PKGS_DIRS=/data/miniconda3/pkgs
 export PIP_CACHE_DIR=/var/cache/ray/pip
-/data/conda/bin/conda env create \
+/data/miniconda3/bin/conda env create \
   --file train-model/ray-cats-and-dogs/conda.yaml \
-  --prefix /data/conda/envs/ray-cats-and-dogs-py312
-/data/conda/envs/ray-cats-and-dogs-py312/bin/python \
+  --prefix /data/miniconda3/envs/ray-cats-and-dogs-py312
+/data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python \
   train-model/ray-cats-and-dogs/job/warmup.py
-conda activate /data/conda/envs/ray-cats-and-dogs-py312
+conda activate /data/miniconda3/envs/ray-cats-and-dogs-py312
 python -m pip install -e train-model/ray-cats-and-dogs
 python -m ipykernel install --user --name ray-cats-and-dogs-py312 \
   --display-name "Python (ray-cats-and-dogs)"
@@ -97,7 +96,7 @@ python -m ipykernel install --user --name ray-cats-and-dogs-py312 \
 共享平台环境已经包含相同版本的 Ray、MLflow 和 PyTorch CUDA 13 时，也可以先用它做配置检查：
 
 ```bash
-source /data/conda/etc/profile.d/conda.sh
+source /data/miniconda3/etc/profile.d/conda.sh
 conda activate attend-ray-py312
 python -c "import torch, ray; print(torch.__version__, torch.version.cuda); print(ray.__version__)"
 ```
@@ -108,27 +107,27 @@ python -c "import torch, ray; print(torch.__version__, torch.version.cuda); prin
 
 ```bash
 systemctl is-active minio.service mlflow.service
-curl -fsS -H 'Host: localhost' http://127.0.0.1:5000/health
-curl -fsS http://127.0.0.1:9000/minio/health/live
+curl -fsS -H 'Host: localhost' http://127.0.0.1:18103/health
+curl -fsS http://127.0.0.1:18101/minio/health/live
 ray status
 nvidia-smi -L
 ```
 
-`ray status` 中的 GPU 总数必须与 `nvidia-smi -L` 的实体设备数一致。Ray 的 GPU 数是调度
+`ray status` 中的 GPU 总数必须与分配给该集群的实体设备数一致。当前开发集群仅使用 GPU 0、3、6。Ray 的 GPU 数是调度
 资源而不是显存百分比；单卡节点应以 `--num-gpus=1` 启动 Ray。把一张实体卡声明成 4 张逻辑
 GPU 会让调度器错误地把多个 DDP Rank 放到不存在或重复的设备上。
 
 默认数据目录与原项目相同：
 
 ```text
-/data/ai/chenzhangyue/code/data/cats-and-dogs/PetImages/
+/data/ai/chenzhangyue/galatea-model/train-data/microsoft-cats-vs-dogs/PetImages/
 ├── Cat/
 └── Dog/
 ```
 
 程序只读原图，逐文件验证并计算 SHA-256。Manifest 写入被 Git 忽略的
 `platform-data/ray-cats-and-dogs/manifests/`，随后通过 MLflow Artifact API 保存。原始
-数据集的两张已知坏图会被记录并排除，不会被删除或修改。
+数据集的三张已知坏图会被记录并排除，不会被删除或修改。
 
 如果训练节点读取的是某个已校验的 MinIO 数据快照，可声明真实来源 URI；不要把本地缓存
 伪装成未核对的对象版本：
@@ -165,60 +164,33 @@ python train-model/ray-cats-and-dogs/scripts/train.py \
 计划中的 `will_train=false` 表示相同数据、切分、代码、配置、Seed 和角色已经有一个成功
 且 Artifact 回读通过的 Run。正式命令默认直接复用该 Run，不重复消耗算力。
 
-也可以打开 [`notebooks/smoke-run-guide.ipynb`](notebooks/smoke-run-guide.ipynb)。Notebook
-默认只执行平台检查、配置检查和只读计划；只有手动将参数单元中的 `RUN_SMOKE` 改为
-`True` 才会通过 Ray Jobs API 提交 `scripts/train.py`。Notebook 不包含数据、模型或训练实现，
-关闭 Kernel 不会改变已经提交的 Ray Job。
+## 4. 发布并通过 Galatea 提交训练
 
-## 4. Smoke 与正式 Trial
+所有训练（包括 1 Epoch Smoke）必须走不可变 Release、Galatea 只读计划及证据绑定授权。
+本地 `scripts/train.py` 仅允许 `--check-config` / `--plan`；通用 `ci.py` / `cd.py --mode train`
+会拒绝训练。旧 Notebook 的通用提交单元同样不能启动训练。
 
-Smoke Run 只训练 1 Epoch，仍然写入独立 MLflow Run 和可恢复 Checkpoint，但不读取测试集：
-
-```bash
-python train-model/ray-cats-and-dogs/scripts/train.py \
-  --config train-model/ray-cats-and-dogs/configs/smoke.yaml
-```
-
-单 Worker 基线 Trial：
+在项目目录执行：
 
 ```bash
-python train-model/ray-cats-and-dogs/scripts/train.py \
-  --config train-model/ray-cats-and-dogs/configs/baseline.yaml
+python job/ci.py --no-cd \
+  --output-dir /data/ai/chenzhangyue/galatea-model/platform-data/ray-cats-and-dogs-release
+# 用发布输出中的实际路径替换占位符。
+RELEASE_MANIFEST=/data/ai/chenzhangyue/galatea-model/platform-data/ray-cats-and-dogs-release/<release-id>/release.json
+node job/governed.mjs plan configs/smoke.yaml "$RELEASE_MANIFEST" - smoke-01
+# 以下提交适用于已获得训练授权的 full-access 会话。
+node job/governed.mjs submit configs/smoke.yaml "$RELEASE_MANIFEST" danger-full-access smoke-01
+node job/governed.mjs submit configs/baseline.yaml "$RELEASE_MANIFEST" danger-full-access baseline-01
 ```
 
-基线默认使用 `per_worker_batch_size: 128` 和 `mixed_precision: bf16`。当前 Blackwell GPU 的
-短基准显示 Batch 128 只使用约 1.3 GiB 训练显存，同时减少 Ray Data 到 GPU 的交接次数。
-需要复现实验时，不要在同一个 Run 中动态改变 Batch 或精度；通过 YAML Override 创建新的
-配置身份。
+`governed.mjs` 调用仓库 Galatea Controller：重算 Readiness，把当前授权绑定到精确的证据摘要，
+再渲染项目声明的固定 Driver。计划与提交回执保存在仓库外的
+`platform-data/ray-cats-and-dogs-evidence/`。更改配置或源码后必须重新发布。
 
-两 Worker Trial：
+基线为单 GPU、Batch 128、BF16，最多 36 Epoch，验证准确率连续 3 Epoch 不改善时提前停止。
+Smoke 和 Trial 只用 train/validation，不进行最终测试或模型提升。
 
-```bash
-python train-model/ray-cats-and-dogs/scripts/train.py \
-  --config train-model/ray-cats-and-dogs/configs/distributed.yaml
-```
-
-可以用严格的现有键覆盖做小范围实验，覆盖结果会进入配置摘要和 MLflow 参数：
-
-```bash
-python train-model/ray-cats-and-dogs/scripts/train.py \
-  --config train-model/ray-cats-and-dogs/configs/baseline.yaml \
-  --set training.learning_rate=0.0003 \
-  --set model.dropout=0.4
-```
-
-不要把 `--force` 当作常规重试方式。它只用于明确需要在同一幂等身份下重新留一个 Attempt
-的情况；普通 Worker 故障由 `ray.max_failures` 和最近 Checkpoint 自动恢复。
-
-## 5. 通过 Ray Job 提交
-
-正式或长时间训练建议通过不可变 release 交给 Ray Jobs API，而不是依赖终端或 Notebook Kernel：
-
-```bash
-/data/conda/envs/attend-ray-py312/bin/python \
-  train-model/ray-cats-and-dogs/job/ci.py \
-  --mode train --config configs/smoke.yaml
-```
+## 5. Ray 作业与产物
 
 发布器使用固定的预装 Conda 前缀；`working_dir` 上传配置和入口，`py_modules` 把真正的包目录
 `src/ray_cats_dogs` 加入 Python 导入路径。Driver 会把上传后
@@ -263,10 +235,7 @@ Trial 的唯一主目标是 `val_accuracy`，方向为 `max`。测试集不参�
 Checkpoint 选择或 Trial 排序。根据兼容数据版本、切分、预处理和验证协议选定配置后，
 把审批后的参数写入或覆盖 `champion.yaml`，再从干净状态重训：
 
-```bash
-python train-model/ray-cats-and-dogs/scripts/train.py \
-  --config train-model/ray-cats-and-dogs/configs/champion.yaml
-```
+Champion 必须通过 Galatea 的候选冻结与 test-once 审批流程；本次复现只提交 Smoke/Trial。
 
 只有 `role: champion` 可以设置 `evaluate_test: true` 和 `log_model: true`。Champion 会读取
 验证集最佳 Checkpoint，对固定测试集评估一次，记录 Accuracy、Precision、Recall、F1、
@@ -296,7 +265,7 @@ ROC AUC、预测摘要和质量门禁，并生成 MLflow Logged Model。模型�
 项目测试不连接 MLflow、不启动 Ray 集群，也不执行训练：
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+/data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
   -s train-model/ray-cats-and-dogs/tests -p 'test_*.py'
 ```
 

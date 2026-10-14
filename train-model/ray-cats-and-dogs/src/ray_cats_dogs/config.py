@@ -23,6 +23,7 @@ class RunSettings:
     name_prefix: str
     seed: int
     log_model: bool
+    promotable: bool = False
 
 
 @dataclass(frozen=True)
@@ -297,7 +298,7 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
     mlflow_values = _mapping(raw, "mlflow")
     evaluation_values = _mapping(raw, "evaluation")
 
-    _check_keys("run", run_values, {"role", "name_prefix", "seed", "log_model"})
+    _check_keys("run", run_values, {"role", "name_prefix", "seed", "log_model"} | ({"promotable"} if "promotable" in run_values else set()))
     _check_keys(
         "data",
         data_values,
@@ -377,6 +378,7 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
             name_prefix=str(run_values["name_prefix"]),
             seed=int(run_values["seed"]),
             log_model=bool(run_values["log_model"]),
+            promotable=bool(run_values.get("promotable", False)),
         ),
         data=DatasetSettings(
             root=_path(data_values["root"], repo_root, project_root),

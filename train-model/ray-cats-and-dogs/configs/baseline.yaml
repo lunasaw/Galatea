@@ -5,13 +5,14 @@ run:
   name_prefix: ray-cats-dogs
   seed: 42
   log_model: false
+  promotable: false
 
 data:
-  root: /data/ai/chenzhangyue/code/data/cats-and-dogs
-  cache_dir: ${REPO_ROOT}/platform-data/ray-cats-and-dogs/manifests
-  source_uri: null
+  root: /data/ai/chenzhangyue/galatea-model/train-data/microsoft-cats-vs-dogs
+  cache_dir: /data/ai/chenzhangyue/galatea-model/platform-data/ray-cats-and-dogs/manifests
+  source_uri: kaggle://shaunthesheep/microsoft-catsvsdogs-dataset/versions/1
   expected_images_per_class: 12500
-  expected_valid_images: 24998
+  expected_valid_images: 24997
   train_fraction: 0.90
   validation_fraction: 0.05
   test_fraction: 0.05
@@ -41,10 +42,8 @@ training:
   objective_mode: max
 
 ray:
-  # 连接由 RAY_ADDRESS 选定的现有 Ray 集群。只有明确使用本地 Ray Runtime 时
-  # 才设置为 "local"；正式任务通常使用共享集群及项目 README 中说明的
-  # Ray Jobs API。
-  address: auto
+  # 此主机还运行生产 Ray Worker，必须明确连接开发集群。
+  address: 10.26.0.140:18104
 
   # 同一次实验中启动的 PyTorch 训练进程数。大于 1 时启用同步
   # DistributedDataParallel（DDP）：Ray 为每个 Worker 分配不同的数据分片，
@@ -97,7 +96,7 @@ ray:
   # Ray Train Checkpoint 和 Controller 状态的持久化位置。多节点任务要求
   # 所有参与节点都能访问该路径或 URI；分布式训练不要使用节点本地的
   # /tmp 存储。
-  storage_path: ${REPO_ROOT}/platform-data/ray-results
+  storage_path: /data/ai/chenzhangyue/galatea-model/platform-data/ray-results
 
   # Driver 在 Job 结束前导出只包含当前 Ray Job 的 Dashboard 任务时间线，
   # 并通过 MLflow Artifact API 将其保存到 MinIO 后执行 SHA-256 回读校验。
@@ -110,7 +109,7 @@ ray:
   evaluation_memory_gb: 4
 
 mlflow:
-  tracking_uri: http://127.0.0.1:5000
+  tracking_uri: http://10.26.0.140:18103
   experiment_name: ray-cats-and-dogs
   require_remote_artifacts: true
 

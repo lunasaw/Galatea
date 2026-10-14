@@ -22,7 +22,7 @@ systemd 常驻、客户端接入、备份和故障排查。
 | Python | 3.12.12 |
 | MLflow | 3.14.0 |
 | 监听端口 | 5000 |
-| Backend Store | `sqlite:////data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db` |
+| Backend Store | `sqlite:////data/ai/chenzhangyue/galatea-model/platform-data/mlflow/mlflow.db` |
 | Artifact Store | 本机 MinIO `s3://mlflow-artifacts`，Endpoint `http://127.0.0.1:9000` |
 | S3 环境文件 | `/etc/minio/mlflow-s3.env`（`0600 root:root`） |
 | unit 源文件 | `/data/ai/chenzhangyue/code/galatea/systemd/mlflow.service` |
@@ -56,7 +56,7 @@ platform-data/mlflow/mlflow.db   s3://mlflow-artifacts/
 /data/conda/bin/conda --version
 /data/conda/bin/conda env list
 test -d /data/ai/chenzhangyue/code/galatea && echo "train directory exists"
-ls -lah /data/ai/chenzhangyue/code/galatea/platform-data/mlflow 2>/dev/null || true
+ls -lah /data/ai/chenzhangyue/galatea-model/platform-data/mlflow 2>/dev/null || true
 systemctl is-active minio.service || true
 ss -lntp | grep -E ':5000\\b' || true
 df -h /data/ai/chenzhangyue/code/galatea
@@ -108,7 +108,7 @@ mlflow --version
 
 ```bash
 sudo install -d -o root -g root -m 0750 \
-  /data/ai/chenzhangyue/code/galatea/platform-data/mlflow
+  /data/ai/chenzhangyue/galatea-model/platform-data/mlflow
 ```
 
 `mlflow.db` 不需要提前创建，MLflow 首次连接时会初始化数据库。Artifact Bucket 和
@@ -131,7 +131,7 @@ set +a
 mlflow server \
   --host 127.0.0.1 \
   --port 5000 \
-  --backend-store-uri sqlite:////data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db \
+  --backend-store-uri sqlite:////data/ai/chenzhangyue/galatea-model/platform-data/mlflow/mlflow.db \
   --serve-artifacts \
   --artifacts-destination s3://mlflow-artifacts \
   --allowed-hosts localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
@@ -356,7 +356,7 @@ with mlflow.start_run(run_name="baseline") as run:
 ### 10.1 查看占用空间
 
 ```bash
-du -sh /data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db
+du -sh /data/ai/chenzhangyue/galatea-model/platform-data/mlflow/mlflow.db
 mc du --recursive local/mlflow-artifacts
 ```
 
@@ -366,12 +366,12 @@ mc du --recursive local/mlflow-artifacts
 不可用，应安排在没有训练写入时执行：
 
 ```bash
-MLFLOW_BACKUP_DIR=/data/ai/chenzhangyue/code/galatea/platform-data/backups/mlflow-$(date +%Y%m%d-%H%M%S)
+MLFLOW_BACKUP_DIR=/data/ai/chenzhangyue/galatea-model/platform-data/backups/mlflow-$(date +%Y%m%d-%H%M%S)
 sudo install -d -o root -g root -m 0750 "${MLFLOW_BACKUP_DIR}"
 
 sudo systemctl stop mlflow.service
 sudo cp -a \
-  /data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db \
+  /data/ai/chenzhangyue/galatea-model/platform-data/mlflow/mlflow.db \
   "${MLFLOW_BACKUP_DIR}/"
 sudo install -d -m 0750 "${MLFLOW_BACKUP_DIR}/minio"
 mc mirror --overwrite local/mlflow-artifacts "${MLFLOW_BACKUP_DIR}/minio/mlflow-artifacts"
@@ -398,7 +398,7 @@ conda activate attend-ray-py312
 python -m pip install --upgrade "mlflow==3.14.0"
 python -m pip check
 mlflow db upgrade \
-  sqlite:////data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db
+  sqlite:////data/ai/chenzhangyue/galatea-model/platform-data/mlflow/mlflow.db
 
 sudo systemctl start mlflow.service
 sudo systemctl status mlflow.service --no-pager -l

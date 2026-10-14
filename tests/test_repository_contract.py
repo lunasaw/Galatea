@@ -40,9 +40,16 @@ class RepositoryContractTest(unittest.TestCase):
             self.assertTrue((project / "galatea.project.yaml").is_file(), project)
 
     def test_runtime_artifacts_stay_ignored(self) -> None:
-        ignore = (REPOSITORY_ROOT / ".gitignore").read_text(encoding="utf-8")
-        self.assertIn("/platform-data/", ignore)
-        self.assertIn("/mlflow.db", ignore)
+        for path in ("platform-data", "mlflow.db"):
+            with self.subTest(path=path):
+                result = subprocess.run(
+                    ["git", "check-ignore", "--no-index", "--quiet", "--", path],
+                    cwd=REPOSITORY_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr or path)
 
     def test_platform_sources_do_not_use_unsafe_shell_or_server_filesystem(self) -> None:
         source_roots = (

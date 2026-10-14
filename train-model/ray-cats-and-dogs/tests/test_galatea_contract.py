@@ -18,10 +18,18 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from ray_cats_dogs.config import load_config  # noqa: E402
 from ray_cats_dogs.models import build_model  # noqa: E402
 from ray_cats_dogs.tracking import _flatten  # noqa: E402
-from ray_cats_dogs.train import _log_mlflow_model  # noqa: E402
+from ray_cats_dogs.train import _log_mlflow_model, config_plan  # noqa: E402
 
 
 class GalateaContractTest(unittest.TestCase):
+    def test_driver_reservation_does_not_consume_training_gpu(self) -> None:
+        config = load_config(PROJECT_ROOT / "configs" / "baseline.yaml")
+        resources = config_plan(config)["requested_resources"]
+        self.assertEqual(0, resources["num_gpus"])
+        self.assertGreaterEqual(resources["cpus"], 1)
+        self.assertGreater(resources["memory_gb"], 0)
+        self.assertEqual(1, resources["gpu_per_worker"])
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.manifest = yaml.safe_load(
@@ -44,7 +52,7 @@ class GalateaContractTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                "/data/conda/envs/attend-ray-py312/bin/python",
+                "/data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python",
                 "scripts/train.py",
                 "--config",
                 "{config}",
@@ -54,7 +62,7 @@ class GalateaContractTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                "/data/conda/envs/attend-ray-py312/bin/python",
+                "/data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python",
                 "scripts/train.py",
                 "--config",
                 "{config}",
@@ -64,7 +72,7 @@ class GalateaContractTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                "/data/conda/envs/attend-ray-py312/bin/python",
+                "/data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python",
                 "scripts/train.py",
                 "--config",
                 "{config}",

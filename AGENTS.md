@@ -33,6 +33,12 @@ Keep platform concerns separate from workload concerns:
 - `platform-data/` contains runtime databases, object data, artifacts, and application state. It is not
   source code and must remain ignored by Git.
 
+For new-machine operations, migrated paths, multiple development/production Ray clusters, file uploads,
+or Ray/MLflow/MinIO integration failures, read `doc/platform-runtime-memory.md` first. It contains the current
+validated machine baseline and reusable cases. Select an explicit cluster/credential profile rather than
+auto-discovering Ray; honor current-session authorization for necessary uploads without repeatedly asking.
+Historical full-access approval does not grant new tasks or production promotion.
+
 A mature training project should normally provide `README.md`, `configs/`, `src/`, `scripts/`, `tests/`,
 and optional `notebooks/`. Existing compact projects may retain a flat layout if their training,
 evaluation, and recovery paths remain explicit.

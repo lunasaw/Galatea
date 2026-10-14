@@ -37,6 +37,14 @@ Record at minimum:
 - requested CPU/GPU/memory/placement and worker topology;
 - Release ID, Galatea readiness digest and execution identity;
 - Ray Submission ID, Ray Job ID, MLflow Run ID, attempt ID, and retry/resume linkage.
+- Ray cluster profile/environment, GCS and Jobs API endpoints, actual cluster/session identity when available,
+  target unit, allocated nodes/GPU/resource labels, and MLflow Tracking URI/Experiment;
+- publisher and Runtime reader profile names, target Bucket/Prefix, and upload authorization scope/basis
+  (identifiers only, never credential values).
+
+Persist target selection alongside plan/submission evidence. A profile name is an audit label, not a production
+permission or verified cluster ID. Report missing cluster identity or enforcement rather than claiming it is
+bound to Readiness when the controller does not include it in the evidence digest.
 
 ## Training and validation quality
 
@@ -72,6 +80,10 @@ comparable.
 Persist config, dataset/split manifests, reports, checkpoint metadata, adapter/model artifacts, environment
 and recovery metadata through the configured Artifact service. Store a SHA-256 for every material artifact.
 Verify download and fresh-process load through the MLflow Artifact API before marking the Run successful.
+
+For dataset and Runtime Release uploads, record the immutable object URI/version, material SHA-256, manifest,
+publisher identity name, and authorization scope. Preserve an existing same-content object; refuse conflicting
+content at the same immutable key. A Runtime reader's successful download does not prove permission to publish.
 
 The authoritative Driver alone creates/finalizes the parent MLflow Run and publishes shared artifacts.
 Retries create new attempts/Runs, retain old evidence, and use `retry_of` or `resumed_from`; they never

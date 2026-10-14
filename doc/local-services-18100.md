@@ -3,6 +3,9 @@
 部署日期：2026-10-14。仓库目录：`/data/ai/chenzhangyue/galatea-model/galatea`。
 本机部署 MinIO、MLflow 和独立的开发 Ray Head。
 
+跨机器、多 Ray 集群、发布权限和联调故障的持续记忆见
+[平台运行记忆](platform-runtime-memory.md)。本页地址是当前机器事实，不是生产集群默认值。
+
 ## 服务与持久化
 
 | 服务 | 入口 | systemd unit |
@@ -34,7 +37,8 @@ MinIO 使用账号认证；MLflow 未启用应用层认证。
 
 Ray 版本为 `2.53.0`，使用 `/data/miniconda3/envs/attend-ray-py312/bin/ray`。
 节点 IP 为实际地址 `10.26.0.140`，运行目录为 `/data/ai/ray`，自定义资源为 `dev:4`。
-CPU、GPU 和对象存储容量采用 Ray 自动检测值。
+CPU 和对象存储容量采用 Ray 自动检测值；GPU 显式限定为物理设备 `0,3,6`，
+`--num-gpus=3`，不占用其他业务设备。
 
 unit 设置 `RAY_REDIS_ADDRESS=127.0.0.1:6379`，将本机 GCS 的元数据持久化到
 独立 Redis；`RAY_external_storage_namespace=galatea-dev` 隔离该集群的存储。
@@ -69,6 +73,10 @@ GCS 启动日志已确认 `Using external Redis for KV storage: 127.0.0.1:6379`
 | `/etc/minio/minio.env` | MinIO 管理员和监听地址、数据目录 |
 | `/etc/minio/mlflow-s3.env` | MLflow 服务端访问 Artifact Bucket 的专用账号 |
 | `/etc/minio/training-data-s3.env` | 直接访问训练数据的专用账号 |
+| `/etc/minio/ray-runtime-s3.env` | Ray Head/Worker 下载 Runtime Package 的只读账号 |
+
+当前 `training-data-s3.env` 也用于获准的 Runtime Release 发布；它是 publisher，不能与
+`ray-runtime-s3.env` 的只读身份混用。文件上传权限与生产计算/提升授权分别判断。
 
 同机训练客户端只需设置：
 

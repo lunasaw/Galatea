@@ -25,6 +25,13 @@ cd /data/ai/chenzhangyue/galatea-model/galatea/train-model/ray-cats-and-dogs
 默认 CD 模式为 `check-config`，会提交 Ray Job 验证 Runtime Env 和配置，但不会启动训练。
 通用 CD 的 `--mode train` 已禁用；训练使用 `governed.mjs`，参见项目 README。
 
+新机器和同机多集群先读 [`平台运行记忆`](../../../doc/platform-runtime-memory.md)。本页通用
+CI/CD 中的 loopback 默认值只适用于核对过的同机目标；选择其他集群时显式设置
+`RAY_API_SERVER_ADDRESS` 或传 `--address`，不能据此推算生产地址。训练提交器要求显式
+`GALATEA_RAY_PROFILE`、`RAY_ADDRESS`、`RAY_API_SERVER_ADDRESS` 和 `MLFLOW_TRACKING_URI`。
+必要上传遵循当前任务已授予的目标/Prefix 范围，不重复请求同一授权；发布用 publisher，下载用
+Head/Worker 继承的 reader，MLflow Artifact 使用服务端代理。
+
 正式发布默认使用节点预装的固定 Conda 前缀
 `/data/miniconda3/envs/ray-cats-and-dogs-py312`。`conda.yaml` 仍是权威来源，环境文件 SHA-256
 和前缀会写入 `release.json`；Ray Job 的 `runtime_env.conda` 只携带绝对路径，不会在启动时
@@ -160,7 +167,7 @@ AWS_DEFAULT_REGION=us-east-1
 AWS_ENDPOINT_URL_S3=http://127.0.0.1:18101
 ```
 
-当前单节点环境通过 `ray-head.service` 注入专用只读凭据：
+当前开发 Head 通过 `ray-head.service` 注入专用只读凭据，各 Worker 必须同样注入：
 
 ```bash
 systemctl show ray-head.service \
@@ -191,8 +198,9 @@ unable to access bucket ... working-dir.zip
 
 不要通过公开 Bucket 或把长期密钥写入 `runtime-env.yaml` 来绕过这个错误。
 
-当前 MinIO 只监听 loopback，所以 `127.0.0.1` 只适用于单节点 Ray。多节点部署必须换成所有
-Ray 节点可达的受控私网或 HTTPS 地址，并用防火墙或认证代理保护，不能直接暴露到公网。
+当前机器 MinIO 入口为 `http://10.26.0.140:18101`。`127.0.0.1` 仅适用于 MinIO 同机进程；
+多节点必须使用所有 Ray 节点可达的端点。当前实际服务配置见
+[`当前机器服务部署`](../../../doc/local-services-18100.md)。
 
 ## 4. 单独执行 CD Dry Run
 
@@ -265,6 +273,10 @@ print(path)
 只读计划和提交均显式指定 Attempt；同一 Attempt 用于重试查询，新训练使用新 Attempt：
 
 ```bash
+export GALATEA_RAY_PROFILE=dev
+export RAY_ADDRESS=10.26.0.140:18104
+export RAY_API_SERVER_ADDRESS=http://10.26.0.140:8265
+export MLFLOW_TRACKING_URI=http://10.26.0.140:18103
 node job/governed.mjs plan configs/smoke.yaml "$RELEASE_MANIFEST" - smoke-01
 node job/governed.mjs submit configs/smoke.yaml "$RELEASE_MANIFEST" danger-full-access smoke-01
 ```

@@ -1,23 +1,8 @@
 ---
 name: ray
-description: >
-  Comprehensive reference documentation and skill for Ray - a unified framework for scaling AI and Python applications.
-  Covers Ray Core (tasks, actors, objects, scheduling, placement groups, namespaces, runtime environment,
-  fault tolerance, compiled graphs, direct transport), Ray Data (datasets, transformations, datasources,
-  preprocessors, execution engine, streaming), Ray Serve (model serving, deployments, HTTP handling,
-  autoscaling, model composition, multi-app, multiplexing, monitoring, architecture), Ray Train (distributed
-  training with PyTorch, TensorFlow, HuggingFace, XGBoost, LightGBM, Horovod, DeepSpeed, JAX; scaling config,
-  checkpointing, training iterators, collective operations), Ray Tune (hyperparameter tuning, search algorithms,
-  schedulers, analysis, logging, stoppers, trainables, CLI, experiment execution), Ray RLlib (reinforcement
-  learning algorithms, RL modules, learners, environments, connectors, replay buffers, callbacks, multi-agent,
-  offline training, fault tolerance), Ray Cluster (setup, configuration, autoscaling, cloud providers AWS/GCP/Azure,
-  KubeRay, job submission, runtime environments, observability, dashboard, security, governance), Ray DAG
-  (directed acyclic graphs, compiled graphs, DAG execution), Ray AIR (AI runtime, batch prediction,
-  checkpoints, integrations), Ray Workflow (workflow orchestration, durable execution), Ray LLM (LLM serving
-  integration), Ray Client (remote cluster connection), Ray utility modules (placement groups, scheduling
-  strategies, state API, tracing, collective operations), and Ray internal architecture (GCS, raylet, worker,
-  object store, plasma, memory management). Based on Ray source code analysis.
-version: 2.47.0
+description: Develop, operate, and diagnose Ray Core, Data, Train, Tune, Serve, RLlib, clusters, Jobs, runtime environments, and scheduling. Use for Ray implementation or cluster failures, including explicit development/production cluster selection and private Runtime package publishing; follow the repository governed workflow for training.
+metadata:
+  reference-ray-version: "2.47.0"
 ---
 
 # Ray - Unified Framework for Scaling AI and Python Applications
@@ -39,6 +24,30 @@ Before execution, verify the project layout, fixed entrypoint, dependencies, run
 data identity, split identity, and resource declaration. If any contract is missing, stale, or inconsistent,
 block the run and repair it; do not substitute an ad-hoc local command or bypass the failed preflight. A local
 result must never be labeled as a governed Ray Job result or final evidence.
+
+## Select a cluster on shared hosts
+
+For new-machine operations, multiple clusters, private S3 Runtime packages, or Ray/MLflow/MinIO failures,
+read [the platform runtime memory](../../../doc/platform-runtime-memory.md). The reference chapters below
+describe Ray 2.47; the current machine runs 2.53. Check the installed version and project lock before using
+version-sensitive APIs. Do not replace the project's pinned runtime with the reference version.
+
+Require an explicit target profile, GCS address, Jobs API URL, and corresponding MLflow URI/Experiment.
+Distinguish `host:port`, HTTP Dashboard/Jobs URLs, and `ray://` Client URLs. Verify actual units, nodes,
+GPU allocation and service-level addresses; a submitting shell's env does not configure internal cleanup actors.
+Do not auto-discover a target with `address="auto"` or create a local cluster with bare `ray.init()` on a shared
+host. Generic initialization examples below are API references, not permission to bypass this selection.
+
+Keep per-cluster ports, temporary directories, Redis storage namespaces and GPU sets separate. Restart only
+the selected unit/process group after considering its running Jobs; global `ray stop` can kill business Ray.
+Record cluster/profile/endpoint selection with each attempt. A profile label does not grant production access.
+
+Use existing task authorization for required immutable Runtime uploads; do not request it again when the
+agreed end-to-end task already covers publishing. Use a write-capable publisher env file, not the Runtime
+reader or MLflow server credentials. Head and Workers inherit reader credentials before `ray start` because
+Runtime Env downloads precede the Driver. Never put long-lived S3 keys in Job `runtime_env.env_vars`.
+For AccessDenied, identify whether `PutObject` or `GetObject` failed and repair the corresponding authorized
+identity/prefix; report missing permissions if they cannot be resolved within scope.
 
 ## Overview
 
@@ -954,6 +963,10 @@ config = (
 ## Ray Cluster
 
 ### Starting a Cluster
+
+The startup commands below describe an isolated cluster. For this shared host, use the selected systemd
+unit and profile from the runtime memory instead of creating another Head with these example ports.
+
 ```bash
 # Head node
 ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 \
@@ -962,11 +975,11 @@ ray start --head --port=6379 --dashboard-host=0.0.0.0 --dashboard-port=8265 \
 # Worker node
 ray start --address=<head-ip>:6379 --num-cpus=8 --num-gpus=4
 
-# Stop
-ray stop
+# Stop only the selected unit on a shared host
+systemctl stop "$RAY_SYSTEMD_UNIT"
 
-# Status
-ray status
+# Status of the explicitly selected GCS
+ray status --address="$RAY_ADDRESS"
 ```
 
 ### Cluster Configuration (YAML)

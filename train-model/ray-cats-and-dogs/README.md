@@ -106,12 +106,21 @@ python -c "import torch, ray; print(torch.__version__, torch.version.cuda); prin
 正式训练前确认 Ray、MLflow 和 MinIO 正常：
 
 ```bash
+export GALATEA_RAY_PROFILE=dev
+export RAY_ADDRESS=10.26.0.140:18104
+export RAY_API_SERVER_ADDRESS=http://10.26.0.140:8265
+export MLFLOW_TRACKING_URI=http://10.26.0.140:18103
 systemctl is-active minio.service mlflow.service
 curl -fsS -H 'Host: localhost' http://127.0.0.1:18103/health
 curl -fsS http://127.0.0.1:18101/minio/health/live
-ray status
+curl -fsS "$RAY_API_SERVER_ADDRESS/api/version"
+ray status --address="$RAY_ADDRESS"
 nvidia-smi -L
 ```
+
+这是当前机器的开发 profile。换机器或使用生产 Ray 时，先按
+[`平台运行记忆`](../../doc/platform-runtime-memory.md) 核对目标 GCS、Jobs API、unit、节点、GPU
+及 MLflow；不自动发现其他集群，也不使用全局 `ray stop`。
 
 `ray status` 中的 GPU 总数必须与分配给该集群的实体设备数一致。当前开发集群仅使用 GPU 0、3、6。Ray 的 GPU 数是调度
 资源而不是显存百分比；单卡节点应以 `--num-gpus=1` 启动 Ray。把一张实体卡声明成 4 张逻辑
@@ -173,7 +182,11 @@ python train-model/ray-cats-and-dogs/scripts/train.py \
 在项目目录执行：
 
 ```bash
-python job/ci.py --no-cd \
+export GALATEA_RAY_PROFILE=dev
+export RAY_ADDRESS=10.26.0.140:18104
+export RAY_API_SERVER_ADDRESS=http://10.26.0.140:8265
+export MLFLOW_TRACKING_URI=http://10.26.0.140:18103
+python job/publish.py --env-file /etc/minio/training-data-s3.env \
   --output-dir /data/ai/chenzhangyue/galatea-model/platform-data/ray-cats-and-dogs-release
 # 用发布输出中的实际路径替换占位符。
 RELEASE_MANIFEST=/data/ai/chenzhangyue/galatea-model/platform-data/ray-cats-and-dogs-release/<release-id>/release.json
@@ -185,7 +198,13 @@ node job/governed.mjs submit configs/baseline.yaml "$RELEASE_MANIFEST" danger-fu
 
 `governed.mjs` 调用仓库 Galatea Controller：重算 Readiness，把当前授权绑定到精确的证据摘要，
 再渲染项目声明的固定 Driver。计划与提交回执保存在仓库外的
-`platform-data/ray-cats-and-dogs-evidence/`。更改配置或源码后必须重新发布。
+`platform-data/ray-cats-and-dogs-evidence/`，分别包含 `target` 与 `planned`/`submitted` 字段。
+提交器要求上述显式 profile、GCS、Jobs API 和 Tracking URI，不再使用硬编码服务地址；该 profile
+是记录标签，尚不校验生产 ACL。目标 Head/Worker 的服务级 GCS 和 Tracking URI 必须与选择一致。
+更改配置或源码后必须重新发布。
+
+完整训练任务授权范围内的必要不可变 Release 上传使用上述 publisher 身份即可继续；单独分析或
+改代码不授权发布/训练。Runtime reader 文件和 MLflow 服务端文件不能用于发布，密钥不得放进 Job。
 
 基线为单 GPU、Batch 128、BF16，最多 36 Epoch，验证准确率连续 3 Epoch 不改善时提前停止。
 Smoke 和 Trial 只用 train/validation，不进行最终测试或模型提升。

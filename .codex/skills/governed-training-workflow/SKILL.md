@@ -42,6 +42,28 @@ Do not run the Driver from a shell, remove a check/plan flag to start training, 
 `ray job submit`, or call the training function with fabricated runtime metadata. The project must enforce
 these boundaries in code and tests, not only in prose.
 
+## Select the cluster and upload identity
+
+For a new machine, migrated paths, multiple Ray instances, Release uploads, or platform integration failures,
+read [the platform runtime memory](../../../doc/platform-runtime-memory.md). Treat its machine values as
+observed examples, not defaults for another host. Verify installed Ray/MLflow versions against the project lock.
+
+Select an explicit cluster profile and distinguish GCS, HTTP Jobs/State API, and Ray Client addresses.
+Verify the profile against its unit, nodes, allocated GPUs/resources, MLflow URI/Experiment, and Runtime
+Bucket/Prefix. Never choose production via auto-discovery, a hardcoded development endpoint, or a bare
+`ray status`. On shared hosts, stop/restart only the selected unit or Job; do not use global `ray stop`.
+Head/Worker service environments need their own correct cluster addresses, not only the submitting shell.
+
+Use current-session authorization without asking again for actions already covered. An end-to-end training
+request includes the necessary immutable project Runtime Release upload within the agreed target and budget;
+analysis or code edits alone do not. Distinguish data access/upload, publishing, compute, final test, and
+production promotion. A full-access preset or historical approval is not an enduring grant for new tasks.
+
+Upload with the authorized publisher identity. Keep Runtime reader credentials on Head/Workers before
+`ray start`, and MLflow Artifact credentials on the server. Do not use either identity for publishing or put
+long-lived credentials in Job env vars. If a file/permission is missing, resolve it within authorized scope;
+otherwise report the specific blocker and prepared manifest rather than switching to an administrator account.
+
 ## Preserve one architecture
 
 Smoke, Trial, experiment, and Champion must reuse the same project-owned data loader, preprocessing,

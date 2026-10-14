@@ -6,7 +6,7 @@ import { dirname, resolve, relative } from 'node:path';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(projectRoot, '../..');
-const moduleUrl = (name) => new URL(`../../../plugins/dsh-galatea/src/${name}`, import.meta.url);
+const moduleUrl = (name) => new URL(`../../../packages/galatea-governance/src/${name}`, import.meta.url);
 const { loadProjectManifest } = await import(moduleUrl('policies/project.ts'));
 const { GalateaController } = await import(moduleUrl('tools/controller.ts'));
 const { ProjectProcessService } = await import(moduleUrl('services/project-process.ts'));
@@ -22,28 +22,46 @@ if (mode === 'submit' && permissionPreset !== 'danger-full-access') {
 if (!attempt || !/^[a-zA-Z0-9_-]+$/.test(attempt)) {
     throw new Error('Provide an explicit attempt ID as the fifth argument (plan may use "-" for permission preset)');
 }
+const clusterProfile = process.env.GALATEA_RAY_PROFILE?.trim();
+const rayAddress = process.env.RAY_ADDRESS?.trim();
+const rayApiServer = (process.env.RAY_API_SERVER_ADDRESS ?? process.env.RAY_DASHBOARD_URL)?.trim();
+const mlflowTrackingUri = process.env.MLFLOW_TRACKING_URI?.trim();
+if (!clusterProfile || !/^[a-zA-Z0-9_-]+$/.test(clusterProfile)) {
+    throw new Error('Set GALATEA_RAY_PROFILE to the approved Ray cluster profile (for example dev or prod)');
+}
+if (!rayAddress || !/^[^/\s]+:\d+$/.test(rayAddress)) {
+    throw new Error('Set RAY_ADDRESS to the selected cluster GCS host:port; implicit cluster discovery is disabled');
+}
+for (const [name, value] of [['RAY_API_SERVER_ADDRESS', rayApiServer], ['MLFLOW_TRACKING_URI', mlflowTrackingUri]]) {
+    let url;
+    try { url = new URL(value); } catch { /* Report the variable name without exposing its value. */ }
+    if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+        throw new Error(`Set ${name} to a target HTTP API URL without embedded credentials, query, or fragment`);
+    }
+}
 const releaseRoot = resolve(repoRoot, '../platform-data/ray-cats-and-dogs-release');
 const controller = new GalateaController({
     projectRoot, releaseRoot,
     manifest: await loadProjectManifest(resolve(projectRoot, 'galatea.project.yaml')),
     process: new ProjectProcessService({ timeoutMs: 300_000 }),
-    ray: new RayJobsService({ baseUrl: 'http://10.26.0.140:8265' }),
-    mlflow: new MlflowService({ baseUrl: 'http://10.26.0.140:18103' }),
+    ray: new RayJobsService({ baseUrl: rayApiServer }),
+    mlflow: new MlflowService({ baseUrl: mlflowTrackingUri }),
 });
 const role = configPath.includes('smoke') ? 'smoke' : 'trial';
 const input = { configPath, releaseManifestPath: relative(releaseRoot, releaseManifest), role, attempt };
 const planned = await controller.planRun(input);
 if (!planned.ok) throw new Error(JSON.stringify(planned));
+const target = { clusterProfile, rayAddress, rayApiServer, mlflowTrackingUri };
 const evidenceRoot = resolve(repoRoot, '../platform-data/ray-cats-and-dogs-evidence');
 await mkdir(evidenceRoot, { recursive: true });
-await writeFile(resolve(evidenceRoot, `${role}-${attempt}-plan.json`), JSON.stringify(planned, null, 2) + '\n');
+await writeFile(resolve(evidenceRoot, `${role}-${attempt}-plan.json`), JSON.stringify({ target, planned }, null, 2) + '\n');
 if (mode === 'plan') {
-    console.log(JSON.stringify(planned, null, 2));
+    console.log(JSON.stringify({ target, planned }, null, 2));
 } else {
     const evidence = planned.data.evidence;
     const authorization = { kind: 'full-access', permissionPreset, stage: evidence.stage, artifactId: evidence.artifactId, evidenceDigest: evidence.digest };
     const submitted = await controller.submitJob({ ...input, authorization });
-    await writeFile(resolve(evidenceRoot, `${role}-${attempt}-submission.json`), JSON.stringify({ authorization, submitted }, null, 2) + '\n');
+    await writeFile(resolve(evidenceRoot, `${role}-${attempt}-submission.json`), JSON.stringify({ target, authorization, submitted }, null, 2) + '\n');
     if (!submitted.ok) throw new Error(JSON.stringify(submitted));
-    console.log(JSON.stringify(submitted, null, 2));
+    console.log(JSON.stringify({ target, submitted }, null, 2));
 }

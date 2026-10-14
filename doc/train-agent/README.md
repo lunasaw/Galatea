@@ -5,6 +5,9 @@
 [`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md) 为准；本目录
 保留 MCP、Skill 和 workload 契约的历史设计记录，旧 Runner 的通过数字不能作为当前验收证据。
 
+2026-10-14 新机器实际平台链路、多 Ray 集群和授权上传案例，见当前维护的
+[平台运行记忆](../platform-runtime-memory.md)；它与下面归档的 Runner 验收范围不同。
+
 ## 1. 确定的架构边界
 
 **独立 Galatea MCP + 原版 Codex + 独立 Skill 包 + Python Runner。平台与 Agent 解耦，

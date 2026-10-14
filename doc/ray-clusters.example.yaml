@@ -1,0 +1,56 @@
+# Configuration example only; governed.mjs currently consumes explicit environment variables.
+# Replace unconfigured production values with administrator-provided configuration before use.
+version: 1
+profiles:
+  dev:
+    environment: development
+    gcs_address: "10.26.0.140:18104"
+    dashboard_url: "http://10.26.0.140:8265"
+    client_url: "ray://10.26.0.140:10001"
+    systemd_unit: ray-head.service
+    head_node: "10.26.0.140"
+    # Discover and verify all workers through this target cluster before submitting.
+    worker_nodes: []
+    gpu_ids: [0, 3, 6]
+    num_gpus: 3
+    custom_resources: {dev: 4}
+    temp_dir: /data/ai/ray
+    worker_ports: {min: 18200, max: 18399}
+    agent_ports: {dashboard_http: 18105, dashboard_grpc: 18106, runtime_env: 18107}
+    redis_address: "127.0.0.1:6379"
+    redis_storage_namespace: galatea-dev
+    mlflow_tracking_uri: "http://10.26.0.140:18103"
+    experiment_name: ray-cats-and-dogs
+    s3_endpoint: "http://10.26.0.140:18101"
+    runtime_reader_env_file: /etc/minio/ray-runtime-s3.env
+    publisher_env_file: /etc/minio/training-data-s3.env
+    runtime_bucket: training-data
+    runtime_prefix: ray-runtime/ray-cats-and-dogs
+    allowed_roles: [smoke, trial]
+  prod:
+    environment: production
+    configured: false
+    # null values deliberately prevent guessing production ports, GPUs, or credentials.
+    gcs_address: null
+    dashboard_url: null
+    client_url: null
+    systemd_unit: null
+    head_node: null
+    worker_nodes: []
+    gpu_ids: []
+    num_gpus: null
+    custom_resources: {}
+    temp_dir: null
+    worker_ports: null
+    agent_ports: null
+    redis_address: null
+    redis_storage_namespace: null
+    mlflow_tracking_uri: null
+    experiment_name: null
+    s3_endpoint: null
+    runtime_reader_env_file: null
+    publisher_env_file: null
+    runtime_bucket: null
+    runtime_prefix: null
+    # Populate only from the approved production project/resource contract.
+    allowed_roles: []

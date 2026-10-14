@@ -1,5 +1,10 @@
 # Ray Head 启动与 Runtime Package 凭据维护
 
+> 2026-10-14 当前机器使用本地 GCS `10.26.0.140:18104`、Dashboard `8265`，
+> GCS 存储连接独立 Redis `127.0.0.1:6379`；当前部署见
+> [当前机器服务部署](./local-services-18100.md#ray-head)。下文保留旧机器的部署基线，
+> 当前 `systemd/ray-head.service` 已适配新机器。
+
 当前主机使用 Ray 2.53，Head 地址为 `10.19.20.26:6379`，Dashboard 端口为 `8265`。
 正式和长时间任务通过 Ray Jobs API 提交。Ray Head 由 `ray-head.service` 管理，不再依赖
 登录 Shell 手工执行 `ray start`。

@@ -1,5 +1,9 @@
 # MLflow Tracking Server 安装、启动与运维
 
+> 2026-10-14 的当前机器部署使用本仓库路径、独立 Python 环境和 18103 端口，见
+> [当前机器 MinIO / MLflow 部署](./local-services-18100.md)。下文保留旧机器的部署基线；
+> 当前 `systemd/mlflow.service` 已适配新机器，应以新部署说明为准。
+
 本文记录当前训练节点上 MLflow Tracking Server 的完整部署方式。命令和路径均以
 `/data/ai/chenzhangyue/code/galatea` 为准，覆盖本地 SQLite、MinIO Artifact、前台试运行、
 systemd 常驻、客户端接入、备份和故障排查。

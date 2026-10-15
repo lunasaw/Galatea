@@ -3,7 +3,7 @@
 实施决策（2026-09-23）：已按用户确认采用双层 schema 合同。原始 `tools.json` 负责 Host 严格
 参数校验；`runtime-compatibility.json` 冻结真实模型请求的 schema 并绑定 binary/package/protocol
 摘要。下文“模型 schema 一致”指与此兼容性合同逐字段一致，Host 原始约束保持不变。
-最新实测见 [实施记录](11-stage0-implementation.md)。
+当前 Console 和 0.154.0 实测见 [验收记录](13-console-acceptance.md)；旧版证据保留在历史实施记录。
 
 ## 1. 单元测试
 
@@ -31,14 +31,14 @@
 
 ## 3. Console 测试
 
-- `POST /messages` 的同一 `request_id` 重试不产生第二个 turn。
-- SSE 从任意 seq 续读，事件顺序不变；持久化日志缺口产生带范围的 `observation_gap`。仅连接写
-  失败不能声称已经向客户端交付了 gap。
-- 未认证的本机 HTTP 写请求、跨 Origin 写请求、缺少 CSRF token 的 cookie 写请求和越权 session
-  SSE 订阅均被拒绝。
-- Console 看不到 token、secret、完整 prompt、私有 reasoning、测试样本和原始 Ray 日志。
-- Agent Loop 把 tool request/response 合并为一个步骤，流式 delta 合并为一条消息。
-- interrupt/close 在 turn 完成前显示 pending，不能删除未核对 session。
+- 原生双向消息、初始化/未知方法、数字与字符串 ID、0、晚绑定和重复/异常回执全部可查。
+- 观察异步端口验证连续水位、批次原子性、同 ID 重试、固定水位分页、无匹配游标和无丢唤醒。
+- 超过 8192 条突发、1000 步与 64 KiB 正文仍完整保留，无浏览器时继续采集。
+- 无 Token 的查询和既有控制保持持久化幂等；跨源 POST 拒绝，旧 epoch 明确重置。
+- 公开长正文、公开推理摘要、累计用量保留；嵌套 JSON 伪凭据和私有数据脱敏；HTML 不执行。
+- 投影/关联/提交故障分别注入，公开原文仍可查或明确 content_unavailable，观察故障不冒充业务故障。
+- 浏览器测试创建、发送、最终文本去重、刷新、工具和原生详情，以及固定水位“更早”翻页。
+- 实际 uvicorn 验证生命周期和 HTTP/SSE；传输测试覆盖 UTF-8、CRLF、半帧、多 data 行和大整数游标。
 
 ## 4. 平台集成测试
 
@@ -70,7 +70,7 @@
 
 ## 6. 回退
 
-回退只停止新 Host 实例，保留 `config/codex-home`、Host state、事件和 operation 引用。
+回退只停止新 Host 实例，保留 `config/codex-home`、Host state 和 operation 引用；Console 内存历史在停进程后清空。
 不得删除状态目录来“重置”会话，也不得重新提交所有未知 Job。若内化 adapter 有问题，可暂时
 恢复既有 `services/galatea-mcp` 独立服务用于只读核对，但新 Agent 不应自动切换到 MCP；切换
 必须是显式部署版本变更并重新执行协议/权限验收。

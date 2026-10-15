@@ -1,5 +1,7 @@
 # 10 源码依据与决策记录
 
+> 历史记录：本页保留 2026-09-23 阶段的事实和证据；其中 0.153.4、Token、JSONL 与旧部署参数不能用于本次版本。2026-10-15 的 0.154.0 Console 实现及现行验收见 [13-console-acceptance.md](13-console-acceptance.md)，部署以 [06-config-deployment.md](06-config-deployment.md) 为准。
+
 ## 1. 本地源码依据
 
 | 结论 | 依据 |

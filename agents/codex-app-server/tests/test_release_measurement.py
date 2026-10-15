@@ -26,7 +26,7 @@ class ReleaseMeasurementTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             raw = {'schema_version':'codex-agent/v1','paths':{
-                'codex_home':'codex-home','runtime_dir':'runtime','state_dir':'state','event_dir':'events',
+                'codex_home':'codex-home','runtime_dir':'runtime','state_dir':'state',
                 'workspace_dir':'workspace','contracts':str(ROOT/'config/contracts/tools.json'),
                 'catalog_metadata':str(ROOT/'config/contracts/catalog-metadata.json')},
                 'codex':{'binary':'runtime/bin/codex','runtime_version':'test'},

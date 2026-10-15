@@ -1,12 +1,11 @@
 # Galatea Codex App Server Agent
 
 已实现原生 Codex app-server Host、17 个 Galatea 工具的进程内 Registry、持久化恢复边界和
-带鉴权的 HTTP/SSE Console。**runtime schema 兼容性调整已确认并通过实测**：模型侧校验冻结的
+无 Token 的网页聊天与完整协议追踪 Console。**runtime schema 兼容性调整已确认并通过实测**：模型侧校验冻结的
 wire schema，Host 继续严格校验原始工具 schema。
 
-设计入口见 [docs/README.md](docs/README.md)，本次实测、兼容性决策和部署限制见
-[实施记录](docs/11-stage0-implementation.md)。生产候选包、已验证证据及切换步骤见
-[生产接纳记录](docs/12-production-readiness.md)。
+设计入口见 [docs/README.md](docs/README.md)，本次 0.154.0 目标版本、TDD 和浏览器/安装验证见
+[Console 验收记录](docs/13-console-acceptance.md)。旧版生产接纳记录仅保留历史事实。
 
 ## 安装与测试
 
@@ -19,11 +18,11 @@ python -m pip install -e services/galatea-mcp -e 'agents/codex-app-server[test]'
 平台依赖按原服务的 `platform` extras 和主机环境管理。开发测试可直接运行：
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+/data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
   -s agents/codex-app-server/tests -p 'test_*.py'
 
 PYTHONPATH=services/galatea-mcp/src \
-  /data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+  /data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
   -s services/galatea-mcp/tests -p 'test_*.py'
 ```
 
@@ -31,7 +30,7 @@ PYTHONPATH=services/galatea-mcp/src \
 
 ```bash
 GALATEA_TEST_RUNTIME_PACKAGE=/absolute/path/to/codex-package \
-  /data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+  /data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
   -s agents/codex-app-server/tests -p 'test_*.py'
 ```
 
@@ -48,8 +47,7 @@ GALATEA_TEST_RUNTIME_PACKAGE=/absolute/path/to/codex-package \
 codex-agent --config /var/lib/galatea-agent/agent.json inspect-runtime
 codex-agent --config /var/lib/galatea-agent/agent.json check
 codex-agent --config /var/lib/galatea-agent/agent.json preflight
-codex-agent --config /var/lib/galatea-agent/agent.json serve \
-  --token-file /etc/galatea-agent/console-token
+codex-agent --config /var/lib/galatea-agent/agent.json serve
 ```
 
 `inspect-runtime` 生成供审查的摘要，不授予发布权限；`check` 要求全部 release 证据；`preflight`
@@ -57,23 +55,25 @@ codex-agent --config /var/lib/galatea-agent/agent.json serve \
 它不依赖 release 已接纳，也不打开业务状态。`serve` 同样强制门禁，使用 ASGI lifespan 在同一事件循环启动/停止
 Host，并通过原 Service 权限、Campaign、Release 和资源预算决定工具执行。
 
-打开 `http://127.0.0.1:18880/`，输入访问令牌即可新建会话、发送消息、观察工具步骤、中断、关闭
-或核对并恢复。令牌仅保存在当前页面内存；API/SSE 使用 Authorization header，不使用 URL token。
+默认监听 `0.0.0.0:18880`，通过 `http://服务器IP:18880/` 访问，无登录步骤。
+部署必须先限制可信内网来源；可用配置 `console.host/port` 或 CLI `--host/--port` 调整。
+页面支持完整聊天、执行流程、协议原文及分页；Console 历史只在当前进程内保存，重启明确提示清空。
+Host 会话、执行幂等、工具 journal 和恢复边界继续持久化。
 
 ## 证据与限制
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python \
+/data/miniconda3/envs/attend-ray-py312/bin/python \
   agents/codex-app-server/scripts/runtime_probe.py \
   --package /absolute/path/to/codex-package --output /tmp/galatea-codex-probe-new
 ```
 
 探针只接受 `entrypoint=bin/codex` 的统一包。退出码 `1` 表示协议/兼容性失败；`2` 表示协议通过，
-正式部署证据仍不完整。最新证据位于仓库根目录的
-`outputs/codex-app-server-compatibility-20260923/`（Git 忽略），历史失败 fixture 保留原始来源记录。
+正式部署证据仍不完整。本次证据见[Console 验收记录](docs/13-console-acceptance.md)，原始日志位于
+仓库根目录的 `outputs/console-20261015/`（Git 忽略）。此前证据保留在
+`outputs/codex-app-server-compatibility-20260923/`，历史失败 fixture 保留原始来源记录。
 
-当前 `0.153.4` 的 npm 签名和 Sigstore/SLSA 来源已验证，完整包与已安装 runtime 相同；
-实际来源 commit 是 `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`。生产候选包在独立
-Python 3.12.12 环境完成了带哈希锁的离线安装和 100 项应用测试、48 项服务测试；本机真实平台
-只读预检通过。目标模型配置/凭据、有效工具面、完整 release 接纳及服务切换仍待完成。
-当前没有安装或切换系统服务，也没有提交真实训练或更改模型 Alias。
+当前目标版本由用户确认为参考项目的 `codex-cli 0.154.0`。已核验真实 schema、工具面、
+只读模拟模型往返和跨进程恢复；详见验收记录。0.153.4 的历史来源/部署证据不能迁移到新版本。
+0.154.0 的最终来源验证、真实模型/平台部署和网络 ACL 现场验收仍须独立接纳。
+本次没有切换系统服务、配置隧道、运行真实训练或更改模型 Alias。

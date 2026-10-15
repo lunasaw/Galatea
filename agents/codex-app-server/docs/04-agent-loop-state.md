@@ -7,7 +7,7 @@ Codex 仍负责：读取 instructions/skills、构造模型请求、决定是否
 
 1. 按 app-server public JSON-RPC API 启动/恢复/中断 Thread/Turn；
 2. 执行 dynamic tool server request 并回传结果；
-3. 在外层提供会话幂等、事件持久化、Console 和恢复边界。
+3. 在外层提供会话幂等、内存观察、Console 和恢复边界。
 
 Host 不把模型输出解析成自己的计划，不把工具调用重新排队到另一个 Agent loop，也不在
 turn 结束后自动再问模型。长时间 Ray Job 仍由 Codex 根据工具结果决定下一步，Host 只提供
@@ -15,7 +15,7 @@ turn 结束后自动再问模型。长时间 Ray Job 仍由 Codex 根据工具�
 
 ## 2. 状态目录
 
-首版所有状态放在应用配置目录，目录由 `--config` 文件的父目录确定：
+持久化执行状态放在应用配置目录，目录由 `--config` 文件的父目录确定：
 
 ```text
 agents/codex-app-server/config/
@@ -39,7 +39,6 @@ agents/codex-app-server/config/
 │   ├── tool-calls/<call>.json
 │   ├── .host.lock
 │   └── runtime-process.json
-├── events/<session>.jsonl
 ├── workspaces/                 # 受控 cwd，不承载 durable 业务状态
 └── release/                    # manifest 与管理员接纳证据
 ```
@@ -53,7 +52,7 @@ repo 配置；Host 必须在受控 workspace 放置明确配置、禁用不需�
 `contracts/tools.json` 只保存输入 schema；与其配套的 catalog metadata（description、read-only、
 idempotent、公开性策略）必须作为同一 release 的不可变文件保存并纳入 catalog digest。session
 journal 记录实际发布的 principal-filtered catalog，而不是只记录“17 个支持工具”。
-文件权限由部署用户控制；token 和密钥另放 mode `0600` 的 secret 文件，不写入 YAML 快照、
+文件权限由部署用户控制；模型和平台密钥另放 mode `0600` 的 secret 文件，不写入 YAML 快照、
 事件或 Console。
 
 ## 3. 持久化规则
@@ -63,8 +62,8 @@ journal 记录实际发布的 principal-filtered catalog，而不是只记录“
 - 每个可能产生副作用的 call 至少有 `intent_recorded`、`executing`、`receipt_saved` 或 `unknown`
   状态。intent 记录包含 canonical arguments digest、业务 idempotency key（如有）、catalog/config
   revision 和 deadline；没有 intent 不能开始 handler。
-- 事件日志 append-only，带 `seq`、时间、session/thread/turn/call 关联；SSE 以 seq 续读。事件落盘
-  是权威观察日志，发送给 SSE 客户端只是 best-effort 投影；发送失败不能回写或删除日志。
+- Console 观察历史仅在进程内保存，按 `epoch:seq` 续读，重启清空；不参与执行恢复判定。
+  原始消息与投影同批提交，SSE 失败不删除观察记录。业务恢复依据仍为 fsync 后的 Host journal。
 - 状态文件损坏或 manifest digest 不一致时 fail closed，不能清空目录重试。
 - Host 的状态只保存关联和观察事实；Codex thread history 仍由 `CODEX_HOME` 管理，Host 不
   读取或修改 Codex 内部数据库。

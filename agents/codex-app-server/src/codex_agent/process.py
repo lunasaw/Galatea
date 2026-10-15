@@ -4,6 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 import signal
+import uuid
 
 from .config import AgentConfig
 from .rpc import AppServerClient, JsonRpcPeer
@@ -12,9 +13,10 @@ from .stage0 import GateError
 
 
 class ManagedProcess:
-    def __init__(self, config: AgentConfig):
+    def __init__(self, config: AgentConfig, *, observer=None, diagnostic=None):
         self.config, self.process, self.client = config, None, None
         self._store = None
+        self.observer, self.diagnostic = observer, diagnostic
 
     async def start(self, server_request=None, *, notification=None, on_failure=None):
         self._store = AtomicJsonStore(self.config.state_dir)
@@ -39,7 +41,8 @@ class ManagedProcess:
             cwd=self.config.workspace_dir, env=self.config.child_environment(), start_new_session=True, limit=4 * 1024 * 1024)
         self._store.write('runtime-process.json', {'status': 'running', 'pid': self.process.pid})
         self.client = AppServerClient(JsonRpcPeer(self.process.stdout, self.process.stdin, server_request,
-                                                       notification=notification, on_failure=on_failure))
+            notification=notification, on_failure=on_failure, observer=self.observer,
+            diagnostic=self.diagnostic, runtime_instance_id=uuid.uuid4().hex))
         await self.client.initialize()
         return self.client
 

@@ -1,35 +1,7 @@
 import asyncio
 import json
-from pathlib import Path
-import tempfile
 import unittest
 import test_console as console
-from codex_agent.events import EventLog
-
-
-class EventDurabilityTests(unittest.TestCase):
-    def test_reserved_fields_and_private_fields_cannot_override_projection(self):
-        with tempfile.TemporaryDirectory() as directory:
-            log = EventLog(Path(directory))
-            event = log.append('s', {'seq': 99, 'session_id': 'other', 'kind': 'native', 'prompt': 'secret',
-                                      'public': {'status': 'ready', 'reasoning': 'private'}})
-            self.assertEqual(event['seq'], 1)
-            self.assertEqual(event['session_id'], 's')
-            self.assertNotIn('secret', json.dumps(event))
-            self.assertNotIn('private', json.dumps(event))
-
-    def test_truncated_tail_produces_durable_observation_gap(self):
-        with tempfile.TemporaryDirectory() as directory:
-            log = EventLog(Path(directory))
-            log.append('s', {'kind': 'session'})
-            with (Path(directory) / 's.jsonl').open('ab') as stream:
-                stream.write(b'{"seq":2')
-            recovered = EventLog(Path(directory))
-            recovered.append('s', {'kind': 'session'})
-            events = recovered.replay('s')
-            self.assertEqual([e['seq'] for e in events], [1, 2, 3])
-            self.assertEqual(events[1]['kind'], 'observation_gap')
-            self.assertEqual(events[1]['public']['from_seq'], 2)
 
 
 class ConsoleStreamTests(unittest.IsolatedAsyncioTestCase):
@@ -41,20 +13,67 @@ class ConsoleStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent[0]['status'], 413)
         self.assertFalse(self.host.messages)
 
-    async def test_live_stream_delivers_appended_events_and_disconnects(self):
+    async def stream(self, query=b'after=epoch:1'):
         incoming, sent = asyncio.Queue(), asyncio.Queue()
         incoming.put_nowait({'type': 'http.request', 'body': b''})
-        scope = {'type': 'http', 'method': 'GET', 'path': '/api/sessions/s/events', 'query_string': b'',
-                 'headers': [(b'authorization', b'Bearer test-token-1234567890'), (b'last-event-id', b'1')]}
+        scope = {'type': 'http', 'method': 'GET', 'path': '/api/sessions/s/events', 'query_string': query, 'headers': []}
         task = asyncio.create_task(self.app(scope, incoming.get, sent.put))
         self.addAsyncCleanup(self.cancel, task)
         self.assertEqual((await asyncio.wait_for(sent.get(), .3))['status'], 200)
+        return incoming, sent, task
+
+    async def test_live_stream_two_clients_disconnect_and_replay(self):
+        one, two = await self.stream(), await self.stream()
         self.host.events.append('s', {'kind': 'turn', 'public': {'status': 'completed'}})
-        body = await asyncio.wait_for(sent.get(), .6)
-        self.assertIn(b'"seq":2', body['body'])
-        self.assertTrue(body['more_body'])
+        for incoming, sent, task in (one, two):
+            chunks = b''
+            async with asyncio.timeout(1):
+                while b'event: observation' not in chunks:
+                    chunks += (await sent.get()).get('body', b'')
+            self.assertIn(b'id: epoch:2', chunks)
+            incoming.put_nowait({'type': 'http.disconnect'})
+            await asyncio.wait_for(task, .5)
+        self.assertEqual(self.app._streams, 0)
+        self.assertEqual((await self.host.events.status())['observation']['event_count'], 2)
+
+    async def test_binding_control_ignores_method_filter_and_precedes_events(self):
+        incoming, sent, task = await self.stream(b'after=epoch:1&method=missing')
+        self.host.events.bind('s', 'thread')
+        chunks = b''
+        async with asyncio.timeout(1):
+            while b'snapshot_required' not in chunks:
+                chunks += (await sent.get()).get('body', b'')
+        self.assertIn(b'binding_changed', chunks)
         incoming.put_nowait({'type': 'http.disconnect'})
-        await asyncio.wait_for(task, .6)
+        await asyncio.wait_for(task, .5)
+
+    async def test_blocked_browser_does_not_block_capture_or_another_subscriber(self):
+        incoming = asyncio.Queue()
+        incoming.put_nowait({'type': 'http.request', 'body': b''})
+        blocked = asyncio.Event()
+        async def slow_send(message):
+            if message['type'] == 'http.response.body':
+                blocked.set()
+                await asyncio.Event().wait()
+        scope = {'type': 'http', 'method': 'GET', 'path': '/api/sessions/s/events',
+                 'query_string': b'after=epoch:1', 'headers': []}
+        slow = asyncio.create_task(self.app(scope, incoming.get, slow_send))
+        self.addAsyncCleanup(self.cancel, slow)
+        await asyncio.wait_for(blocked.wait(), .5)
+        healthy_incoming, healthy_sent, healthy = await self.stream()
+        for index in range(200):
+            self.host.events.append('s', {'kind': 'fixture', 'public': {'index': index}})
+        await self.host.events.flush()
+        self.assertEqual((await self.host.events.status())['observation']['event_count'], 201)
+        chunks = b''
+        async with asyncio.timeout(1):
+            while b'id: epoch:201' not in chunks:
+                chunks += (await healthy_sent.get()).get('body', b'')
+        self.assertIn(b'event: observation', chunks)
+        healthy_incoming.put_nowait({'type': 'http.disconnect'})
+        await asyncio.wait_for(healthy, .5)
+        await self.cancel(slow)
+        self.assertEqual(self.app._streams, 0)
 
     @staticmethod
     async def cancel(task):

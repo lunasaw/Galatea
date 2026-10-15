@@ -115,7 +115,7 @@ def verify_release(config):
         raise GateError('reviewed release manifest and stage-0 record are required')
     if config.codex_home != config.config_dir / 'codex-home':
         raise GateError('CODEX_HOME must be config-dir/codex-home')
-    for path in (config.codex_home, config.state_dir, config.event_dir, config.workspace_dir):
+    for path in (config.codex_home, config.state_dir, config.workspace_dir):
         if not path.is_relative_to(config.config_dir):
             raise GateError('application state must be under its controlled configuration directory')
         if path.exists() and path.stat().st_mode & 0o022:

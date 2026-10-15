@@ -1,5 +1,7 @@
 # 12 生产候选与接纳记录
 
+> 历史记录：本页保留 2026-09-23 阶段的事实和证据；其中 0.153.4、Token、JSONL 与旧部署参数不能用于本次版本。2026-10-15 的 0.154.0 Console 实现及现行验收见 [13-console-acceptance.md](13-console-acceptance.md)，部署以 [06-config-deployment.md](06-config-deployment.md) 为准。
+
 更新：2026-09-23。**生产候选已完成构建、离线重装及回归，最终 release 尚未接纳，服务尚未切换。**
 当前 `galatea-mcp.service` 继续持有原业务状态 writer lock。下面区分可复用的软件证据和必须在
 目标部署完成的配置/运行验收，不能用前者代替后者。

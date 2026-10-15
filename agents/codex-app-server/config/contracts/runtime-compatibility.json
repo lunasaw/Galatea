@@ -2,11 +2,11 @@
   "schema_version": "galatea.runtime-compatibility/v1",
   "host_catalog_sha256": "fa23fbb0966f69788d6a0e6af3aab14296f7d7c5f44eda7037ae94f81ce1e0cf",
   "runtime_binding": {
-    "app_server_protocol_schema_sha256": "74d5cdc8998ea238aac6af751caa40d95d6cceb01512d5cae542aa3786d2e87d",
-    "codex_version": "codex-cli 0.153.4",
-    "runtime_binary_sha256": "56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da",
-    "runtime_package_manifest_sha256": "43f8735a93a7947c6dc082c550d2ff2d795fccfd1c7eb27c93aa91cbead1e3f4",
-    "runtime_package_tree_sha256": "2574264f46dab839626ec0d7034d54c5454c2d619987107b93e208e1fbd5867a"
+    "codex_version": "codex-cli 0.154.0",
+    "runtime_binary_sha256": "3188814c35471432d4123203e0eb38e5bddc60226e3d7ddf0e59e649ea140022",
+    "runtime_package_manifest_sha256": "b039964d28d57b2a7e929ee9986303582501c7cc9787f6c018b6d3c7b35c87d7",
+    "runtime_package_tree_sha256": "3cc41caee17e08d177a0213b881424d41eff0377627ace4d90ada506110ec3c1",
+    "app_server_protocol_schema_sha256": "2a6d036d1833df268e237997b3b88bea60682542da46ecc380f6b84276515943"
   },
   "model_tools_sha256": "0d5d58f54e21c9c124de255d5982c54388d288d5900e6ccfd38dc8dfd7dccfbc",
   "acceptance": "Original schemas govern Host validation; the captured model schema is a separately frozen representation.",

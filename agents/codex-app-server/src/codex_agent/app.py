@@ -20,15 +20,15 @@ from .release import verify_release
 from .stage0 import GateError, file_sha256
 
 
-def build_host(config, service, principal, *, console_token: str, allowed_origins: set[str]):
+def build_host(config, service, principal):
     if (principal.principal_id, principal.project_ids, principal.campaign_ids, principal.actions) != (
             config.principal_id, config.project_ids, config.campaign_ids, config.actions):
         raise GateError("backend principal differs from Host configuration")
     catalog = Catalog.load(config.contracts.parent)
     adapter = GalateaAdapter(service, principal=principal)
     store = AtomicJsonStore(config.state_dir)
-    events = EventLog(config.event_dir)
-    process = ManagedProcess(config)
+    events = EventLog()
+    process = ManagedProcess(config, observer=events.observer, diagnostic=events.diagnostic)
     registry = ToolRegistry(catalog, OperationJournal(store),
                             adapter.handlers(catalog.schemas))
     host = None
@@ -67,4 +67,4 @@ def build_host(config, service, principal, *, console_token: str, allowed_origin
                      campaign_ids=set(principal.campaign_ids), actions=set(principal.actions),
                      max_active_turns=config.max_active_turns, workspace_dir=config.workspace_dir,
                      client_stop=process.stop, admission_check=check_admission, startup_check=startup_check)
-    return host, ConsoleApp(host, events, token=console_token, allowed_origins=allowed_origins)
+    return host, ConsoleApp(host, events)

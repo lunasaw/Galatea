@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
+from dataclasses import replace
+
+from .models import EventQuery, SnapshotQuery
+from .ports import ObservationError, InvalidCursor, UnknownEvent, UnknownSession
+from .service import CAPABILITIES
 
 from ..host import HostNotReady
 from ..state import identifier, payload_digest
@@ -15,15 +19,13 @@ class BodyTooLarge(ValueError):
 
 
 class ConsoleApp:
-    """Authenticated ASGI API and live SSE with bounded reads and socket backpressure."""
+    """Same-origin Console for a trusted network; execution uses the Host principal."""
 
-    def __init__(self, host, events, *, token, allowed_origins, max_streams=32):
-        if not token or len(token) < 16:
-            raise ValueError('strong bearer token required')
-        self.host, self.events, self.token = host, events, token
-        self.allowed_origins = frozenset(allowed_origins)
+    def __init__(self, host, events, *, max_streams=32):
+        self.host, self.events = host, events
         self.max_streams, self._streams = max_streams, 0
         self._writes = asyncio.Lock()
+        self._stopping = False
 
     @staticmethod
     async def _body(receive):
@@ -58,51 +60,114 @@ class ConsoleApp:
             message = await receive()
             if message['type'] == 'lifespan.startup':
                 try:
+                    await self.events.start()
                     await self.host.start()
                 except Exception:
                     await send({'type': 'lifespan.startup.failed', 'message': 'Host initialization failed'})
                     return
                 await send({'type': 'lifespan.startup.complete'})
             elif message['type'] == 'lifespan.shutdown':
+                self._stopping = True
                 await self.host.stop()
+                await self.events.close()
                 await send({'type': 'lifespan.shutdown.complete'})
                 return
 
-    async def _stream(self, session_id, after, receive, send):
+    @staticmethod
+    def _query(scope, headers, session_id=None):
+        raw = parse_qs(scope.get('query_string', b'').decode(), keep_blank_values=True)
+        if any(len(values) != 1 for values in raw.values()):
+            raise InvalidCursor('duplicate query parameter')
+        query = {key: values[0] for key, values in raw.items()}
+        if headers.get('last-event-id') and 'after' in query and headers['last-event-id'] != query['after']:
+            raise InvalidCursor('Last-Event-ID and after differ')
+        after = headers.get('last-event-id') or query.get('after')
+        try:
+            limit = int(query.get('limit', '200'))
+        except ValueError as exc:
+            raise InvalidCursor('invalid page size') from exc
+        filters = {key: value for key, value in query.items() if key not in {'after', 'until', 'limit', 'page', 'view'}}
+        if 'unbound' in filters:
+            if filters['unbound'] not in {'true', 'false'}:
+                raise InvalidCursor('invalid unbound filter')
+            filters['unbound'] = filters['unbound'] == 'true'
+        return EventQuery(session_id, after, query.get('until'), limit, filters), query
+
+    async def _stream(self, query, receive, send):
         if self._streams >= self.max_streams:
-            return await self._send(send, 429, {'error': 'stream-limit'})
-        batch = self.events.replay(session_id, after)
+            return await self._send(send, 429, {'error': 'STREAM_LIMIT', 'epoch': self.events.epoch})
+        batch = await self.events.read_events(query)
+        baseline = await self.events.read_events(replace(query, until=query.after or self.events.epoch + ':0'))
+        binding_version = baseline['binding_version']
         self._streams += 1
         async def disconnect():
             while (await receive()).get('type') != 'http.disconnect':
                 pass
         disconnected = asyncio.create_task(disconnect())
+        async def frame(name, data, cursor=None):
+            body = (('id: ' + cursor + '\n') if cursor else '') + 'event: ' + name + '\ndata: ' + json.dumps(data, ensure_ascii=False, separators=(',', ':')) + '\n\n'
+            await asyncio.wait_for(send({'type': 'http.response.body', 'body': body.encode(), 'more_body': True}), 10)
         try:
-            await send({'type': 'http.response.start', 'status': 200, 'headers': [
-                (b'content-type', b'text/event-stream'), (b'cache-control', b'no-store'), (b'x-accel-buffering', b'no')]})
-            heartbeat = 0
+            await asyncio.wait_for(send({'type': 'http.response.start', 'status': 200, 'headers': [
+                (b'content-type', b'text/event-stream'), (b'cache-control', b'no-store'), (b'x-accel-buffering', b'no')]}), 10)
             while True:
-                if batch:
-                    body = b''.join(b'id: ' + str(e['seq']).encode() + b'\ndata: ' +
-                        json.dumps(e, ensure_ascii=False, separators=(',', ':')).encode() + b'\n\n' for e in batch)
-                    await asyncio.wait_for(send({'type': 'http.response.body', 'body': body, 'more_body': True}), 10)
-                    after = batch[-1]['seq']
+                if query.session_id and batch['binding_version'] != binding_version:
+                    await frame('snapshot_required', {'reason': 'binding_changed', 'binding_version': batch['binding_version']})
+                    break
+                for event in batch['events']:
+                    await frame('observation', event, event['event_id'])
+                cursor = batch['next_cursor']
+                await frame('cursor', {'cursor': cursor}, cursor)
                 if disconnected.done():
                     break
-                done, _ = await asyncio.wait({disconnected}, timeout=.1)
-                if done:
-                    break
-                batch = self.events.replay(session_id, after)
-                heartbeat += 1
-                if not batch and heartbeat % 150 == 0:
-                    await asyncio.wait_for(send({'type': 'http.response.body', 'body': b': keepalive\n\n', 'more_body': True}), 10)
+                if batch['has_more']:
+                    query = replace(query, after=cursor, until=batch['watermark'])
+                else:
+                    query = replace(query, after=cursor, until=None)
+                    change = asyncio.create_task(self.events.wait_for_change(cursor, 1))
+                    try:
+                        done, _ = await asyncio.wait({change, disconnected}, return_when=asyncio.FIRST_COMPLETED)
+                        if disconnected in done:
+                            break
+                        await change
+                    finally:
+                        change.cancel()
+                        await asyncio.gather(change, return_exceptions=True)
+                    status = await self.events.status()
+                    await frame('status', status['observation'])
+                batch = await self.events.read_events(query)
         except (TimeoutError, ConnectionError, ValueError, RuntimeError):
-            # Headers may already be on the wire; terminate without a second response.
-            pass
+            # Headers are already on the wire: only a control frame and close.
+            try:
+                await frame('status', {'status': 'unavailable', 'error': 'OBSERVATION_UNAVAILABLE'})
+            except (TimeoutError, ConnectionError, RuntimeError):
+                pass
         finally:
             disconnected.cancel()
             await asyncio.gather(disconnected, return_exceptions=True)
             self._streams -= 1
+        try:
+            await asyncio.wait_for(send({'type': 'http.response.body', 'body': b'', 'more_body': False}), 10)
+        except (TimeoutError, ConnectionError, RuntimeError):
+            pass
+
+    @staticmethod
+    def _same_origin(scope, headers):
+        if headers.get('sec-fetch-site') not in (None, 'same-origin', 'none'):
+            return False
+        origin = headers.get('origin')
+        if origin is None:
+            return True  # non-browser clients have no Origin; identity is shared.
+        expected = scope.get('scheme', 'http') + '://' + headers.get('host', '')
+        def normalized(value):
+            parsed = urlsplit(value)
+            if parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+                return None
+            return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == 'https' else 80)
+        try:
+            return normalized(origin) is not None and normalized(origin) == normalized(expected)
+        except ValueError:
+            return False
 
     async def _write(self, path, body, headers, action):
         key = identifier(headers.get('idempotency-key') or body.get('request_id', ''))
@@ -131,24 +196,38 @@ class ConsoleApp:
         method, path = scope.get('method', 'GET'), scope.get('path', '/')
         if method == 'GET' and path == '/health/live':
             return await self._send(send, 200, {'live': True})
-        if method == 'GET' and path in {'/', '/app.js', '/style.css'}:
+        if method == 'GET' and path in {'/', '/app.js', '/transport.js', '/style.css'}:
             filename, content_type = {'/': ('index.html', 'text/html; charset=utf-8'),
-                '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}[path]
+                '/app.js': ('app.js', 'text/javascript'), '/transport.js': ('transport.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}[path]
             return await self._send(send, 200, (Path(__file__).parent / 'static' / filename).read_bytes(), content_type=content_type)
         headers = {k.decode().lower(): v.decode() for k, v in scope.get('headers', [])}
-        if not hmac.compare_digest(headers.get('authorization', ''), 'Bearer ' + self.token):
-            return await self._send(send, 401, {'error': 'unauthorized'})
-        if headers.get('origin') and headers['origin'] not in self.allowed_origins:
+        if method == 'POST' and not self._same_origin(scope, headers):
             return await self._send(send, 403, {'error': 'origin-forbidden'})
-        if method == 'POST' and headers.get('origin') not in self.allowed_origins:
-            return await self._send(send, 403, {'error': 'origin-forbidden'})
+        if method == 'POST' and self._stopping:
+            return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
         try:
             if path == '/health/ready' and method == 'GET':
                 self.host.assert_ready()
                 return await self._send(send, 200, {'ready': True})
             if path == '/api/capabilities' and method == 'GET':
-                return await self._send(send, 200, {'catalog_digest': self.host.registry.catalog.digest,
+                return await self._send(send, 200, {**CAPABILITIES, 'catalog_digest': self.host.registry.catalog.digest,
                     'principal_id': self.host.principal_id, 'tools': self.host.registry.dynamic_tools(self.host.actions)})
+            if path == '/api/console/status' and method == 'GET':
+                status = await self.events.status()
+                try:
+                    self.host.assert_ready()
+                    status['host_ready'] = True
+                except HostNotReady:
+                    status['host_ready'] = False
+                return await self._send(send, 200, status)
+            if path.startswith('/api/events/') and method == 'GET':
+                query, _ = self._query(scope, headers)
+                action = path[len('/api/events/'):]
+                if action == 'history':
+                    return await self._send(send, 200, await self.events.read_events(query))
+                if action == 'stream':
+                    return await self._stream(query, receive, send)
+                return await self._send(send, 200, await self.events.detail(action))
             if path == '/api/sessions':
                 if method == 'GET':
                     return await self._send(send, 200, self.host.list_sessions())
@@ -162,23 +241,21 @@ class ConsoleApp:
                 session_id = identifier(parts[2])
                 session = self.host.get_session(session_id)
                 if session is None or session.get('principal_id') != self.host.principal_id:
-                    return await self._send(send, 404, {'error': 'unknown-session'})
+                    raise UnknownSession('Host session does not exist')
                 if method == 'GET' and len(parts) == 3:
                     return await self._send(send, 200, session)
-                if len(parts) == 5:
-                    if method == 'GET' and parts[3] == 'loop':
-                        turn_id = identifier(parts[4])
-                        loop = self.events.loop(session_id)
-                        loop['steps'] = [step for step in loop['steps'] if step.get('turn_id') == turn_id]
-                        return await self._send(send, 200, loop)
-                    return await self._send(send, 404, {'error': 'not-found'})
-                action = parts[3] if len(parts) == 4 else None
-                if action == 'events' and method == 'GET':
-                    query = parse_qs(scope.get('query_string', b'').decode())
-                    after = int(headers.get('last-event-id', query.get('after', ['0'])[0]))
-                    return await self._stream(session_id, after, receive, send)
-                if action == 'loop' and method == 'GET':
-                    return await self._send(send, 200, self.events.loop(session_id))
+                action = parts[3] if len(parts) >= 4 else None
+                if method == 'GET':
+                    query, raw = self._query(scope, headers, session_id)
+                    if action == 'events':
+                        return await self._stream(query, receive, send)
+                    if action == 'history':
+                        return await self._send(send, 200, await self.events.read_events(query))
+                    if action in {'snapshot', 'messages', 'loop'}:
+                        turn_id = identifier(parts[4]) if len(parts) == 5 and action == 'loop' else None
+                        view = 'messages' if action == 'messages' else 'steps' if turn_id else raw.get('view', 'all')
+                        snapshot = await self.events.snapshot(SnapshotQuery(session_id, turn_id, view, query.until, query.limit, raw.get('page')))
+                        return await self._send(send, 200, snapshot)
                 if method == 'POST' and action in {'messages', 'interrupt', 'close', 'resume'}:
                     body = await self._body(receive)
                     async def invoke(key):
@@ -190,6 +267,8 @@ class ConsoleApp:
                         return await fn(session_id)
                     return await self._send(send, 200, await self._write(path, body, headers, invoke))
             return await self._send(send, 404, {'error': 'not-found'})
+        except ObservationError as exc:
+            return await self._send(send, exc.status, {'error': exc.code, 'epoch': self.events.epoch})
         except BodyTooLarge:
             return await self._send(send, 413, {'error': 'body-too-large'})
         except HostNotReady:

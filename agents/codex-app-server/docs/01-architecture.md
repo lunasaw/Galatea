@@ -81,5 +81,5 @@ Registry 共享同一个 `Service` 和单写边界；同一 `state_root` 只能�
 - 仓库现有平台客户端依赖（Ray、MLflow、boto3 等），只在相关后端启用。
 
 不新增 PostgreSQL、SQLite、Redis、消息队列、MCP SDK、OpenAI Agents SDK、第三方 Agent
-编排框架或独立控制面。当前 HTTP/SSE 使用 uvicorn ASGI 与原生 HTML/JS；版本、许可证、鉴权、
+编排框架或独立控制面。当前 HTTP/SSE 使用 uvicorn ASGI 与原生 HTML/JS；版本、许可证、网络访问边界、
 并发、背压和生命周期见 [配置与部署](06-config-deployment.md)。真实平台部署仍须接纳目标环境证据。

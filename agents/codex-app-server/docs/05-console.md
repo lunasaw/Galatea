@@ -1,101 +1,65 @@
 # 05 Console
 
-实施说明（2026-09-23）：当前 Console 以严格公开字段投影展示生命周期和工具步骤，不公开完整用户
-输入、assistant 原文、推理或原始日志。原生 delta 按 item id 聚合为一个状态步骤。
-Bearer token 只保存在页面内存，使用 fetch 流读取 SSE；不使用不能附带 Authorization 的 EventSource。
-API 增加 `POST /api/sessions/{id}/resume`；全部写请求需要 Idempotency-Key 或同值消息 request_id。
-实际部署参数及依赖见 [配置与部署](06-config-deployment.md)。
+更新：2026-10-15。网页聊天与追踪台已实施；目标为用户指定的 Codex 0.154.0。
+测试证据、边界和未完成的现场验收见 [Console 验收记录](13-console-acceptance.md)。
 
+Console 与现有 Python ASGI Host 同进程，静态 HTML/CSS/JavaScript 随 wheel 发布。
+无 Node 构建依赖、Redis、隧道或第二个 Agent Loop。所有访问者共享配置的 Host principal。
+页面无需 Token；部署必须以网络 ACL/防火墙限制可信来源，同源校验不能替代网络访问控制。
 
-Console 是同一 Host 的观察和输入界面，不是独立 Agent，也不直接连接 Codex runtime 或
-Galatea backend。首版可用原生 HTML/CSS/JavaScript；不需要复制 `service-manager-agent` 的
-Redis Console、Tunnel 或任务管理器模拟器。
+## HTTP 与 SSE
 
-## 1. HTTP API
-
-| 方法 | 路径 | 语义 |
+| 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| `GET` | `/health/live` | 进程存活 |
-| `GET` | `/health/ready` | runtime、Tool Registry、配置和 app-server 可用 |
-| `GET` | `/api/capabilities` | Agent/runtime/catalog digest 和功能开关 |
-| `POST` | `/api/sessions` | 创建 session，绑定 thread |
-| `GET` | `/api/sessions` | 当前配置目录中可见的 session 列表 |
-| `GET` | `/api/sessions/{id}` | session 状态、thread/active turn 与绑定摘要 |
-| `POST` | `/api/sessions/{id}/messages` | 发送一条用户消息，返回 request/turn 身份 |
-| `POST` | `/api/sessions/{id}/interrupt` | 中断当前 turn，进入核对状态 |
-| `POST` | `/api/sessions/{id}/close` | 关闭 session，不删除 Codex history |
-| `GET` | `/api/sessions/{id}/events?after=<seq>` | SSE 事件流，支持断线续读 |
-| `GET` | `/api/sessions/{id}/loop/{turn_id}` | 聚合后的 Agent Loop 视图 |
+| GET | `/health/live`、`/health/ready` | 进程存活、执行就绪；后者不受观察存储故障冒充 |
+| GET | `/api/capabilities`、`/api/console/status` | 能力边界、epoch、Runtime 实例、采集/提交/积压与观察健康 |
+| GET/POST | `/api/sessions` | 持久化会话列表、创建 |
+| GET | `/api/sessions/{id}` | 执行状态与恢复信息 |
+| POST | `/api/sessions/{id}/messages`、`interrupt`、`close`、`resume` | 沿用现有控制及持久化幂等 |
+| GET | `/api/events/history`、`/api/events/stream` | 全局历史、SSE；`unbound=true` 查询运行实例未绑定消息 |
+| GET | `/api/events/{event_id}` | 完整脱敏事件详情 |
+| GET | `/api/sessions/{id}/history`、`events` | 会话历史、SSE |
+| GET | `/api/sessions/{id}/snapshot`、`messages`、`loop`、`loop/{turn_id}` | 对话、步骤和 Turn 投影；支持分页 |
 
-所有写请求带 `Idempotency-Key`，消息也支持同值 `request_id`；重复 payload 返回既有 receipt。服务端必须对
-`Idempotency-Key` 绑定 HTTP 身份、方法、路径和 canonical body，复用键但 payload 不同返回 conflict。
-Console 的 `session_id` 不能代替 Galatea 的 `project_id`/`campaign_id` scope，后者由服务端配置
-绑定并在服务端校验，不能由创建请求扩大。
+写请求带 `Idempotency-Key`，消息可以提供同值 `request_id`；复用键但正文不同仍报冲突。
+键和回执继续落盘，Console 重启不清空执行幂等。POST 拒绝跨源 Origin/Fetch Metadata，关闭 CORS；
+无 Origin 的非浏览器客户端允许使用。没有 cookie 或应用层访问者身份验证。
 
-HTTP 写接口必须有明确的本机鉴权，即使只绑定 loopback 也不能省略。实现至少要固定一种受审查的
-机制（例如 mode `0600` 的 Unix socket peer credentials，或本机 bearer/capability token）；若浏览器
-通过 HTTP 发送 cookie，必须校验 `Origin`/`Referer`、拒绝跨源写入并使用 CSRF token。CORS 默认关闭，
-不得以 `Access-Control-Allow-Origin: *` 配合凭据。健康检查可匿名但不能泄露 token、路径、catalog
-细节或后端状态。
+事件查询支持 `after`（不含）、`until`（含）、`limit=1..1000`，以及 method、kind、direction、
+source、session_id、thread_id、turn_id、item_id、call_id、unbound 精确过滤。
+`seq` 使用十进制字符串，游标为 `epoch:seq`，跨 epoch 报 `EPOCH_MISMATCH`。
+无匹配事件时 next_cursor 仍推进；下一页复用原 watermark 作为 until，避免混入新事件。
 
-## 2. SSE 事件
+快照默认返回各视图最近 200 项，`view=messages|steps|turns|all` 可选视图。
+`next_page` 绑定 session/turn/view/limit/水位，后续请求必须保持上下文一致。
+前端按需渲染和翻页，不截断服务端正文、列表或历史。浏览器“更早”在固定水位读取前页；
+返回最新视图后恢复流式更新。
 
-```json
-{
-  "seq": 18,
-  "session_id": "s-...",
-  "thread_id": "thread-...",
-  "turn_id": "turn-...",
-  "kind": "tool_call",
-  "method": "item/tool/call",
-  "phase": "request",
-  "public": {
-    "namespace": "galatea",
-    "tool": "galatea_query_runs",
-    "arguments": {"project_id": "demo", "campaign_id": "c1", "limit": 20}
-  }
-}
-```
+SSE 使用 fetch 流。`observation` 承载事件，`cursor` 推进扫描游标，`status` 报告观察状态；
+晚绑定引发 `snapshot_required`，会话订阅重新获取快照。控制帧不受 method 过滤抑制。
+支持一致的 Last-Event-ID 或 after，冲突报错。UTF-8 decoder 和 SSE parser 处理跨块、多行与半帧。
+每连接发送超时 10 秒，默认最多 32 个连接；慢读或断连只影响本订阅，观察写入继续。
 
-当前事件 kind 为 `session`、`turn`、`native`、`tool_call`、`tool_result` 和 `observation_gap`。
-公开字段只保留生命周期、已校验的 metadata 参数投影、read-only 标记、operation id、耗时和结果状态。
-原生 assistant item/delta 合并为一个回复状态步骤；不发布文本内容、推理或完整输入。
-日志写入失败使 Host 失败关闭；SSE 连接失败只终止当前订阅，不能伪造已经交付的 gap。
-残缺持久日志尾部恢复时追加带范围的 observation_gap；完整记录损坏则拒绝观察并等待恢复。
+## 采集与数据归属
 
-## 3. Agent Loop 展示
+`JsonRpcPeer` 在入站 JSON/envelope 解析后、业务处理前捕获副本；出站在 write 成功后、drain 前捕获。
+initialize、双向 request/response/error、未知 method 和未绑定消息均记录；不建立第二个 reader。
+出站记录只能证明写入本地缓冲，drain 失败诊断引用出站 event_id，不能当作执行成功。
 
-Console 聚合原生事件，不构造第二个 loop：
+`ConsoleObserver → ConsoleObservationService → ConsoleObservationStore` 以单写者有序提交。
+内存适配器无 TTL、队列上限、数量淘汰或采样。原始事件和增量投影同批原子提交；稳定 batch_id
+支持提交成功但确认丢失后的幂等重试。关联、脱敏、投影或存储故障明确显示 incomplete/unavailable，
+观察故障不修改 Host 的执行结果，不触发工具重执行。
 
-```text
-Turn
- ├─ 输入 admission 状态
- ├─ Agent message delta（按 item 合并为状态）
- ├─ 原生生命周期摘要
- ├─ galatea_query_runs(arguments) → result
- ├─ Agent message 状态（合并）
- └─ turn/completed
-```
+原文在入库前按键、类型及嵌套 JSON 脱敏，记录 JSON pointer 和原因；不包含凭据、私有 reasoning、
+系统/开发指令、测试样本/标签、原始日志和完整 Artifact。公开 assistant 文本、公开摘要、普通长正文和
+累计 totalTokens 保留。HTML 仅以 textContent 呈现。
 
-工具请求、工具回执按 `callId` 合并；同一 turn 的多个 tool call 保留顺序。页面支持“全部”、
-“回复”、“工具”、“摘要”、“错误”筛选，并显示当前筛选数/总数。长字段采用服务端截断和
-`truncated=true` 标记，不在浏览器自行猜测是否完整。
+message_accepted 按持久化 request 身份只出现一次；delta 累积而 completed 替换文本。
+工具按 thread/turn/call 合并，展示实际回执中的 operation/job 和最近观察时间，不直接轮询后端。
+Turn 保留实际 completed/failed/interrupted 状态；累计 Token 以最新快照替换。
+审批、权限和提问请求及实际回执可查，本期没有页面回复入口。
 
-## 4. 安全展示
-
-默认不显示：
-
-- `CODEX_HOME` 路径、系统环境、API key、Bearer token、S3 凭据；
-- 完整 system/developer instructions、私有 reasoning、原始 Ray 日志；
-- 测试样本、测试标签、Artifact 原始内容和任何可重放的签名 URL。
-
-浏览器只接收 `public_detail()` 投影；脱敏必须发生在事件写入 SSE 之前。服务绑定 loopback 只是
-网络暴露边界，不是身份认证；远程访问需要用户明确配置受控反向代理和同源/CSRF 策略，首版不内置
-tunnel。SSE 订阅也要校验 session 所属身份，不能因为是 GET 就匿名暴露事件。
-
-## 5. 前端交互约束
-
-- 发送期间禁用按钮；列表与事件显示 accepted/running/completed/unknown 等状态，重试复用 request id。
-- Tool call 显示只读/有副作用标识、operation id（若已公开）、耗时和回执状态。
-- interrupt/close 是确认操作，完成前不从列表删除 session。
-- 页面刷新后用最后一个 seq 回放事件，不要求 Codex 重跑 turn。
+Host 会话、HTTP 请求、工具 journal、进程记录和单写锁继续持久化。Console 事件、投影和订阅仅在当前
+进程内；重启换 epoch 并显示历史已清空，不从旧 JSONL 或 Codex 私有存储补造历史。
+后续 Redis 只替换异步存储端口；它不负责 Host 接管、socket、Future 或 Runtime 控制。

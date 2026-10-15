@@ -15,7 +15,6 @@ class AgentConfig:
     codex_home: Path
     runtime_dir: Path
     state_dir: Path
-    event_dir: Path
     workspace_dir: Path
     contracts: Path
     catalog_metadata: Path
@@ -25,6 +24,8 @@ class AgentConfig:
     project_ids: frozenset[str]
     campaign_ids: frozenset[str]
     actions: frozenset[str]
+    console_host: str = "0.0.0.0"
+    console_port: int = 18880
     max_active_turns: int = 4
     raw: dict = field(default_factory=dict, repr=False)
 
@@ -38,7 +39,9 @@ class AgentConfig:
         if any(p.is_symlink() for p in (config_dir, *config_dir.parents)):
             raise ValueError("unsafe configuration directory")
         paths, codex = raw.get("paths", {}), raw.get("codex", {})
-        if paths.keys() != {"codex_home", "runtime_dir", "state_dir", "event_dir", "workspace_dir", "contracts", "catalog_metadata"}:
+        if "event_dir" in paths:
+            raise ValueError("paths.event_dir was removed; Console history now uses process memory")
+        if paths.keys() != {"codex_home", "runtime_dir", "state_dir", "workspace_dir", "contracts", "catalog_metadata"}:
             raise ValueError("invalid paths fields")
         if codex.keys() - {"binary", "runtime_version", "app_server_args", "model_api_key_file"}:
             raise ValueError("unknown runtime field")
@@ -47,12 +50,23 @@ class AgentConfig:
         if raw.get('agent', {}).keys() - {'id', 'max_active_turns'}:
             raise ValueError('unknown agent field')
         console = raw.get('console', {})
-        if console.keys() - {'token_file', 'allowed_origins'}:
+        if console.keys() & {'token_file', 'allowed_origins'}:
+            raise ValueError('Console token_file/allowed_origins were removed; use a trusted network and same-origin requests')
+        if console.keys() - {'host', 'port', 'storage'}:
             raise ValueError('unknown Console field')
-        if not isinstance(console.get('allowed_origins', []), list) or any(
-                not isinstance(value, str) or not value.startswith(('http://', 'https://'))
-                for value in console.get('allowed_origins', [])):
-            raise ValueError('invalid Console origins')
+        storage = console.get('storage', {})
+        if not isinstance(storage, dict) or storage.keys() - {'backend', 'retention'}:
+            raise ValueError('unknown Console storage field')
+        if storage.get('backend', 'memory') != 'memory':
+            raise ValueError('unsupported Console storage backend; only memory is implemented')
+        if storage.get('retention', 'process_lifetime') != 'process_lifetime':
+            raise ValueError('unsupported Console retention; use process_lifetime')
+        host, port = console.get('host', '0.0.0.0'), console.get('port', 18880)
+        import re
+        if not isinstance(host, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]+', host):
+            raise ValueError('invalid Console host')
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError('invalid Console port')
         maximum = raw.get("agent", {}).get("max_active_turns", 4)
         if type(maximum) is not int or not 1 <= maximum <= 32:
             raise ValueError("max_active_turns must be between 1 and 32")
@@ -80,11 +94,11 @@ class AgentConfig:
         actions = frozenset(principal.get("actions", []))
         if not principal.get("principal_id") or not actions:
             raise ValueError("principal_id and actions are required")
-        return cls(config_dir, path("codex_home"), path("runtime_dir"), path("state_dir"), path("event_dir"),
+        return cls(config_dir, path("codex_home"), path("runtime_dir"), path("state_dir"),
                    path("workspace_dir"), path("contracts"), path("catalog_metadata"), binary,
                    str(codex.get("runtime_version", "")), str(principal["principal_id"]),
                    frozenset(principal.get("project_ids", [])), frozenset(principal.get("campaign_ids", [])), actions,
-                   maximum, copy.deepcopy(raw))
+                   host, port, maximum, copy.deepcopy(raw))
 
     def effective_digest(self, effective_config: dict):
         return digest({"effective_config": effective_config, "config_dir": str(self.config_dir), "codex_home": str(self.codex_home)})

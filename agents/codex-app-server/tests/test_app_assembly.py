@@ -21,15 +21,14 @@ class AppAssemblyTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = AgentConfig.from_dict({"schema_version": "codex-agent/v1", "paths": {
-                "codex_home": "home", "runtime_dir": "runtime", "state_dir": "state", "event_dir": "events",
+                "codex_home": "home", "runtime_dir": "runtime", "state_dir": "state",
                 "workspace_dir": "workspace", "contracts": str(ROOT / "config/contracts/tools.json"),
                 "catalog_metadata": str(ROOT / "config/contracts/catalog-metadata.json")},
                 "codex": {"binary": str(Path("/bin/true").resolve()), "runtime_version": "test"},
                 "galatea": {"principal": {"principal_id": "p", "project_ids": ["project"],
                                               "campaign_ids": ["campaign"], "actions": ["galatea_get_capabilities"]}}}, root)
             principal = Principal("p", frozenset({"project"}), frozenset({"campaign"}), frozenset({"galatea_get_capabilities"}))
-            host, console = build_host(config, Service(), principal,
-                                       console_token="test-token-1234567890", allowed_origins={"http://localhost"})
+            host, console = build_host(config, Service(), principal)
             self.assertEqual(host.actions, frozenset({"galatea_get_capabilities"}))
             self.assertIsNotNone(console)
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -15,6 +16,7 @@ from codex_agent.events import EventLog
 from codex_agent.host import AgentHost, HostNotReady
 from codex_agent.registry import ToolContext, ToolRegistry
 from codex_agent.state import AtomicJsonStore, OperationJournal
+from codex_agent.console.models import SnapshotQuery
 
 
 class FakeClient:
@@ -51,7 +53,7 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         root = Path(self.directory.name)
         self.store = AtomicJsonStore(root / "state")
-        self.events = EventLog(root / "events")
+        self.events = EventLog()
         self.catalog = Catalog.load(ROOT / "config/contracts")
         self.calls = []
 
@@ -70,6 +72,7 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.host.stop()
+        await self.events.close()
         self.directory.cleanup()
 
     async def test_session_message_is_idempotent_and_calls_native_client_once(self):
@@ -79,12 +82,39 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first, second)
         self.assertEqual(len(self.client.turns), 1)
         self.assertEqual(self.store.read("requests/request-1.json")["turn_id"], first["turn_id"])
+        await self.events.flush()
+        snapshot = await self.events.snapshot(SnapshotQuery('session-1'))
+        self.assertEqual([m['text'] for m in snapshot['messages']], ['hello'])
 
     async def test_conflicting_request_id_is_rejected(self):
         await self.host.create_session("session-1")
         await self.host.send_message("session-1", "request-1", "hello")
         with self.assertRaises(ValueError):
             await self.host.send_message("session-1", "request-1", "different")
+
+    async def test_durable_intent_failure_blocks_native_turn_and_accepted_message(self):
+        await self.host.create_session('session-1')
+        with patch.object(self.store, 'write', side_effect=OSError('synthetic disk failure')):
+            with self.assertRaises(OSError):
+                await self.host.send_message('session-1', 'request-1', 'hello')
+        self.assertEqual(self.client.turns, [])
+        self.assertIsNone(self.store.read('requests/request-1.json'))
+        await self.events.flush()
+        self.assertEqual((await self.events.snapshot(SnapshotQuery('session-1')))['messages'], [])
+
+    async def test_observation_commit_failure_does_not_change_durable_execution(self):
+        await self.host.create_session('session-1')
+        await self.events.flush()
+        with patch.object(self.events.store, 'commit', side_effect=OSError('synthetic observer failure')):
+            record = await self.host.send_message('session-1', 'request-1', 'hello')
+            await asyncio.sleep(.01)
+            self.assertEqual((await self.events.status())['observation']['status'], 'unavailable')
+            self.host.assert_ready()
+            self.assertEqual(record['status'], 'accepted')
+            self.assertEqual(self.store.read('requests/request-1.json')['status'], 'accepted')
+            self.assertEqual(len(self.client.turns), 1)
+        await self.events.retry()
+        await self.events.flush()
 
     async def test_dynamic_tool_request_is_bound_to_session_and_returns_envelope(self):
         session = await self.host.create_session("session-1")

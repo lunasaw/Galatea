@@ -23,7 +23,7 @@ class CLITests(unittest.TestCase):
             binary.write_text("#!/bin/sh\nexit 0\n")
             binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
             config = {"schema_version": "codex-agent/v1", "paths": {
-                "codex_home": "home", "runtime_dir": "runtime", "state_dir": "state", "event_dir": "events",
+                "codex_home": "home", "runtime_dir": "runtime", "state_dir": "state",
                 "workspace_dir": "workspace", "contracts": str(ROOT / "config/contracts/tools.json"),
                 "catalog_metadata": str(ROOT / "config/contracts/catalog-metadata.json")},
                 "codex": {"binary": str(binary), "runtime_version": "codex-cli test"},

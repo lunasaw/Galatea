@@ -43,7 +43,7 @@ class RPCConfigTests(unittest.IsolatedAsyncioTestCase):
 
     def test_config_uses_explicit_paths_and_environment_allowlist(self):
         config = AgentConfig.from_dict({"schema_version": "codex-agent/v1", "paths": {
-            "codex_home": "home", "runtime_dir": "runtime", "state_dir": "state", "event_dir": "events",
+            "codex_home": "home", "runtime_dir": "runtime", "state_dir": "state",
             "workspace_dir": "workspace", "contracts": "contracts/tools.json", "catalog_metadata": "contracts/catalog-metadata.json"},
             "codex": {"binary": "runtime/bin/codex", "runtime_version": "codex-cli 0.153.4"},
             "galatea": {"principal": {"principal_id": "p", "actions": ["galatea_get_capabilities"]}}}, ROOT)

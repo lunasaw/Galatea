@@ -2,7 +2,7 @@
 
 状态：Host、Registry、HTTP/SSE Console、官方后端接线和部署门禁已实现；
 已确认采用双层 schema 合同，真实 runtime 兼容性测试通过。生产 release 接纳与现场验收仍独立执行。
-最新生产证据与限制见 [12-production-readiness.md](12-production-readiness.md)，
+当前 0.154.0 Console 实现与验证见 [13-console-acceptance.md](13-console-acceptance.md)；历史生产证据见 [12-production-readiness.md](12-production-readiness.md)，
 兼容性实施记录见 [11-stage0-implementation.md](11-stage0-implementation.md)。
 
 本目录定义一版直接使用 Codex `app-server` 的 Galatea Agent 应用。它把
@@ -18,7 +18,7 @@ MCP Transport、不改造 Codex agent loop，也不依赖 CubeFS。
   transport-neutral 业务入口；
 - 本地 Codex 源码中的 namespace/function schema、`item/tool/call` 参数和
   `DynamicToolCallResponse` 与本文主链路一致；
-- 实际安装的 `codex-cli 0.153.4` 在临时 `CODEX_HOME` 中完成了
+- 历史目标 `codex-cli 0.153.4` 在临时 `CODEX_HOME` 中完成了
   `initialize → initialized → thread/start(dynamicTools)` smoke；
 - 未声明 `initialize.capabilities.experimentalApi=true` 时，runtime 明确拒绝请求并返回
   `thread/start.dynamicTools requires experimentalApi capability`。
@@ -26,14 +26,14 @@ MCP Transport、不改造 Codex agent loop，也不依赖 CubeFS。
 发布必须持续满足以下六项条件（实现已加入相应校验；现场证据不能由单元测试替代）：
 
 1. 目标发布 runtime 必须锁定版本、二进制/资源/schema 摘要并重跑真实 dynamic tool round-trip；
-   当前安装版是 `0.153.4`，不能套用旧样例中的 `0.154.0`。
+   本次由用户指定 `0.154.0`，已重新导出 schema 和更新兼容性合同。旧版接纳不能复用。
 2. 必须从实际模型请求证明有效工具面只含当前 principal 批准的 Galatea 动态工具。17 个工具是
    Registry 的支持全集，session 可见清单可以是其子集；dynamicTools 是附加项，不会自动移除 Codex
    内建 shell、文件、网络、MCP、plugin 或协作工具。若目标 runtime 无法在不改 Core 的前提下得到
    精确 allowlist，本方案失败关闭。
 3. 内化适配器必须承接现有 MCP server 的 envelope/256 KiB 限制、异常归约和
    `Service.reconcile_all` 后台对账；只调用 `Service.call` 不构成完整迁移。
-4. HTTP/SSE 实现依赖、同源鉴权、CSRF/Origin 防护及断电恢复需在阶段 0 冻结。生产不能把
+4. HTTP/SSE 实现依赖、受信网络访问边界、CSRF/Origin 防护及断电恢复需在阶段 0 冻结。生产不能把
    loopback、Python 标准库样例或本地 fake 当成并发、背压和持久化验收。
 5. 必须冻结 Codex 的所有有效配置来源和恢复语义。仅设置 `CODEX_HOME` 不能排除系统配置、工作目录
    与受信项目配置；`thread/resume` 后的实际工具面也必须在目标 runtime 上重新取证。
@@ -51,7 +51,7 @@ MCP Transport、不改造 Codex agent loop，也不依赖 CubeFS。
   principal action allowlist 与这 17 个工具的交集。
 - `CODEX_HOME` 固定为应用配置目录下的 `codex-home/`，同时给子进程设置专用 `HOME` 并审计全部有效
   配置层；不依赖宿主用户默认目录，不使用 CubeFS。
-- Console 与 Agent 宿主同进程，通过本机 HTTP 和 SSE 提供会话、原生事件、工具调用和结果观察。
+- Console 与 Agent 宿主同进程，通过现有 HTTP 和 SSE 提供会话、原生事件、工具调用和结果观察。
 - 首版不增加数据库、消息队列、Redis、MCP 网关、第二个 Agent runtime 或 Python SDK Runner。
 
 ## 文档导航
@@ -69,6 +69,7 @@ MCP Transport、不改造 Codex agent loop，也不依赖 CubeFS。
 | [09-test-acceptance.md](09-test-acceptance.md) | 测试矩阵、验收证据和回退 |
 | [10-source-evidence.md](10-source-evidence.md) | 本地源码、runtime smoke 和设计依据 |
 | [11-stage0-implementation.md](11-stage0-implementation.md) | TDD 实施记录、真实 runtime 证据和未通过门禁 |
+| [13-console-acceptance.md](13-console-acceptance.md) | 当前 0.154.0、内存观察、浏览器和干净安装验收 |
 | [12-production-readiness.md](12-production-readiness.md) | 来源验证、依赖锁、生产候选交付物及切换/回滚步骤 |
 
 ## 总体链路
@@ -78,7 +79,7 @@ MCP Transport、不改造 Codex agent loop，也不依赖 CubeFS。
    │ HTTP / SSE（同一 Agent 进程）
    ▼
 Agent Host
-   ├─ 会话、幂等、状态、事件日志、Console API
+   ├─ 持久化会话/幂等/执行状态、内存观察、Console API
    ├─ Dynamic Tool Registry（17 个支持工具，按 principal 过滤发布）
    ├─ Galatea domain/service/backends（Ray / MLflow / Artifact API）
    └─ stdio JSON-RPC

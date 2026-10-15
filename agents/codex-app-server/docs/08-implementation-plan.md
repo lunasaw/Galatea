@@ -1,5 +1,7 @@
 # 08 实施计划
 
+> 历史记录：本页保留 2026-09-23 阶段的事实和证据；其中 0.153.4、Token、JSONL 与旧部署参数不能用于本次版本。2026-10-15 的 0.154.0 Console 实现及现行验收见 [13-console-acceptance.md](13-console-acceptance.md)，部署以 [06-config-deployment.md](06-config-deployment.md) 为准。
+
 实施决策（2026-09-23）：已按用户确认采用双层 schema 合同。原始 `tools.json` 负责 Host 严格
 参数校验；`runtime-compatibility.json` 冻结真实模型请求的 schema 并绑定 binary/package/protocol
 摘要。下文“模型 schema 一致”指与此兼容性合同逐字段一致，Host 原始约束保持不变。

@@ -10,6 +10,7 @@ import uuid
 from .registry import ToolContext, ToolRegistry
 from jsonschema import Draft202012Validator
 from .state import AtomicJsonStore, identifier, payload_digest, single_writer_lock
+from .console.observer import observation_context
 
 
 class HostNotReady(RuntimeError):
@@ -51,6 +52,7 @@ class AgentHost:
         self._reconciler_last_success = time.monotonic()
 
     async def start(self):
+        await self.events.start()
         self._writer = single_writer_lock(self.store.root / '.host.lock')
         self._writer.__enter__()
         try:
@@ -62,6 +64,7 @@ class AgentHost:
                 self.client = await self.client
             # A persisted active turn is an observation problem, never a new submission.
             for session in self.list_sessions():
+                self.events.bind(session['id'], session['thread_id'])
                 if session['status'] != 'closed':
                     session['status'] = 'recovery_required'
                     self._save(session)
@@ -149,11 +152,13 @@ class AgentHost:
             if self.store.read(intent):
                 raise HostNotReady('thread creation outcome unknown')
             self.store.write(intent, {'id': session_id, 'status': 'intent_recorded'})
-            result = await self.client.start_thread(cwd=str(self.workspace_dir), dynamic_tools=self.registry.dynamic_tools(self.actions))
+            with observation_context(session_id=session_id):
+                result = await self.client.start_thread(cwd=str(self.workspace_dir), dynamic_tools=self.registry.dynamic_tools(self.actions))
             session = {'id': session_id, 'thread_id': result['thread']['id'], 'principal_id': self.principal_id,
                        'status': 'ready', **self.bindings, 'active_turn_id': None, 'active_request_id': None}
             self._save(session)
             self._attached.add(session_id)
+            self.events.bind(session_id, session['thread_id'])
             self.events.append(session_id, {'kind': 'session', 'public': {'status': 'ready'}})
             return dict(session)
 
@@ -184,8 +189,11 @@ class AgentHost:
             session.update(status='starting', active_request_id=request_id, active_turn_id=None)
             self._save(session)
             self._active_turns += 1
+            self.events.append(session_id, {'kind': 'message_accepted', 'thread_id': session['thread_id'],
+                               'host_request_id': request_id, 'public': {'text': text}})
             try:
-                result = await self.client.start_turn(session['thread_id'], text)
+                with observation_context(session_id=session_id, thread_id=session['thread_id'], host_request_id=request_id):
+                    result = await self.client.start_turn(session['thread_id'], text)
                 turn_id = result['turn']['id']
                 if session.get('active_turn_id') not in (None, turn_id):
                     raise HostNotReady('native turn mismatch')
@@ -235,7 +243,7 @@ class AgentHost:
             if schema and Draft202012Validator(schema).is_valid(arguments):
                 public_args = {key: arguments[key] for key in metadata.get('public_fields', []) if key in arguments}
             started = time.monotonic()
-            self.events.append(session['id'], {'kind': 'tool_call', 'turn_id': params['turnId'],
+            self.events.append(session['id'], {'kind': 'tool_call', 'thread_id': session['thread_id'], 'turn_id': params['turnId'],
                                'public': {'tool': name, 'call_id': call_id, 'status': 'executing',
                                           'arguments': public_args, 'read_only': metadata.get('read_only')}})
             worker = asyncio.create_task(asyncio.to_thread(self.registry.call, context, params.get('tool', ''), params.get('arguments', {})))
@@ -251,7 +259,7 @@ class AgentHost:
             if envelope.get('error', {}).get('state_changed') == 'unknown':
                 session['status'] = 'recovery_required'
                 self._save(session)
-            self.events.append(session['id'], {'kind': 'tool_result', 'turn_id': params['turnId'],
+            self.events.append(session['id'], {'kind': 'tool_result', 'thread_id': session['thread_id'], 'turn_id': params['turnId'],
                 'public': {'tool': params.get('tool'), 'call_id': call_id, 'ok': envelope['ok'],
                            'elapsed_ms': round((time.monotonic() - started) * 1000),
                            'read_only': metadata.get('read_only'), 'arguments': public_args,
@@ -285,11 +293,7 @@ class AgentHost:
             self._cancels.pop(session['id'], None)
         elif method not in {'item/started', 'item/completed', 'item/agentMessage/delta', 'thread/tokenUsage/updated'}:
             return
-        # Native item content can contain prompts, reasoning, samples, or logs.
-        # Console projects only lifecycle metadata; full rollout stays in CODEX_HOME.
-        item = params.get('item', {})
-        self.events.append(session['id'], {'kind': 'native', 'turn_id': turn_id, 'item_id': params.get('itemId', item.get('id')),
-            'public': {'method': method, 'status': turn.get('status'), 'item_type': item.get('type')}})
+        # Full native messages are captured once at the RPC boundary.
 
     async def runtime_failed(self, exc):
         self.ready = False

@@ -8,7 +8,7 @@
 | Dynamic Tool catalog | Host config | 从 17 个支持工具中只公布当前 principal 允许的子集 |
 | Galatea principal | Host config | project/campaign/action scope |
 | Campaign/Evidence | Galatea service | 预算、数据身份、质量门禁、候选证据 |
-| HTTP Console | Host | 只提供本机输入/观察，不授予后端权限 |
+| HTTP Console | Host | 提供受信网络的输入/观察，不授予后端权限 |
 
 模型输出、Skill 文本和 Console 请求都不能改变后两层。`experimental_only`、
 `promotable=false`、缺失批准或未通过质量门禁必须继续由 Galatea service 拒绝。
@@ -27,11 +27,8 @@
 
 ## 3. 数据保护
 
-- 事件和 Console 采用最小公开字段；`public_detail` 是单向投影，不允许浏览器传回投影来
-  重建后端调用。
-- HTTP 写接口和 SSE 订阅必须通过受审查的本机身份验证；loopback 仅限制网络来源，不是授权。
-  Cookie 模式必须做 Origin/Referer 与 CSRF 校验；bearer/capability 模式禁止通过 URL query 传递
-  token。健康端点只公开存活/就绪布尔状态和非敏感原因。
+- Console 保留完整的公开协议正文，在入库前移除凭据、私有推理/指令、测试内容及原始日志等受限数据，标注脱敏路径和原因。工具错误仍沿用既有 Registry 公开性边界。
+- Console 按已确认需求无 Token 鉴权，默认监听 `0.0.0.0:18880`。部署必须用 ACL/防火墙限制可信来源；所有客户端共享 Host principal。同源 POST 检查和关闭 CORS 防止跨站写入，不提供访问者身份验证。
 - 子进程环境白名单不等于 OS 进程隔离。同一 UID 下只承诺“凭据不被直接继承或进入模型上下文”；
   若威胁模型要求 app-server 无法读取 Host backend secrets，必须使用独立身份/容器或 credential
   broker，并以权限测试证明，不能只检查 `env` 输出。
@@ -51,8 +48,9 @@
 - Tool call 结果或 backend operation 状态 unknown；
 - principal、Campaign、Evidence 或 artifact 归属不明确；
 - 后端不可达且可能已产生副作用；
-- SSE/Console 写失败（不影响业务执行，但标记 observation gap）。
 - reconciler 未运行、首次 reconcile 失败或 freshness 超时；
+
+Console 采集/关联/投影异常标记观察不完整，存储提交失败保留批次等待同 ID 重试；SSE 失败只关闭当前连接。它们不改变执行就绪、不伪造恢复结果、不触发副作用重试。
 
 ## 5. 明确禁止
 

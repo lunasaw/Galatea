@@ -17,7 +17,7 @@ from codex_agent.stage0 import GateError
 class ReleaseGateTests(unittest.TestCase):
     def raw(self):
         return {'schema_version':'codex-agent/v1', 'paths':{
-            'codex_home':'codex-home','runtime_dir':'runtime','state_dir':'state','event_dir':'events',
+            'codex_home':'codex-home','runtime_dir':'runtime','state_dir':'state',
             'workspace_dir':'workspace','contracts':str(ROOT / 'config/contracts/tools.json'),
             'catalog_metadata':str(ROOT / 'config/contracts/catalog-metadata.json')},
             'codex':{'binary':'runtime/bin/codex','runtime_version':'codex-cli 0.153.4'},
@@ -29,7 +29,7 @@ class ReleaseGateTests(unittest.TestCase):
             config.write_text(json.dumps(self.raw()))
             with patch('codex_agent.platform.build_service') as factory:
                 with self.assertRaises((GateError, ValueError)):
-                    main(['--config',str(config),'serve','--token-file',str(config)])
+                    main(['--config',str(config),'serve'])
                 factory.assert_not_called()
 
     def test_production_cli_rejects_alternate_unmeasured_service_factory(self):

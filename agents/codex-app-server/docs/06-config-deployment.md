@@ -5,10 +5,10 @@
 CLI 使用 `--config /absolute/path/agent.json`，JSON 模板见
 [agent.example.json](../config/agent.example.json)。相对路径以该文件所在目录解析；拒绝未知字段、
 路径穿越、symlink、无效 principal 和越界并发配置。`CODEX_HOME` 固定为配置目录内的
-`codex-home/`，Host 状态、事件与工作区也置于该受控目录。
+`codex-home/`，Host 执行状态与工作区也置于该受控目录。
 
 将 [codex.example.toml](../config/codex.example.toml) 审查后复制到 `codex-home/config.toml`，
-填写批准的模型。模板按实测 0.153.4 禁用 shell、文件、web、MCP、plugin、协作及 Skills 等非本版
+填写批准的模型。模板按目标 0.154.0 禁用 shell、文件、web、MCP、plugin、协作及 Skills 等非本版
 批准的工具能力。模型和工具面仍需实际请求验收；以后增加 Skill 能力需显式版本化合同与重新接纳。
 
 Galatea 的 `registry_path`、`state_root`、`platform` 使用
@@ -17,8 +17,7 @@ Galatea 的 `registry_path`、`state_root`、`platform` 使用
 principal 必须与 Host 配置完全相等，不能由模型或 Console 扩大。
 
 Host 子进程环境只含固定 `/usr/bin:/bin` PATH、locale、受控 HOME/CODEX_HOME，以及显式配置的
-`model_api_key_file`。不继承宿主 OPENAI_API_KEY 或任何 backend token。模型 key 和 Console token
-须是受保护的普通文件（0600），不进入事件、请求记录和模型工具参数。
+`model_api_key_file`。不继承宿主 OPENAI_API_KEY 或任何 backend token。模型 key 须是受保护的普通文件（0600），不进入事件、请求记录和模型工具参数。
 
 当前部署威胁模型防止模型通过工具面或环境继承意外接触后端凭据；**同 UID 不提供被攻破 runtime
 与 Host 之间的强秘密隔离**。有强隔离要求的环境必须提供独立 UID/容器或 credential broker 的
@@ -56,14 +55,13 @@ codex-agent --config /var/lib/galatea-agent/agent.json inspect-runtime
 
 `checks` 不能仅包含这个示例项，必须覆盖 `stage0.REQUIRED_CHECKS` 的所有项目：来源、包、协议、
 catalog、配置、opt-in 正负测试、full/subset 新建和恢复工具面、成功/错误回执、崩溃窗口、
-reconciler freshness、HTTP 鉴权/CSRF 和秘密边界。证据相对路径不能逃逸目录，每份文件验证摘要。
+reconciler freshness、HTTP 来源/CSRF 与网络访问边界，以及秘密边界。证据相对路径不能逃逸目录，每份文件验证摘要。
 证据索引由部署管理员保护；代码验证完整性与绑定，不声称鉴别证据生产者真实性。
 
 模型 wire schema 固定在 `contracts/runtime-compatibility.json`，不能在验收时自动重新生成。
-当前 0.153.4 已通过 npm registry 签名和 Sigstore/SLSA 验证，完整资源包与发布 artifact 相同，
-已核验来源为 `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`，不是设计时的参考 checkout。
-收集工具为 `scripts/verify_runtime_provenance.py`；具体证据见
-[生产接纳记录](12-production-readiness.md)。启动门禁还要求 release 文件及其祖先、runtime
+本次采用用户指定的参考项目 Codex 0.154.0，协议和模型工具面已在模拟模型端点实测，
+详见 [Console 验收记录](13-console-acceptance.md)。旧 0.153.4 的来源证据不能用于新包。
+生产仍须核验 0.154.0 的来源、最终模型配置与完整 release 证据。启动门禁还要求 release 文件及其祖先、runtime
 和 contracts 资源树由管理员持有且不可被其他身份修改。来源验证不代替最终配置接纳。
 
 ## 启动与 HTTP
@@ -71,8 +69,7 @@ reconciler freshness、HTTP 鉴权/CSRF 和秘密边界。证据相对路径不�
 ```bash
 codex-agent --config /var/lib/galatea-agent/agent.json check
 codex-agent --config /var/lib/galatea-agent/agent.json preflight --artifact-index
-codex-agent --config /var/lib/galatea-agent/agent.json serve \
-  --token-file /etc/galatea-agent/console-token
+codex-agent --config /var/lib/galatea-agent/agent.json serve
 ```
 
 `check` 核对已接纳 release；`preflight` 独立检查真实 Ray head identity、MLflow experiment 和
@@ -86,13 +83,29 @@ release、首次 reconcile、初始化 runtime、比较有效配置与来源；�
 每次新建、发送和恢复还会再次核对有效配置。reconciler 退出/超过 60 秒不成功，或 RPC 退出，
 readiness 都失败。
 
-Console 仅允许 loopback，默认端口 18880。静态登录页和 `/health/live` 可匿名访问；API、SSE、
-`/health/ready` 必须 Bearer，写请求还必须匹配配置的 Origin。每个写请求使用
-`Idempotency-Key`（消息也支持相同的 `request_id`）；令牌永不放 URL。
-请求体上限 1 MiB，消息上限 256 KiB；SSE 默认 32 个连接，读取最多 256 条一批、发送超时 10 秒，
-支持 Last-Event-ID、heartbeat、断线重连。HTTP 并发由 uvicorn 限制为 64。
+Console 无应用层鉴权，默认 `0.0.0.0:18880`，配置如下；CLI `serve --host/--port` 可覆盖监听。
+在非回环地址启动前必须设置可信内网 ACL/防火墙。所有访问者共享配置 principal，平台权限校验仍有效。
+本阶段不配置网络规则或隧道。POST 校验同源 Origin/Fetch Metadata，关闭 CORS；不使用 cookie 或访问令牌。
 
-HTTP 实现采用 uvicorn ASGI HTTP/lifespan，未使用 WebSocket。生产候选在独立 Python 3.12.12
+```json
+"console": {
+  "host": "0.0.0.0",
+  "port": 18880,
+  "storage": {"backend": "memory", "retention": "process_lifetime"}
+}
+```
+
+删除旧 `paths.event_dir`、`console.token_file`、`console.allowed_origins`，以及 CLI/unit 的
+`--token-file`。旧字段会返回迁移错误，不能静默忽略；backend=redis 或其他 retention 也会拒绝。
+旧 JSONL 可以归档，但服务不会导入；Console 重启清空历史，Host/HTTP/工具执行记录仍保留。
+release 证据名 `http_auth_csrf` 为兼容既有证据索引保留，当前必须重新提交无 Token、同源拒绝、
+网络来源限制的证据；旧证据不能在配置/Runtime 摘要变化后自动复用。
+
+请求体上限 1 MiB，消息上限 256 KiB；SSE 默认最多 32 个连接，查询分页最大 1000 条（默认 200），
+发送超时 10 秒。支持 Last-Event-ID、状态心跳和断线重连，HTTP 并发由 uvicorn 限制为 64。
+内存不做 TTL、淘汰或采样；长时间进程的 RSS 会随历史增长，应监测容量，不能悄悄丢弃事件。
+
+HTTP 实现采用 uvicorn ASGI HTTP/lifespan，未使用 WebSocket。此前生产候选在独立 Python 3.12.12
 环境实测 uvicorn 0.35.0、jsonschema 4.25.1、httpx 0.28.1，符合 Galatea 声明的固定依赖。
 [完整依赖锁](../deploy/requirements-linux-x86_64-py312.lock) 固定全部传递依赖和 distribution
 哈希，仅用于 Linux x86_64/CPython 3.12。安装说明及离线 wheelhouse 见生产接纳记录；不要以
@@ -110,8 +123,9 @@ systemd-analyze verify agents/codex-app-server/deploy/galatea-codex-agent.servic
 `render-unit` 按实际配置生成允许写入的状态目录、只读 Codex 配置、Python 导入环境防护和
 可选 `Conflicts=galatea-mcp.service`。配置根目录、runtime、contracts、release 和已安装代码
 应由 root 持有，业务身份只拥有明确的状态子目录。生产 CLI 不允许替换业务 service factory。
-当前候选 unit 使用实际 staging 可执行路径的 `systemd-analyze verify` 已通过；`/opt` 下的
-最终路径尚未安装，不能把静态验证描述为服务已经运行。父进程退出后的 helper 清理和真实进程
+本次渲染的候选 unit 使用干净安装虚拟环境的可执行路径，通过了 `systemd-analyze verify`，
+日志见 `outputs/console-20261015/systemd-verify.log`。服务用户和 `/opt` 下的最终路径尚未安装，
+不能把静态验证描述为服务已经运行。父进程退出后的 helper 清理和真实进程
 崩溃窗口已有测试。
 
 停机先停止 admission、取消 reconcile/工具请求、关闭原生 RPC/process group，再等已运行的 backend

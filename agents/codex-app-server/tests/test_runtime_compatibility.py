@@ -24,7 +24,7 @@ class RuntimeCompatibilityTests(unittest.TestCase):
 
     def test_new_continuation_and_resume_match_approved_wire_schema(self):
         for name, actions in (("full", {"*"}), ("subset", {"galatea_get_capabilities"})):
-            requests = json.loads((ROOT / f"tests/fixtures/codex-0.153.4/{name}-tool-surfaces.json").read_text())
+            requests = json.loads((ROOT / f"tests/fixtures/codex-0.154.0/{name}-tool-surfaces.json").read_text())
             for index, request in enumerate(requests):
                 with self.subTest(principal=name, request=index):
                     self.profile.assert_request(request, actions)

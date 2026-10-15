@@ -18,6 +18,7 @@ from codex_agent.host import AgentHost
 from codex_agent.process import ManagedProcess
 from codex_agent.registry import ToolRegistry
 from codex_agent.state import AtomicJsonStore, OperationJournal
+from codex_agent.console.models import EventQuery, SnapshotQuery
 
 
 @unittest.skipUnless(os.environ.get('GALATEA_TEST_RUNTIME_PACKAGE'), 'real runtime opt-in required')
@@ -29,20 +30,20 @@ class RealHostTests(unittest.IsolatedAsyncioTestCase):
             (root / 'codex-home').mkdir()
             (root / 'codex-home/config.toml').write_text(mock_config(model.server.server_port))
             config = AgentConfig.from_dict({'schema_version': 'codex-agent/v1', 'paths': {
-                'codex_home': 'codex-home', 'runtime_dir': str(package), 'state_dir': 'state', 'event_dir': 'events',
+                'codex_home': 'codex-home', 'runtime_dir': str(package), 'state_dir': 'state',
                 'workspace_dir': 'workspace', 'contracts': str(ROOT / 'config/contracts/tools.json'),
                 'catalog_metadata': str(ROOT / 'config/contracts/catalog-metadata.json')},
-                'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.153.4'},
+                'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.154.0'},
                 'galatea': {'principal': {'principal_id': 'p', 'actions': ['galatea_get_capabilities']}}}, root)
             catalog = Catalog.load(config.contracts.parent)
             compatibility = RuntimeContract.load(config.contracts.parent / 'runtime-compatibility.json', catalog)
-            store, events, calls = AtomicJsonStore(config.state_dir), EventLog(config.event_dir), []
+            store, events, calls = AtomicJsonStore(config.state_dir), EventLog(), []
             def handler(context, args):
                 calls.append(context.call_id)
                 return {'protocol_version': 'galatea.tools/v1'}
             registry = ToolRegistry(catalog, OperationJournal(store), {name: handler for name in catalog.schemas})
             def build():
-                process = ManagedProcess(config)
+                process = ManagedProcess(config, observer=events.observer, diagnostic=events.diagnostic)
                 async def start():
                     return await process.start(host.handle_tool_call, notification=host.handle_notification, on_failure=host.runtime_failed)
                 host = AgentHost(registry=registry, event_log=events, store=store, client_factory=start,
@@ -66,6 +67,15 @@ class RealHostTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(store.read('requests/request-1.json')['status'], 'completed')
                 self.assertEqual(len(model.requests), 2)
                 self.assertIn('galatea.tools/v1', str(model.requests[1]['input']))
+                await events.flush()
+                native = (await events.read_events(EventQuery(limit=1000)))['events']
+                self.assertTrue(any(row['method'] == 'initialize' for row in native))
+                self.assertTrue(any(row['method'] == 'item/tool/call' for row in native))
+                first_runtime = (await events.status())['runtime_instance_id']
+                trace = await events.snapshot(SnapshotQuery('real'))
+                self.assertEqual(len([step for step in trace['steps'] if step['type'] == 'tool']), 1)
+                self.assertEqual(len([message for message in trace['messages'] if message['role'] == 'user']), 1)
+                self.assertTrue(any(message['role'] == 'assistant' and message['text'] for message in trace['messages']))
             finally:
                 await host.stop()
             host = build()
@@ -79,5 +89,9 @@ class RealHostTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(calls), 1)
                 for request in model.requests:
                     compatibility.assert_request(request, {'galatea_get_capabilities'})
+                await events.flush()
+                self.assertNotEqual((await events.status())['runtime_instance_id'], first_runtime)
+                self.assertEqual((await events.status())['observation']['status'], 'ready')
             finally:
                 await host.stop()
+                await events.close()

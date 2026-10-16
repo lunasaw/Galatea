@@ -9,7 +9,7 @@ class ConsoleStreamTests(unittest.IsolatedAsyncioTestCase):
     asyncTearDown = console.ConsoleTests.asyncTearDown
 
     async def test_single_large_body_is_rejected(self):
-        sent = await console.call(self.app, 'POST', '/api/sessions/s/messages', {'request_id': 'r', 'text': 'x' * (1024*1024)})
+        sent = await console.call(self.app, 'POST', '/api/sessions/s/messages', {'request_id': 'r', 'text': 'x' * (16*1024*1024)})
         self.assertEqual(sent[0]['status'], 413)
         self.assertFalse(self.host.messages)
 

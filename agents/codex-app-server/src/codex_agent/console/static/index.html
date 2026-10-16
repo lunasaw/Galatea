@@ -1,25 +1,16 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Galatea · 训练 Agent</title><link rel="stylesheet" href="/style.css">
-<script src="/transport.js" defer></script><script src="/app.js" defer></script></head>
-<body>
-<header><div class="brand"><span class="mark">G</span><div><strong>Galatea</strong><span>训练 Agent · 聊天与追踪台</span></div></div><span id="health" role="status">正在连接</span></header>
-<div id="reset" role="status" hidden></div>
-<main>
-<aside><div class="aside-heading"><span>会话</span><button id="new">新建会话</button></div><ul id="sessions"></ul>
-<div class="aside-note">所有访问者使用 Host 配置的同一执行身份。仅限可信内网访问。</div>
-<button id="global">运行实例事件</button></aside>
-<section class="workspace">
-<div class="session-heading"><div><span class="eyebrow">WORKSPACE</span><h1 id="session-title">选择或新建会话</h1></div>
-<nav class="actions"><button id="resume" disabled>核对并恢复</button><button id="interrupt" disabled>中断</button><button id="close" disabled>关闭会话</button></nav></div>
-<nav class="tabs" aria-label="视图"><button data-tab="chat" aria-selected="true">对话</button><button data-tab="loop">执行流程</button><button data-tab="native">原生事件</button></nav>
-<div id="chat" class="pane"><div class="page-tools"><button id="older-messages" disabled>更早消息</button><button id="latest-messages" disabled>返回最新</button><span id="history-note">本次启动暂无历史事件</span></div><div id="messages" aria-live="polite"><p class="empty">从一条消息开始，查看回复和训练工具的执行过程。</p></div></div>
-<div id="loop" class="pane" hidden><div class="page-tools"><button id="older-steps" disabled>更早步骤</button><button id="latest-steps" disabled>返回最新</button></div><div id="turns"></div><div id="steps"></div></div>
-<div id="native" class="pane" hidden><form id="event-filter" class="filters"><label>方法<input id="method" placeholder="精确匹配 method"></label><label>方向<select id="direction"><option value="">全部</option><option value="host_to_runtime">Host → Codex</option><option value="runtime_to_host">Codex → Host</option></select></label><label>类型<select id="kind"><option value="">全部</option><option>request</option><option>response</option><option>notification</option></select></label><button>查询历史</button><button type="button" id="live-events">查看实时</button></form><p id="event-scope">会话协议事件</p><div id="native-events"></div><button id="next-events" disabled>下一页事件</button></div>
-<form id="message"><label for="text">发送给训练 Agent</label><div class="composer"><textarea id="text" rows="3" required placeholder="描述你要完成的任务…"></textarea><button id="send" disabled>发送</button></div></form>
-<p id="error" role="alert"></p>
-<footer>展示已有工具的实际调用与回执；作业状态以最近一次观察为准。本期未接入 Skill，也不提供独立推理入口。</footer>
-<details class="diagnostics"><summary>运行状态与完整性</summary><pre id="diagnostics"></pre><p>事件仅在当前进程存活期间保留，服务重启后清空。协议正文按凭据和私有内容规则脱敏。</p></details>
-</section>
-</main></body></html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Codex</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/transport.js" defer></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>请启用 JavaScript 以使用 Codex 对话。</noscript>
+  </body>
+</html>

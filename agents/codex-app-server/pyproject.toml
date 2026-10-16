@@ -19,4 +19,5 @@ codex-agent = "codex_agent.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"codex_agent" = ["protocol/*.json"]
 "codex_agent.console" = ["static/*.html", "static/*.js", "static/*.css"]

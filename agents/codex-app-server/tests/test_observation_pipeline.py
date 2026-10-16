@@ -130,6 +130,49 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(rows[0]['redactions'])
         self.assertEqual(message['params']['delta'], 'mutated later')
 
+    async def test_public_reasoning_summary_stream_final_identity_and_watermark(self):
+        self.service.bind('s', 't')
+        def wire(method, params):
+            self.wire({'method': method, 'params': {'threadId': 't', 'turnId': 'u', **params}})
+        wire('item/started', {'item': {'id': 'r', 'type': 'reasoning', 'summary': [], 'content': []}})
+        for index, delta in ((0, 'First'), (1, 'Second'), (0, ' paragraph')):
+            wire('item/reasoning/summaryTextDelta', {'itemId': 'r', 'summaryIndex': index, 'delta': delta})
+        wire('item/reasoning/textDelta', {'itemId': 'r', 'contentIndex': 0, 'delta': 'hidden thought'})
+        await self.rows()
+        live = await self.service.snapshot(SnapshotQuery('s'))
+        self.assertEqual(len(live['steps']), 1)
+        reasoning = live['steps'][0]
+        self.assertEqual(reasoning['summary_0'], 'First paragraph')
+        self.assertEqual(reasoning['summary_1'], 'Second')
+        self.assertEqual(reasoning['status'], 'inProgress')
+        self.assertTrue(reasoning['started_at'])
+        self.assertNotIn('hidden thought', json.dumps(live))
+        wire('item/completed', {'item': {'id': 'r', 'type': 'reasoning',
+             'summary': ['Final paragraph', 'Second'], 'content': ['hidden final']}})
+        await self.rows()
+        final = await self.service.snapshot(SnapshotQuery('s'))
+        self.assertEqual(len(final['steps']), 1)
+        self.assertEqual(final['steps'][0]['id'], reasoning['id'])
+        self.assertEqual(final['steps'][0]['detail']['summary'], ['Final paragraph', 'Second'])
+        self.assertEqual(final['steps'][0]['status'], 'completed')
+        self.assertTrue(final['steps'][0]['completed_at'])
+        self.assertNotIn('hidden final', json.dumps(final))
+        replay = await self.service.snapshot(SnapshotQuery('s', until=live['watermark']))
+        self.assertEqual(replay['steps'], live['steps'])
+
+    async def test_reasoning_delta_without_start_and_completed_only_summary(self):
+        self.service.bind('s', 't')
+        self.wire({'method': 'item/reasoning/summaryTextDelta', 'params': {
+            'threadId': 't', 'turnId': 'u', 'itemId': 'r', 'summaryIndex': 0, 'delta': 'Public'}})
+        self.wire({'method': 'item/completed', 'params': {
+            'threadId': 't', 'turnId': 'v', 'item': {'id': 'r', 'type': 'reasoning', 'summary': ['Final only']}}})
+        await self.rows()
+        rows = (await self.service.snapshot(SnapshotQuery('s')))['steps']
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]['summary_0'], 'Public')
+        self.assertNotIn('started_at', rows[0])
+        self.assertEqual(rows[1]['detail']['summary'], ['Final only'])
+
     async def test_native_item_identity_is_scoped_to_thread_and_turn(self):
         self.service.bind('s', 't')
         for turn in ('first', 'second'):

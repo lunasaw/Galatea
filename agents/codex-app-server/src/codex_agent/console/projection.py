@@ -23,6 +23,8 @@ def redact(value, *, method=None):
                 reason = None
                 if SECRET.search(key):
                     reason = 'credential'
+                elif method == 'item/tool/requestUserInput' and key == 'answers':
+                    reason = 'user_input'
                 elif normalized in PRIVATE or normalized.rstrip('s') in PRIVATE:
                     reason = 'private_content'
                 elif item.get('role') in {'system', 'developer'} and key in {'content', 'text'}:
@@ -74,8 +76,23 @@ class Projector:
                            'set': values or {}, 'append': append or {}, 'remove': remove})
         common = {'turn_id': turn, 'thread_id': thread, 'source_event_id': event['event_id']}
         message_key = f'message:{thread}:{turn}:{item_id}'
+        if kind == 'thread_restored':
+            # Native rollout is the durable conversation authority. Reset only
+            # this chat's projection, leaving the event audit log intact.
+            for view in ('messages', 'steps', 'turns'):
+                change(view, '__reset__', {'reset_view': True})
+            for native_turn in public.get('thread', {}).get('turns', []):
+                tid = native_turn['id']
+                change('turns', tid, {**common, 'turn_id': tid, 'status': native_turn.get('status')})
+                for native_item in native_turn.get('items', []):
+                    restored = {**event, 'kind': 'notification', 'method': 'item/completed', 'turn_id': tid,
+                                'host_request_id': None, 'item_id': native_item['id'],
+                                'payload': {'params': {'item': native_item}}}
+                    output.extend(self.changes(restored))
+            return output
         if kind == 'message_accepted' and request:
-            change('messages', 'request:' + request, {**common, 'role': 'user', 'text': public.get('text', ''), 'request_id': request})
+            change('messages', 'request:' + request, {**common, 'role': 'user', 'text': public.get('text', ''),
+                                                     'content': public.get('content'), 'request_id': request})
         if method == 'turn/start' and kind == 'response' and turn and request:
             change('messages', 'request:' + request, {**common, 'request_id': request})
             for key in self.user_items.pop((thread, turn), []):
@@ -89,9 +106,14 @@ class Projector:
             elif item_type == 'userMessage':
                 key = 'request:' + request if request else message_key
                 text = '\n'.join(c.get('text', '') for c in item.get('content', []) if isinstance(c, dict) and c.get('type') == 'text')
-                change('messages', key, {**common, 'role': 'user', 'item_id': item_id, 'text': text})
+                change('messages', key, {**common, 'role': 'user', 'item_id': item_id, 'text': text, 'content': item.get('content')})
                 if not request:
                     self.user_items.setdefault((thread, turn), []).append(key)
+            elif item_type == 'reasoning':
+                values = {**common, 'type': 'reasoning', 'item_id': item_id, 'detail': item,
+                          'status': 'completed' if method == 'item/completed' else 'inProgress'}
+                values['completed_at' if method == 'item/completed' else 'started_at'] = event['observed_at']
+                change('steps', f'item:{thread}:{turn}:{item_id}', values)
             elif item_type != 'dynamicToolCall':
                 change('steps', f'item:{thread}:{turn}:{item_id}', {**common, 'type': item_type, 'detail': item,
                        'status': item.get('status', 'completed' if method == 'item/completed' else 'inProgress')})
@@ -122,11 +144,23 @@ class Projector:
             change('turns', turn, {**common, 'status': params.get('turn', {}).get('status', 'unknown'), 'detail': params.get('turn')})
         if method == 'thread/tokenUsage/updated':
             change('turns', turn or 'thread:' + str(thread), {**common, 'usage': params.get('tokenUsage')})
-        if method in {'turn/plan/updated', 'item/reasoning/summaryTextDelta', 'item/plan/delta', 'warning', 'error'}:
+        if method == 'item/reasoning/summaryTextDelta' and item_id:
+            # A summary has independently streamed paragraphs. Reuse the native
+            # item identity so the completed summary replaces, rather than
+            # duplicates, the live preview. Private textDelta is never projected.
+            index = params.get('summaryIndex', 0)
+            delta = params.get('delta')
+            if isinstance(index, int) and index >= 0 and isinstance(delta, str):
+                change('steps', f'item:{thread}:{turn}:{item_id}',
+                       {**common, 'type': 'reasoning', 'item_id': item_id},
+                       {f'summary_{index}': delta})
+        if method in {'turn/plan/updated', 'item/plan/delta', 'warning', 'error'}:
             key = f'{method}:{turn}:{item_id}'
             values = {**common, 'type': method, 'detail': params}
             change('steps', key, values, {'text': params['delta']} if isinstance(params.get('delta'), str) else None)
+        if method in {'item/commandExecution/outputDelta', 'item/fileChange/outputDelta'} and item_id:
+            change('steps', f'item:{thread}:{turn}:{item_id}', {**common}, {'text': params.get('delta', '')})
         if kind == 'request' and method != 'item/tool/call':
             change('steps', 'request:' + event['event_id'], {**common, 'type': 'request', 'method': method,
-                   'detail': payload, 'interactive': False})
+                   'detail': payload, 'interactive': event.get('direction') == 'runtime_to_host'})
         return output

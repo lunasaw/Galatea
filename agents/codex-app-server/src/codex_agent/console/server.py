@@ -12,6 +12,9 @@ from .service import CAPABILITIES
 
 from ..host import HostNotReady
 from ..state import identifier, payload_digest
+from ..native import PROTOCOL
+from ..rpc import RpcError
+from .projection import redact
 
 
 class BodyTooLarge(ValueError):
@@ -26,6 +29,7 @@ class ConsoleApp:
         self.max_streams, self._streams = max_streams, 0
         self._writes = asyncio.Lock()
         self._stopping = False
+        self._native_locks = {}
 
     @staticmethod
     async def _body(receive):
@@ -36,7 +40,7 @@ class ConsoleApp:
                 raise ValueError('request disconnected')
             chunk = message.get('body', b'')
             size += len(chunk)
-            if size > 1024 * 1024:
+            if size > 16 * 1024 * 1024:
                 raise BodyTooLarge('request body too large')
             chunks.append(chunk)
             if not message.get('more_body'):
@@ -52,7 +56,7 @@ class ConsoleApp:
         await send({'type': 'http.response.start', 'status': status,
                     'headers': [(b'content-type', content_type.encode()), (b'cache-control', b'no-store'),
                                 (b'x-content-type-options', b'nosniff'),
-                                (b'content-security-policy', b"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'")]})
+                                (b'content-security-policy', b"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https:; media-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'")]})
         await send({'type': 'http.response.body', 'body': body})
 
     async def _lifespan(self, receive, send):
@@ -188,6 +192,37 @@ class ConsoleApp:
             self.host.store.write(record_path, {'digest': digest, 'status': 'receipt_saved', 'result': result})
             return result
 
+    async def _native_write(self, body, headers):
+        key = identifier(headers.get('idempotency-key', ''))
+        digest = payload_digest(body)
+        lock = self._native_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            path = f'native-requests/{key}.json'
+            previous = self.host.store.read(path)
+            if previous:
+                if previous['digest'] != digest:
+                    raise ValueError('idempotency conflict')
+                if 'result' in previous:
+                    return previous['result']
+                if 'error' in previous:
+                    raise RpcError(previous['error'])
+                if 'rejected' in previous:
+                    raise ValueError(previous['rejected'])
+                raise HostNotReady('native request outcome unknown; inspect runtime before retrying')
+            # Schema errors must not leave an indeterminate mutation record.
+            PROTOCOL.validate(PROTOCOL.schema(body['method']), body.get('params', {}))
+            self.host.store.write(path, {'digest': digest, 'status': 'intent_recorded'})
+            try:
+                result = await self.host.native.call(body['method'], body.get('params', {}), key)
+            except RpcError as exc:
+                self.host.store.write(path, {'digest': digest, 'error': redact(exc.error)[0]})
+                raise
+            except ValueError as exc:
+                self.host.store.write(path, {'digest': digest, 'rejected': str(exc)})
+                raise
+            self.host.store.write(path, {'digest': digest, 'result': result})
+            return result
+
     async def __call__(self, scope, receive, send):
         if scope.get('type') == 'lifespan':
             return await self._lifespan(receive, send)
@@ -210,8 +245,20 @@ class ConsoleApp:
                 self.host.assert_ready()
                 return await self._send(send, 200, {'ready': True})
             if path == '/api/capabilities' and method == 'GET':
-                return await self._send(send, 200, {**CAPABILITIES, 'catalog_digest': self.host.registry.catalog.digest,
+                return await self._send(send, 200, {**CAPABILITIES, 'storage': (await self.events.status())['storage'], 'catalog_digest': self.host.registry.catalog.digest,
                     'principal_id': self.host.principal_id, 'tools': self.host.registry.dynamic_tools(self.host.actions)})
+            if path == '/api/native/protocol' and method == 'GET':
+                return await self._send(send, 200, {**PROTOCOL.catalog(), 'cwd': str(self.host.workspace_dir),
+                                                   'configuration_editable': bool(self.host.configuration_changed)})
+            if path == '/api/native/requests' and method == 'GET':
+                return await self._send(send, 200, self.host.native.list_pending())
+            if path.startswith('/api/native/requests/') and method == 'POST':
+                body = await self._body(receive)
+                key = identifier(path.rsplit('/', 1)[1])
+                return await self._send(send, 200, self.host.native.respond(key, body.get('result'), body.get('error')))
+            if path == '/api/native/call' and method == 'POST':
+                body = await self._body(receive)
+                return await self._send(send, 200, await self._native_write(body, headers))
             if path == '/api/console/status' and method == 'GET':
                 status = await self.events.status()
                 try:
@@ -234,7 +281,8 @@ class ConsoleApp:
                 if method == 'POST':
                     body = await self._body(receive)
                     async def create(key):
-                        return await self.host.create_session(body.get('session_id') or 'session-' + payload_digest([self.host.principal_id, key]))
+                        kwargs = {'options': body['options']} if body.get('options') else {}
+                        return await self.host.create_session(body.get('session_id') or 'session-' + payload_digest([self.host.principal_id, key]), **kwargs)
                     return await self._send(send, 200, await self._write(path, body, headers, create))
             parts = path.strip('/').split('/')
             if len(parts) in (3, 4, 5) and parts[:2] == ['api', 'sessions']:
@@ -262,7 +310,8 @@ class ConsoleApp:
                         if action == 'messages':
                             if body.get('request_id', key) != key:
                                 raise ValueError('idempotency key mismatch')
-                            return await self.host.send_message(session_id, key, body['text'])
+                            kwargs = {k: body[k] for k in ('input_items', 'options') if k in body}
+                            return await self.host.send_message(session_id, key, body.get('text', ''), **kwargs)
                         fn = {'interrupt': self.host.interrupt, 'close': self.host.close_session, 'resume': self.host.resume}[action]
                         return await fn(session_id)
                     return await self._send(send, 200, await self._write(path, body, headers, invoke))
@@ -271,9 +320,13 @@ class ConsoleApp:
             return await self._send(send, exc.status, {'error': exc.code, 'epoch': self.events.epoch})
         except BodyTooLarge:
             return await self._send(send, 413, {'error': 'body-too-large'})
+        except RpcError as exc:
+            return await self._send(send, 422, {'error': str(exc), 'native_error': redact(exc.error)[0]})
         except HostNotReady:
             return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
-        except (ValueError, KeyError, TimeoutError):
+        except ValueError as exc:
+            return await self._send(send, 409, {'error': str(exc) if path.startswith('/api/native/') else 'invalid-or-conflicting-request'})
+        except (KeyError, TimeoutError):
             return await self._send(send, 409, {'error': 'invalid-or-conflicting-request'})
         except Exception:
             return await self._send(send, 503, {'error': 'state-or-runtime-unavailable'})

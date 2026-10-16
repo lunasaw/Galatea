@@ -59,8 +59,8 @@ class RealHostTests(unittest.IsolatedAsyncioTestCase):
             host = build()
             try:
                 await host.start()
-                config_digest = digest(await host.client.read_config(str(config.workspace_dir)))
                 await host.create_session('real')
+                config_digest = digest(await host.client.read_config(str(config.workspace_dir)))
                 await host.send_message('real', 'request-1', 'Synthetic read-only protocol fixture')
                 await completed(host)
                 self.assertEqual(len(calls), 1)

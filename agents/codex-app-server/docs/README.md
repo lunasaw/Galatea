@@ -1,5 +1,8 @@
 # Galatea Codex App Server Agent
 
+当前网页工作台能力、完整协议入口与验证边界见 [15-native-workspace.md](15-native-workspace.md)。
+以下保留原受限训练 Agent 的设计和发布背景。
+
 状态：Host、Registry、HTTP/SSE Console、官方后端接线和部署门禁已实现；
 已确认采用双层 schema 合同，真实 runtime 兼容性测试通过。生产 release 接纳与现场验收仍独立执行。
 当前 0.154.0 Console 实现与验证见 [13-console-acceptance.md](13-console-acceptance.md)；历史生产证据见 [12-production-readiness.md](12-production-readiness.md)，

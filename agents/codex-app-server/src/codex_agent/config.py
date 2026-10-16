@@ -57,10 +57,11 @@ class AgentConfig:
         storage = console.get('storage', {})
         if not isinstance(storage, dict) or storage.keys() - {'backend', 'retention'}:
             raise ValueError('unknown Console storage field')
-        if storage.get('backend', 'memory') != 'memory':
-            raise ValueError('unsupported Console storage backend; only memory is implemented')
-        if storage.get('retention', 'process_lifetime') != 'process_lifetime':
-            raise ValueError('unsupported Console retention; use process_lifetime')
+        backend = storage.get('backend', 'memory')
+        if backend not in {'memory', 'sqlite'}:
+            raise ValueError('unsupported Console storage backend')
+        if storage.get('retention', 'persistent' if backend == 'sqlite' else 'process_lifetime') != ('persistent' if backend == 'sqlite' else 'process_lifetime'):
+            raise ValueError('Console retention does not match storage backend')
         host, port = console.get('host', '0.0.0.0'), console.get('port', 18880)
         import re
         if not isinstance(host, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]+', host):

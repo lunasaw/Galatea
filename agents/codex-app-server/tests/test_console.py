@@ -105,8 +105,8 @@ class ConsoleTests(unittest.IsolatedAsyncioTestCase):
     async def test_capabilities_and_snapshot_retain_long_text_and_scope(self):
         caps = payload(await call(self.app, 'GET', '/api/capabilities'))
         self.assertEqual(caps['console_role'], 'training_agent_chat_trace')
-        self.assertFalse(caps['skill_integration'])
-        self.assertFalse(caps['interactive_requests'])
+        self.assertTrue(caps['skill_integration'])
+        self.assertTrue(caps['interactive_requests'])
         snapshot = payload(await call(self.app, 'GET', '/api/sessions/s/snapshot'))
         self.assertEqual(snapshot['messages'][0]['text'], 'hello')
         self.assertEqual(snapshot['watermark'], 'epoch:1')

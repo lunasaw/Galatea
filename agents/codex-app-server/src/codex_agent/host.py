@@ -11,6 +11,7 @@ from .registry import ToolContext, ToolRegistry
 from jsonschema import Draft202012Validator
 from .state import AtomicJsonStore, identifier, payload_digest, single_writer_lock
 from .console.observer import observation_context
+from .native import NativeBridge, PROTOCOL
 
 
 class HostNotReady(RuntimeError):
@@ -23,7 +24,8 @@ class AgentHost:
     def __init__(self, *, registry: ToolRegistry, event_log, store: AtomicJsonStore,
                  client_factory, reconciler, principal_id: str, project_ids: set[str],
                  campaign_ids: set[str], actions: set[str], max_active_turns: int = 4,
-                 workspace_dir=None, bindings=None, tool_timeout=60.0, client_stop=None, admission_check=None, startup_check=None):
+                 workspace_dir=None, bindings=None, tool_timeout=60.0, client_stop=None, admission_check=None, startup_check=None,
+                 configuration_changed=None):
         self.registry, self.events, self.store = registry, event_log, store
         self.client_factory, self.reconciler, self.client_stop = client_factory, reconciler, client_stop
         self.principal_id, self.project_ids = principal_id, frozenset(project_ids)
@@ -40,6 +42,8 @@ class AgentHost:
         self._reconciler_last_success = 0.0
         self._reconcile_task, self._writer = None, None
         self._workers = set()
+        self.configuration_changed = configuration_changed
+        self.native = NativeBridge(self)
 
     async def _reconcile(self):
         if inspect.iscoroutinefunction(self.reconciler):
@@ -64,6 +68,10 @@ class AgentHost:
                 self.client = await self.client
             # A persisted active turn is an observation problem, never a new submission.
             for session in self.list_sessions():
+                if (self.configuration_changed and not session.get('active_turn_id') and
+                        all(session.get(key) == self.bindings.get(key) for key in
+                            ('catalog_digest', 'principal_digest', 'runtime_binary_sha256', 'runtime_compatibility_sha256'))):
+                    session.update({key: self.bindings[key] for key in ('effective_config_sha256', 'agent_config_sha256') if key in self.bindings})
                 self.events.bind(session['id'], session['thread_id'])
                 if session['status'] != 'closed':
                     session['status'] = 'recovery_required'
@@ -90,6 +98,7 @@ class AgentHost:
 
     async def stop(self):
         self.ready = False
+        self.native.cancel()
         for cancel in self._cancels.values():
             cancel.set()
         if self._reconcile_task:
@@ -140,7 +149,7 @@ class AgentHost:
                 await self.runtime_failed(None)
                 raise HostNotReady('effective runtime configuration changed')
 
-    async def create_session(self, session_id=None):
+    async def create_session(self, session_id=None, *, options=None):
         self.assert_ready()
         session_id = identifier(session_id or 'session-' + uuid.uuid4().hex)
         async with self._admission:
@@ -152,21 +161,33 @@ class AgentHost:
             if self.store.read(intent):
                 raise HostNotReady('thread creation outcome unknown')
             self.store.write(intent, {'id': session_id, 'status': 'intent_recorded'})
+            settings = {'cwd': str(self.workspace_dir), **(options or {})}
+            PROTOCOL.validate(PROTOCOL.schema('thread/start'), settings)
+            settings.pop('dynamicTools', None)
             with observation_context(session_id=session_id):
-                result = await self.client.start_thread(cwd=str(self.workspace_dir), dynamic_tools=self.registry.dynamic_tools(self.actions))
+                result = await self.client.start_thread(**settings, dynamic_tools=self.registry.dynamic_tools(self.actions))
+            if self.configuration_changed:
+                # Native thread creation records workspace trust in user config.
+                await self.configuration_changed()
             session = {'id': session_id, 'thread_id': result['thread']['id'], 'principal_id': self.principal_id,
-                       'status': 'ready', **self.bindings, 'active_turn_id': None, 'active_request_id': None}
+                       'status': 'ready', **self.bindings, 'active_turn_id': None, 'active_request_id': None,
+                       'settings': settings, 'cwd': result.get('cwd', settings['cwd'])}
             self._save(session)
             self._attached.add(session_id)
             self.events.bind(session_id, session['thread_id'])
             self.events.append(session_id, {'kind': 'session', 'public': {'status': 'ready'}})
             return dict(session)
 
-    async def send_message(self, session_id, request_id, text):
+    async def send_message(self, session_id, request_id, text, *, input_items=None, options=None):
         identifier(request_id)
-        if not isinstance(text, str) or not text.strip() or len(text.encode()) > 256 * 1024:
+        if not isinstance(text, str) or (not text.strip() and not input_items) or len(text.encode()) > 256 * 1024:
             raise ValueError('invalid message')
-        digest = payload_digest({'session_id': session_id, 'text': text})
+        if input_items is not None or options:
+            if options and set(options) & {'threadId', 'input'}:
+                raise ValueError('thread identity and input are managed by Host')
+            PROTOCOL.validate(PROTOCOL.schema('turn/start'), {'threadId': 'validation', **(options or {}), 'input': input_items or
+                              [{'type': 'text', 'text': text, 'text_elements': []}]})
+        digest = payload_digest({'session_id': session_id, 'text': text, 'input': input_items, 'options': options})
         async with self._admission:
             session = self._session(session_id)
             if not session:
@@ -190,10 +211,11 @@ class AgentHost:
             self._save(session)
             self._active_turns += 1
             self.events.append(session_id, {'kind': 'message_accepted', 'thread_id': session['thread_id'],
-                               'host_request_id': request_id, 'public': {'text': text}})
+                               'host_request_id': request_id, 'public': {'text': text, 'content': input_items}})
             try:
                 with observation_context(session_id=session_id, thread_id=session['thread_id'], host_request_id=request_id):
-                    result = await self.client.start_turn(session['thread_id'], text)
+                    kwargs = {'input_items': input_items, 'options': options} if input_items is not None or options else {}
+                    result = await self.client.start_turn(session['thread_id'], text, **kwargs)
                 turn_id = result['turn']['id']
                 if session.get('active_turn_id') not in (None, turn_id):
                     raise HostNotReady('native turn mismatch')
@@ -216,7 +238,7 @@ class AgentHost:
 
     async def handle_tool_call(self, message):
         if message.get('method', 'item/tool/call') != 'item/tool/call':
-            return {'error': {'code': -32601, 'message': 'Unsupported server request'}}
+            return await self.native.request(message)
         params = message.get('params', {})
         session = self._session_for_thread(params.get('threadId'))
         call_id = params.get('callId', '')
@@ -269,21 +291,30 @@ class AgentHost:
 
     async def handle_notification(self, message):
         method, params = message.get('method'), message.get('params', {})
+        if method == 'serverRequest/resolved':
+            for row, future in self.native.pending.values():
+                if row['rpc_id'] == params.get('requestId') and not future.done():
+                    future.cancel()
+            return
         session = self._session_for_thread(params.get('threadId'))
         if not session or session['id'] not in self._attached:
             return
         turn = params.get('turn', {})
         turn_id = turn.get('id', params.get('turnId'))
-        if method == 'turn/started' and session['status'] == 'starting':
+        if method == 'turn/started' and session['status'] in {'starting', 'ready'}:
+            if session['status'] == 'ready':
+                self._active_turns += 1
             session.update(status='running', active_turn_id=turn_id)
             self._save(session)
         elif method == 'turn/completed':
             if turn_id != session.get('active_turn_id'):
                 return
-            path = f"requests/{session['active_request_id']}.json"
-            record = self.store.read(path)
-            record.update(turn_id=turn_id, status=turn.get('status', 'failed'))
-            self.store.write(path, record)
+            self.native.cancel(session['thread_id'], turn_id)
+            if session.get('active_request_id'):
+                path = f"requests/{session['active_request_id']}.json"
+                record = self.store.read(path)
+                record.update(turn_id=turn_id, status=turn.get('status', 'failed'))
+                self.store.write(path, record)
             self._active_turns = max(0, self._active_turns - 1)
             status = 'closed' if session['status'] == 'closing' else 'ready'
             if session['status'] == 'recovery_required':
@@ -297,6 +328,7 @@ class AgentHost:
 
     async def runtime_failed(self, exc):
         self.ready = False
+        self.native.cancel()
         for session_id in self._attached:
             session = self._sessions[session_id]
             if session['status'] != 'closed':
@@ -313,6 +345,7 @@ class AgentHost:
         if not session:
             raise KeyError(session_id)
         if session.get('active_turn_id'):
+            self.native.cancel(session['thread_id'])
             self._cancels.setdefault(session_id, threading.Event()).set()
             if session['status'] != 'closing':
                 session['status'] = 'interrupting'
@@ -321,7 +354,7 @@ class AgentHost:
         self.events.append(session_id, {'kind': 'turn', 'public': {'status': 'pending', 'action': 'interrupt'}})
         return {'status': 'pending' if session.get('active_turn_id') else session['status']}
 
-    async def resume(self, session_id):
+    async def resume(self, session_id, *, options=None):
         self.assert_ready()
         async with self._admission:
             session = self._session(session_id)
@@ -349,7 +382,11 @@ class AgentHost:
                 record = self.store.read(path)
                 record.update(turn_id=turn['id'], status=turn['status'])
                 self.store.write(path, record)
-            await self.client.resume(session['thread_id'])
+            await self.client.resume(session['thread_id'], **({'options': options} if options else {}))
+            if self.configuration_changed:
+                await self.configuration_changed()
+                session.update(self.bindings)
+            self.restore_thread(session_id, thread)
             session.update(status='ready', active_turn_id=None, active_request_id=None)
             self._save(session)
             self._attached.add(session_id)
@@ -357,6 +394,10 @@ class AgentHost:
             self._active_turns = sum(bool(self._sessions[s].get('active_turn_id')) for s in self._attached)
             self.events.append(session_id, {'kind': 'session', 'public': {'status': 'resumed'}})
             return dict(session)
+
+    def restore_thread(self, session_id, thread):
+        self.events.append(session_id, {'kind': 'thread_restored', 'thread_id': thread['id'],
+                                       'public': {'thread': thread}})
 
     def get_session(self, session_id):
         session = self._session(session_id)

@@ -38,7 +38,7 @@ class ManagedProcess:
         self.process = await asyncio.create_subprocess_exec(
             str(self.config.binary), "app-server", "--listen", "stdio://", "--strict-config",
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-            cwd=self.config.workspace_dir, env=self.config.child_environment(), start_new_session=True, limit=4 * 1024 * 1024)
+            cwd=self.config.workspace_dir, env=self.config.child_environment(), start_new_session=True, limit=20 * 1024 * 1024)
         self._store.write('runtime-process.json', {'status': 'running', 'pid': self.process.pid})
         self.client = AppServerClient(JsonRpcPeer(self.process.stdout, self.process.stdin, server_request,
             notification=notification, on_failure=on_failure, observer=self.observer,

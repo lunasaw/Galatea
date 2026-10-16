@@ -38,6 +38,7 @@ def main(argv=None):
     serve = subparsers.add_parser("serve")
     serve.add_argument("--host")
     serve.add_argument("--port", type=int)
+    serve.add_argument("--dev", action="store_true", help="run repository source without deployment release artifacts")
     args = parser.parse_args(argv)
     config, raw = load_config(args.config)
     if args.command == "render-unit":
@@ -71,19 +72,25 @@ def main(argv=None):
         result = preflight(config, artifact_index=args.artifact_index)
         print(json.dumps(result, indent=2))
         return 0 if result["status"] == "platform-reachable" else 2
-    check(args.config)
+    if not args.dev:
+        check(args.config)
     from .app import build_host
     listen_host = args.host if args.host is not None else config.console_host
     listen_port = args.port if args.port is not None else config.console_port
     import re
     if not re.fullmatch(r'[A-Za-z0-9_.:-]+', listen_host) or not 1 <= listen_port <= 65535:
         raise ValueError('invalid Console listen address or port')
-    service, principal = build_service(config)
+    if args.dev and not config.raw['galatea'].get('platform'):
+        from .local import build_local_service
+        service, principal = build_local_service(config)
+    else:
+        service, principal = build_service(config)
     import uvicorn
     try:
-        host, application = build_host(config, service, principal)
+        host, application = build_host(config, service, principal, development=args.dev)
         uvicorn.run(application, host=listen_host, port=listen_port, log_level="info", lifespan="on",
-                    limit_concurrency=64, timeout_keep_alive=10, ws="none")
+                    limit_concurrency=64, timeout_keep_alive=10, ws="none",
+                    timeout_graceful_shutdown=10 if args.dev else None)
     finally:
         store = getattr(service, "store", None)
         if store:

@@ -1,0 +1,185 @@
+{
+  "commit": "2bdd534a3d8da45e6c7a9ee6553862b83713059d",
+  "files": [
+    {
+      "local": "src/components/assistant-ui/elements/thread.aui.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/thread.aui.tsx",
+      "blob": "91762b2347b36a985cbd10a785b7457644c593b3"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/thread-list.aui.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/thread-list.aui.tsx",
+      "blob": "451bc8fb91287e1e7668e21dd20de43ed0fa438b"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/markdown-text.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/markdown-text.tsx",
+      "blob": "e1d670e1b5bdb2f46167ed3c896711e24aa28950"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/tool-fallback.aui.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/tool-fallback.aui.tsx",
+      "blob": "0faa1c35a10cd255e94fe425384e603cdfdf9a09"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/threadlist-sidebar.aui.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/threadlist-sidebar.aui.radix.tsx",
+      "blob": "0c8b17c5b42e263a19c7ee790957e7fe839eaeb4"
+    },
+    {
+      "local": "src/components/ui/sheet.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/sheet.tsx",
+      "blob": "5451b0150fd85c564431441f486b94d54574f180"
+    },
+    {
+      "local": "src/components/ui/tabs.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/tabs.tsx",
+      "blob": "b9c26d6fe2257404561ddf8952e4c2517d56336a"
+    },
+    {
+      "local": "src/components/ui/dropdown-menu.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/dropdown-menu.tsx",
+      "blob": "8677f5d687010dcaa89f9158cfaf775ef30521b1"
+    },
+    {
+      "local": "src/components/ui/input.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/input.tsx",
+      "blob": "793ebaf0c46b1f5771cac85d0ae695d8f07df3d8"
+    },
+    {
+      "local": "src/components/ui/button.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/button.tsx",
+      "blob": "262c2f4b9a13329ae93e4e8cd5b6294d4cf78a49"
+    },
+    {
+      "local": "src/components/ui/tooltip.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/tooltip.tsx",
+      "blob": "b7ce6d533ccc54b2e788d17e4c0551686063db60"
+    },
+    {
+      "local": "src/components/ui/separator.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/separator.tsx",
+      "blob": "d340bb87fa2bac384563d66934ef9aab633af48b"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/attachment.aui.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/attachment.aui.radix.tsx",
+      "blob": "3d402a0cdf6f4c6b9a45ee3dab51f6b3b15e927e"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/file.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/file.tsx",
+      "blob": "7b14dc57309f3d03dd43c29e91ae325826d58c2d"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/follow-up-suggestions.aui.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/follow-up-suggestions.aui.tsx",
+      "blob": "38689e74f97e2481631ec7c4c00ce4af9138162e"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/image.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/image.tsx",
+      "blob": "d00be8f9d3996efb413b52884d61c10b764e1022"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/reasoning.aui.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/reasoning.aui.tsx",
+      "blob": "c70e4f1d8fd1bb2183e2074b4662defee4afb4cb"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/tool-group.aui.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/tool-group.aui.tsx",
+      "blob": "da301a13d6384df44e96d89c5233be1fe0d43f76"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/tooltip-icon-button.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/tooltip-icon-button.radix.tsx",
+      "blob": "f28db48de04ae0c33bd45283911bb813fd368105"
+    },
+    {
+      "local": "src/components/ui/skeleton.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/skeleton.tsx",
+      "blob": "42e237bfe504e2b6ec10231a108caa301349b8d9"
+    },
+    {
+      "local": "src/lib/utils.ts",
+      "upstream": "packages/ui/src/lib/utils.ts",
+      "blob": "fe0d16987935134462183adc79bc673e421b8df4"
+    },
+    {
+      "local": "src/hooks/use-copy-to-clipboard.ts",
+      "upstream": "packages/ui/src/hooks/use-copy-to-clipboard.ts",
+      "blob": "d607b48359ce70e0d7033b417e421f797cbfb042"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/collapsible-root.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/collapsible-root.radix.tsx",
+      "blob": "bdf5829267a1736173b8a39bf5fb690b1c5949e4"
+    },
+    {
+      "local": "src/components/ui/textarea.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/textarea.tsx",
+      "blob": "252c5bcef1282f30ccc92998eff430800cab0667"
+    },
+    {
+      "local": "src/components/ui/sidebar.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/sidebar.tsx",
+      "blob": "38f37df4cb66294dec6380c5de900158d412ccdf"
+    },
+    {
+      "local": "src/components/ui/dialog.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/dialog.tsx",
+      "blob": "09e3acaa3db866be169d6a20960950beab9c6acc"
+    },
+    {
+      "local": "src/components/ui/avatar.tsx",
+      "upstream": "packages/ui/src/components/react/ui/radix/avatar.tsx",
+      "blob": "0eded859146fadf93b735e982a63d70c69a25bea"
+    },
+    {
+      "local": "src/hooks/use-attachment-src.ts",
+      "upstream": "packages/ui/src/hooks/use-attachment-src.ts",
+      "blob": "82b64ec34cfae7c29ae667671eb3b42454c4ff56"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/media-player.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/media-player.tsx",
+      "blob": "67024109a43a0879189a02c7230b89e07db9f8b9"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/reasoning.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/reasoning.tsx",
+      "blob": "f6ef048f691eb4540137131ee659a277f664fae8"
+    },
+    {
+      "local": "src/hooks/use-mobile.ts",
+      "upstream": "packages/ui/src/hooks/use-mobile.ts",
+      "blob": "e83cf60c278a4a44fd06bb954cb58031ba5ef19c"
+    },
+    {
+      "local": "src/components/assistant-ui/elements/surfaces.tsx",
+      "upstream": "packages/ui/src/components/react/assistant-ui/elements/surfaces.tsx",
+      "blob": "2e88172482c5b870b7b74fec3008388f77da66aa"
+    },
+    {
+      "local": "src/components/assistant-ui/utils/useIsomorphicLayoutEffect.ts",
+      "upstream": "packages/ui/src/components/react/assistant-ui/utils/useIsomorphicLayoutEffect.ts",
+      "blob": "1ede6222ff671289cca3605a302eb39c6e732b76"
+    }
+  ],
+  "styles": {
+    "local": "src/style.css",
+    "upstream": "apps/registry/app/globals.css"
+  },
+  "adapted_examples": [
+    {
+      "upstream": "apps/docs/components/pages/examples/chatgpt.tsx",
+      "blob": "0f22e7855a954269ecdee0fd9963240c966e1bc1",
+      "local": [
+        "src/components/assistant-ui/elements/thread.aui.tsx",
+        "src/style.css"
+      ],
+      "scope": "ChatGPT layout, composer, user messages, and answer actions; combined with official Thread grouping and capability guards."
+    }
+  ]
+}

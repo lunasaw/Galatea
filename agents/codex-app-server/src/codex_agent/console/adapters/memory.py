@@ -94,6 +94,7 @@ class MemoryConsoleObservationStore:
             if not (change.get('session_id') or change.get('thread_id')):
                 raise ValueError('projection scope required')
         events, changes = copy.deepcopy((batch.events, batch.changes))
+        await self._before_publish(batch)
         async with self._condition:
             self._events.extend(events)
             self._changes.extend(changes)
@@ -103,6 +104,9 @@ class MemoryConsoleObservationStore:
             self._batches[batch.batch_id] = (fingerprint, receipt)
             self._condition.notify_all()
         return dict(receipt)
+
+    async def _before_publish(self, batch):
+        pass
 
     def _binding(self, until):
         mapping, version = {}, 0
@@ -178,20 +182,23 @@ class MemoryConsoleObservationStore:
             before = page['before']
         bindings, version = self._binding(until)
         views = {name: {} for name in ('messages', 'turns', 'steps')}
-        for change in self._changes:
+        for replay_order, change in enumerate(self._changes):
             seq = int(change['seq'])
             if seq > until:
                 break
             if change.get('type') == 'binding' or self._session(change, bindings) != query.session_id:
                 continue
             view = views[change['view']]
+            if change.get('set', {}).get('reset_view'):
+                view.clear()
+                continue
             key = change['key']
             # Aliases reconcile Host-accepted messages and native user items by
             # identity, never by equal text. They are replayed at the same watermark.
             if change.get('remove'):
                 view.pop(key, None)
                 continue
-            row = view.setdefault(key, {'id': key, 'first_seq': str(seq)})
+            row = view.setdefault(key, {'id': key, 'first_seq': str(seq), 'replay_order': replay_order})
             row.update(copy.deepcopy(change.get('set', {})))
             for field, text in change.get('append', {}).items():
                 row[field] = row.get(field, '') + text
@@ -200,7 +207,7 @@ class MemoryConsoleObservationStore:
         output, next_before, more = {}, {}, False
         for name in selected:
             rows = [row for row in views[name].values() if not query.turn_id or row.get('turn_id') == query.turn_id]
-            rows.sort(key=lambda row: (int(row['first_seq']), row['id']))
+            rows.sort(key=lambda row: (int(row['first_seq']), row.get('replay_order', 0), row['id']))
             bound = before.get(name, len(rows))
             start = max(0, bound - query.limit)
             output[name] = rows[start:bound]

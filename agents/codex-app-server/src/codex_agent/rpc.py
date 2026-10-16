@@ -9,6 +9,12 @@ class ProtocolError(RuntimeError):
     pass
 
 
+class RpcError(ProtocolError):
+    def __init__(self, error):
+        self.error = error
+        super().__init__(error.get('message', 'app-server rejected RPC'))
+
+
 class JsonRpcPeer:
     """One continuous reader, independently dispatched server requests, bounded RPCs."""
 
@@ -127,7 +133,7 @@ class JsonRpcPeer:
                     if future is None or future.done():
                         raise ProtocolError("unexpected response id")
                     if "error" in message:
-                        future.set_exception(ProtocolError("app-server rejected RPC"))
+                        future.set_exception(RpcError(message["error"]))
                     else:
                         future.set_result(message["result"])
                 elif "id" in message:
@@ -144,7 +150,7 @@ class JsonRpcPeer:
         except Exception as exc:
             await self._fail(exc)
 
-    async def request(self, method: str, params: dict | None = None):
+    async def request(self, method: str, params: dict | None = None, *, timeout=None):
         self.start()
         self._next_id += 1
         request_id = self._next_id
@@ -152,7 +158,7 @@ class JsonRpcPeer:
         self._pending[request_id] = future
         try:
             await self.send({"id": request_id, "method": method, "params": params or {}})
-            return await asyncio.wait_for(future, self.timeout)
+            return await asyncio.wait_for(future, self.timeout if timeout is None else timeout)
         except (TimeoutError, asyncio.CancelledError) as exc:
             # A timed-out mutation may already have happened: never reuse this peer.
             await self._fail(exc)
@@ -182,18 +188,18 @@ class AppServerClient:
         self.initialized = True
         return result
 
-    async def start_thread(self, *, cwd: str, dynamic_tools: list[dict], approval_policy="never", sandbox="read-only"):
+    async def start_thread(self, *, cwd: str, dynamic_tools: list[dict], approval_policy="on-request", sandbox="workspace-write", **options):
         if not self.initialized:
             raise ProtocolError("initialize is required")
         return await self.peer.request("thread/start", {"cwd": cwd, "approvalPolicy": approval_policy,
-            "sandbox": sandbox, "environments": [], "dynamicTools": dynamic_tools})
+            **({"sandbox": sandbox} if not options.get('permissions') else {}), **options, "dynamicTools": dynamic_tools})
 
-    async def start_turn(self, thread_id: str, text: str):
+    async def start_turn(self, thread_id: str, text: str, *, input_items=None, options=None):
         return await self.peer.request("turn/start", {"threadId": thread_id,
-            "input": [{"type": "text", "text": text, "text_elements": []}]})
+            **(options or {}), "input": input_items or [{"type": "text", "text": text, "text_elements": []}]})
 
-    async def resume(self, thread_id: str):
-        return await self.peer.request("thread/resume", {"threadId": thread_id})
+    async def resume(self, thread_id: str, *, options=None):
+        return await self.peer.request("thread/resume", {**(options or {}), "threadId": thread_id})
 
     async def interrupt(self, thread_id: str, turn_id: str):
         return await self.peer.request("turn/interrupt", {"threadId": thread_id, "turnId": turn_id})

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import importlib.metadata
 import sys
+import sysconfig
 import stat
 from pathlib import Path
 import subprocess
@@ -39,7 +40,11 @@ def source_digest(root):
 
 def software_manifest():
     import galatea_mcp
-    packages = sorted((dist.metadata['Name'].lower(), dist.version) for dist in importlib.metadata.distributions())
+    # Ray adds its vendored libraries to sys.path during import. Measure the
+    # interpreter's installed distributions independently of import order.
+    package_paths = sorted({sysconfig.get_path('purelib'), sysconfig.get_path('platlib')})
+    packages = sorted((dist.metadata['Name'].lower(), dist.version)
+                      for dist in importlib.metadata.distributions(path=package_paths))
     return {'host_code_sha256': source_digest(Path(__file__).parent),
             'galatea_code_sha256': source_digest(Path(galatea_mcp.__file__).parent),
             'python_binary_sha256': file_sha256(Path(sys.executable).resolve()),

@@ -4,7 +4,8 @@
 测试证据、边界和未完成的现场验收见 [Console 验收记录](13-console-acceptance.md)。
 
 Console 与现有 Python ASGI Host 同进程，静态 HTML/CSS/JavaScript 随 wheel 发布。
-无 Node 构建依赖、Redis、隧道或第二个 Agent Loop。所有访问者共享配置的 Host principal。
+运行时无需 Node；React/TypeScript 页面使用 Node 构建，见 [聊天工作台](14-assistant-ui-console.md)。
+没有 Redis 或第二个 Agent Loop。所有访问者共享配置的 Host principal。
 页面无需 Token；部署必须以网络 ACL/防火墙限制可信来源，同源校验不能替代网络访问控制。
 
 ## HTTP 与 SSE
@@ -53,7 +54,7 @@ initialize、双向 request/response/error、未知 method 和未绑定消息均
 
 原文在入库前按键、类型及嵌套 JSON 脱敏，记录 JSON pointer 和原因；不包含凭据、私有 reasoning、
 系统/开发指令、测试样本/标签、原始日志和完整 Artifact。公开 assistant 文本、公开摘要、普通长正文和
-累计 totalTokens 保留。HTML 仅以 textContent 呈现。
+累计 totalTokens 保留。消息使用安全的 Markdown 渲染；HTML 不作为可执行标签插入，事件正文以文本显示。
 
 message_accepted 按持久化 request 身份只出现一次；delta 累积而 completed 替换文本。
 工具按 thread/turn/call 合并，展示实际回执中的 operation/job 和最近观察时间，不直接轮询后端。

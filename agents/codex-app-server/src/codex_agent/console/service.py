@@ -13,8 +13,9 @@ from .ports import StoreUnavailable, InvalidCursor, CursorAhead, UnknownEvent
 CAPABILITIES = {
     'console_schema_version': 'galatea.console/v1', 'console_role': 'training_agent_chat_trace',
     'storage': {'backend': 'memory', 'retention': 'process_lifetime'},
-    'skill_integration': False, 'inference_endpoint': False, 'native_codex_comparison': 'not_claimed',
-    'principal_scope': 'host_configured', 'network_access': 'trusted_network_required', 'interactive_requests': False,
+    'skill_integration': True, 'inference_endpoint': False, 'native_codex_comparison': 'versioned_protocol',
+    'principal_scope': 'host_configured', 'network_access': 'trusted_network_required', 'interactive_requests': True,
+    'conversation_storage': 'native_rollout', 'native_protocol_version': 'codex-cli 0.154.0',
 }
 
 
@@ -36,6 +37,8 @@ class ConsoleObservationService:
     async def start(self):
         if self.worker is None:
             await self.store.open(self.epoch)
+            self.epoch = self.store.epoch
+            self._seq = int((await self.store.stats())['watermark'].split(':')[1])
             self.observer.loop = asyncio.get_running_loop()
             self.worker = asyncio.create_task(self._write(), name='console-observation-writer')
 
@@ -161,7 +164,8 @@ class ConsoleObservationService:
         pending = self.observer.queue.qsize() + (1 if self._batch else 0)
         error = self._error or self.observer.error or self._incomplete
         status = 'unavailable' if self._error else 'incomplete' if error else 'lagging' if pending else 'ready'
-        return {**CAPABILITIES, 'epoch': self.epoch, 'runtime_instance_id': self.runtime_instance_id,
+        return {**CAPABILITIES, 'storage': {'backend': stats['backend'], 'retention': stats['retention']},
+                'epoch': self.epoch, 'runtime_instance_id': self.runtime_instance_id,
                 'observation': {'status': status, 'captured_seq': str(self._seq + self.observer.queue.qsize()),
                     'committed_seq': stats['watermark'].split(':')[1], 'pending_events': pending,
                     'event_count': stats['event_count'], 'encoded_bytes': stats['encoded_bytes'], 'error': error}}

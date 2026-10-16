@@ -128,6 +128,44 @@ galatea-mcp wheel SHA-256：`2fe7ad2656548108b17c4f6e4808536a9c24e19ff783d9ccf98
 
 尚未执行：目标主机可信/非可信来源 ACL 验证、另一台内网机器浏览器访问、正式 systemd 安装/
 重启、0.154.0 生产来源核验与完整 release 接纳、真实模型和训练平台联调。
+
+## 追加：真实网页前台调试（2026-10-15）
+
+按用户要求以前台进程运行，不启用 systemd 托管；曾安装的候选 unit 已停止并取消开机自启。
+当前监听 `127.0.0.1:18880`，启动入口为本机 `/var/lib/galatea-agent/start-console.sh`：
+
+```bash
+sudo /var/lib/galatea-agent/start-console.sh
+```
+
+脚本前台输出日志，Ctrl+C 停止；以独立 `galatea-agent` 用户运行，使用
+`/opt/galatea-agent` 隔离环境及 `/var/lib/galatea-agent/agent.json` 配置。
+从另一台电脑调试时先建立 SSH 隧道：
+
+```bash
+ssh -N -L 18880:127.0.0.1:18880 用户名@10.26.0.140
+```
+
+浏览器打开 `http://127.0.0.1:18880`。API 授权复制自当前 `/root/.codex/auth.json`，
+独立凭据文件限制为服务用户读取；模型为 `gpt-6-astra`，沿用当前配置的模型接口。
+原生 0.154.0 的模型目录覆盖固定为直接工具调用，完整/受限工具集的新建和跨进程恢复
+均通过协议探测，未引入独立 Agent Loop 或替代模型客户端。
+
+本次实际验证：
+
+- Runtime npm 签名和 Sigstore 来源核验通过；仅聊天和能力查询范围的 release 绑定通过。
+- 修复 Ray 导入其 vendored 依赖后改变已安装包摘要的问题：固定测量解释器安装目录，
+  避免依赖导入顺序影响摘要。新增回归测试先失败、修复后通过；重新构建安装后 Agent
+  132 项测试通过，平台既有 48 项回归通过，`pip check` 通过。
+- 前台真实进程的 `/health/ready` 和观察服务均就绪。Chromium 页面新建会话、发送真实模型
+  请求、成功执行 `galatea_get_capabilities`、收到 `GALATEA_WEB_OK`，Turn 完成且无页面异常；
+  刷新后仍显示当前进程历史。证据为本机 `/var/lib/galatea-agent/debug-evidence/real-web.json`
+  和同目录 `real-web.png`。
+- 后端连接使用显式开发平台配置，Ray 集群身份只读校验通过；当前项目和 campaign 范围为空，
+  只允许能力查询。未执行训练、数据对象读取、真实训练工具联调或外部网络 ACL 验收。
+
+此追加不代表完整生产或训练能力验收。前台脚本显式使用 `umask 022`；候选 systemd 的
+`UMask=0077` 会影响临时协议导出目录权限及摘要，尚待修复和重新验收。
 非回环开放前必须完成网络限制，旧 `http_auth_csrf` 证据索引必须换成本版本的无 Token/同源/
 网络隔离证据。旧 release 不会因本次改造而自动通过新代码、配置与 Runtime 摘要校验。
 本期没有提交训练、启用 Skill、改变模型 alias，也没有证明模型质量或优于原生 Codex。

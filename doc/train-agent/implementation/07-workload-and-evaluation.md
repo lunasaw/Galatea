@@ -1,5 +1,10 @@
 # 方案 07：Workload、最终评价与交付实施计划
 
+> **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
+> 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
+> 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+
 > 后续实现使用 superpowers:executing-plans；模型代码与测试遵守 model-project-structure。
 
 **目标：**先完成一个契约完整 workload 的训练/评价闭环，再接真实 LoRA。

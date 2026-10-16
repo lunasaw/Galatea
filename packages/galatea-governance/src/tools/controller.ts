@@ -15,6 +15,7 @@ import {
   type LifecycleStage,
 } from '../policies/lifecycle.ts'
 import { evaluatePlanIntegrity, deriveIntegrityAdvisories, type PlanIntegrityEvaluation } from '../policies/integrity.ts'
+import { sourceIntegrityDigest } from '../policies/integrity-digest.ts'
 import {
   resolveProjectPath,
   validateProjectStructure,
@@ -1322,7 +1323,8 @@ export class GalateaController {
         throw new Error(`integrity report ${id} digestPath must identify the top-level content_digest field`)
       }
       const { content_digest: _digest, ...digestMaterial } = report
-      if (evidenceDigest(digestMaterial) !== `sha256:${declaredDigest}`) {
+      if (evidenceDigest(digestMaterial) !== `sha256:${declaredDigest}`
+        && sourceIntegrityDigest(artifact.bytes) !== `sha256:${declaredDigest}`) {
         throw new Error(`integrity report ${id} content does not match its declared digest`)
       }
       const runStatus = declaration.statusSource.source === 'param'

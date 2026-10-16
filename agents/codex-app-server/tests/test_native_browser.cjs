@@ -45,7 +45,7 @@ const {chromium} = require('../frontend/node_modules/playwright');
   if(dir){await page.waitForTimeout(400);await page.screenshot({path:dir+'/mobile-workbench.png'});}
   await page.getByRole('button',{name:'关闭详情',exact:true}).click();
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button',{name:'添加图片',exact:true}).click();
+  await page.getByRole('button',{name:'添加图片或文本文件',exact:true}).click();
   await (await chooser).setFiles({name:'pixel.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6QmcAAAAASUVORK5CYII=','base64')});
   await page.locator('#text').fill('image fixture');
   const request=page.waitForRequest(r=>r.url().endsWith('/messages') && r.method()==='POST');

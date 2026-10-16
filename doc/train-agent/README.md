@@ -1,4 +1,23 @@
-# Galatea × Python Codex 训练 Agent 方案
+# Galatea Agent 文档导航与历史方案
+
+> **当前入口（2026-10-16）**：本文下方保留训练 Agent 历史方案。现行架构为原生 Codex + 通用 Host，
+> 业务通过配置的外部 MCP、独立 Provider 或项目固定入口接入。Host 无内置 Galatea Adapter，
+> 也不消费旧 Runner 的 `wait_external` 调度契约。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](../../agents/codex-app-server/docs/README.md)。
+
+## 当前文档入口
+
+| 目的 | 当前依据 |
+| --- | --- |
+| Runtime、Host 与业务治理职责 | [总体架构](../agent-galatea.md) |
+| Web 工作台与原生协议 | [Codex Host](../../agents/codex-app-server/README.md) |
+| Host 配置、MCP 与 Provider | [配置与部署](../../agents/codex-app-server/docs/06-config-deployment.md) |
+| MCP 项目/Campaign 注册与预算 | [Galatea MCP](../../services/galatea-mcp/README.md)、[接口契约](02-platform-mcp-contract.md) |
+| 项目 YAML 固定治理入口 | [项目治理库](../../packages/galatea-governance/README.md)与所属 workload README |
+| 训练 Skill 包及兼容性限制 | [Skill 包](../../packages/galatea-training-skills/README.md) |
+| 当前机器和集群 profile | [平台运行记忆](../platform-runtime-memory.md) |
+
+## 历史方案正文
 
 更新：2026-09-22。状态：历史方案归档。此前的独立 `training-agent-runtime` 已删除，
 其实现、安装验证和部署命令不再是当前可发布入口。当前 Agent 方案请以
@@ -10,8 +29,8 @@
 
 ## 1. 确定的架构边界
 
-2026-10-14：Agent Runtime 已统一为 Codex；当前 Web Agent 使用原生 `codex app-server`
-Host 和进程内 Galatea Registry。仓库固定入口所需的项目治理逻辑位于
+2026-10-16：Agent Runtime 已统一为 Codex；当前 Web Agent 使用原生 `codex app-server`
+与通用 `codex-agent/v2` Host。Host 无内置 Galatea Adapter；MCP 和 Provider 独立配置。仓库固定入口所需的项目治理逻辑位于
 [`packages/galatea-governance`](../../packages/galatea-governance/README.md)。
 当前组件边界见 [Codex 与 Galatea 架构](../agent-galatea.md)。
 

@@ -1,4 +1,4 @@
-"""Project-local source startup, using the existing Host and platform service."""
+"""Independent source startup for the generic Codex host."""
 from __future__ import annotations
 
 import argparse
@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tomllib
 
-from .catalog import Catalog, digest
+from .catalog import digest
 from .stage0 import GateError, file_sha256
 
 
@@ -25,48 +25,37 @@ def toml_value(value):
 
 def source_manifest(config):
     version = subprocess.check_output([str(config.binary), '--version'], text=True, timeout=15).strip()
-    if version != config.runtime_version:
-        raise GateError('runtime version mismatch')
-    catalog = Catalog.load(config.contracts.parent)
+    if version != config.runtime_version or version != 'codex-cli 0.154.0':
+        raise GateError('runtime must match the supported Codex 0.154.0 protocol')
+    catalog = config.catalog()
     catalog.dynamic_tools(config.actions)
+    from .release import extension_manifest
     return {
+        'extensions_sha256': extension_manifest(config),
         'runtime_binary_sha256': file_sha256(config.binary),
-        'runtime_compatibility_sha256': file_sha256(config.contracts.parent / 'runtime-compatibility.json'),
+        'runtime_compatibility_sha256': digest({'protocol': file_sha256(Path(__file__).parent / 'protocol/0.154.0.json'), 'catalog': catalog.digest}),
         'effective_config_sha256': '',
         'agent_config_sha256': digest(config.raw),
         'codex_config_sha256': file_sha256(config.codex_home / 'config.toml'),
     }
 
 
-def build_local_service(config):
-    from galatea_mcp.auth import Principal
-    from galatea_mcp.projects import Registry
-    from galatea_mcp.service import Service
-    from galatea_mcp.state import StateStore
-
-    # An unconfigured checkout can chat and inspect capabilities. Training still
-    # requires explicit platform configuration and the existing business gates.
-    if (config.project_ids or config.campaign_ids
-            or config.actions - {'galatea_get_capabilities', 'galatea_list_projects'}):
-        raise ValueError('configure galatea.platform before enabling project or training tools')
-    registry = Registry({'schema_version': 'galatea.registry/v1', 'projects': []}, None)
-    service = Service(StateStore(config.config_dir / 'platform-state'), registry, None, None)
-    principal = Principal(config.principal_id, config.project_ids, config.campaign_ids, config.actions)
-    return service, principal
-
-
 def prepare(project: Path, binary: Path):
     directory = project / '.local'
     directory.mkdir(exist_ok=True, mode=0o700)
+    path = directory / 'agent.json'
+    if path.exists():
+        from .config import AgentConfig
+        AgentConfig.from_dict(json.loads(path.read_text()), directory)
     home = directory / 'codex-home'
     home.mkdir(exist_ok=True, mode=0o700)
-    auth_directory = Path(os.environ.get('GALATEA_AUTH_DIR', str(Path.home() / '.codex'))).expanduser()
+    auth_directory = Path(os.environ.get('CODEX_AGENT_AUTH_DIR', str(Path.home() / '.codex'))).expanduser()
     user_config = auth_directory / 'config.toml'
     settings = tomllib.loads(user_config.read_text()) if user_config.is_file() else {}
     config_file = home / 'config.toml'
     if not config_file.exists():
         template = (project / 'config/codex.example.toml').read_text()
-        model = os.environ.get('GALATEA_MODEL', settings.get('model', 'gpt-6-astra'))
+        model = os.environ.get('CODEX_AGENT_MODEL', settings.get('model', 'gpt-6-astra'))
         template = template.replace('"REPLACE_WITH_APPROVED_MODEL"', json.dumps(model))
         provider = settings.get('model_provider', 'openai')
         template = template.replace('model_provider = "openai"', 'model_provider = ' + json.dumps(provider))
@@ -106,19 +95,17 @@ def prepare(project: Path, binary: Path):
     if not path.exists():
         raw = json.loads((project / 'config/agent.example.json').read_text())
         raw.pop('release', None)
-        raw['paths']['runtime_dir'] = str(binary.parent)
-        raw['paths']['contracts'] = str(project / 'config/contracts/tools.json')
-        raw['paths']['catalog_metadata'] = str(project / 'config/contracts/catalog-metadata.json')
+        raw['paths']['runtime_dir'] = str(binary.parent.parent)
         raw['codex']['binary'] = str(binary)
         raw['codex'].pop('model_api_key_file', None)
-        raw['galatea'] = {'principal': {'principal_id': 'codex-agent', 'project_ids': [],
-            'campaign_ids': [], 'actions': ['galatea_get_capabilities']}}
         raw['console']['host'] = '0.0.0.0'
         raw['console']['storage'] = {'backend': 'sqlite', 'retention': 'persistent'}
-        raw['paths']['workspace_dir'] = str(project.parents[1])
+        raw['paths']['workspace_dir'] = os.environ.get('CODEX_AGENT_WORKSPACE', str(project.parents[1]))
         path.write_text(json.dumps(raw, indent=2) + '\n')
         path.chmod(0o600)
     raw = json.loads(path.read_text())
+    from .config import AgentConfig
+    AgentConfig.from_dict(raw, directory)
     if key_file.exists():
         raw['codex']['model_api_key_file'] = str(key_file)
         path.write_text(json.dumps(raw, indent=2) + '\n')

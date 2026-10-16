@@ -4,6 +4,8 @@ import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
   SimpleImageAttachmentAdapter,
+  SimpleTextAttachmentAdapter,
+  CompositeAttachmentAdapter,
 } from "@assistant-ui/react";
 import {
   Moon,
@@ -21,6 +23,10 @@ import {
   Code2,
   BookOpen,
   CircleHelp,
+  PanelBottom,
+  PanelRight,
+  Info,
+  FileDiff,
 } from "lucide-react";
 import {
   Dialog,
@@ -59,8 +65,10 @@ import { native } from "./native";
 import { CodexToolFallback } from "./tool-ui";
 import { consoleStore as store, busyStatuses, statusLabel } from "./store";
 import { toConversationMessages } from "./messages";
-import { WorkspaceFilePreview } from "./workspace-file";
+import { WorkspaceFileScope } from "./workspace-file";
+import { BottomPanel, WorkbenchPanel, type WorkbenchTab } from "./workbench";
 import "./style.css";
+import "./workbench.css";
 
 const suggestions = [
   {
@@ -95,15 +103,28 @@ const settingsSections = [
   { id: "protocol", label: "开发者工具", icon: Code2 },
 ];
 const threadComponents = { ToolFallback: CodexToolFallback };
-const attachments = new SimpleImageAttachmentAdapter();
+const textAttachments = new SimpleTextAttachmentAdapter();
+textAttachments.accept =
+  "text/*,.md,.txt,.json,.csv,.yaml,.yml,.toml,.py,.js,.ts,.tsx,.jsx,.html,.css,.sh,.sql,.xml,.log";
+const attachments = new CompositeAttachmentAdapter([
+  new SimpleImageAttachmentAdapter(),
+  textAttachments,
+]);
 
 function Workspace() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { isMobile, setOpenMobile, state: sidebarState } = useSidebar();
   const [panel, setPanel] = useState("");
+  const [sidePanel, setSidePanel] = useState<WorkbenchTab | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalMounted, setTerminalMounted] = useState(false);
+  const showTerminal = (open: boolean) => {
+    setTerminalOpen(open);
+    if (open) setTerminalMounted(true);
+  };
   useNativeRequestPolling();
   const [theme, setTheme] = useState(
-    localStorage.getItem("galatea.theme") || "light",
+    localStorage.getItem("codex-agent.theme") || "light",
   );
   const session = state.sessions.find((s) => s.id === state.active);
   const messages = useMemo(
@@ -120,9 +141,13 @@ function Workspace() {
           remoteId: s.id,
           title: store.title(s.id),
           status: "regular" as const,
-          custom: { status: s.status, cwd: s.cwd || s.settings?.cwd },
+          custom: {
+            status: s.status,
+            cwd: s.cwd || s.settings?.cwd,
+            projectId: store.projectForSession(s.id)?.id,
+          },
         })),
-    [state.sessions, state.titles],
+    [state.sessions, state.titles, state.projectLayout, state.nativeProtocol],
   );
   const choose = async (id: string | null) => {
     if (isMobile) setOpenMobile(false);
@@ -146,7 +171,10 @@ function Workspace() {
     suggestions: messages.length ? [] : suggestions,
     onNew: async (message) => {
       await store.send(
-        message.content
+        [
+          ...message.content,
+          ...(message.attachments || []).flatMap((a) => a.content),
+        ]
           .filter((p) => p.type === "text")
           .map((p) => p.text)
           .join("\n"),
@@ -185,7 +213,7 @@ function Workspace() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.classList.toggle("dark", theme === "dark");
-    localStorage.setItem("galatea.theme", theme);
+    localStorage.setItem("codex-agent.theme", theme);
   }, [theme]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -231,6 +259,20 @@ function Workspace() {
   useEffect(() => {
     const panel = (event: Event) => {
       const name = (event as CustomEvent).detail;
+      if (name === "permissions") {
+        window.dispatchEvent(new Event("codex-permissions"));
+        return;
+      }
+      if (name === "files") {
+        setSidePanel("files");
+        if (isMobile) setOpenMobile(false);
+        return;
+      }
+      if (name === "terminal") {
+        showTerminal(true);
+        if (isMobile) setOpenMobile(false);
+        return;
+      }
       setPanel(
         (
           {
@@ -252,7 +294,7 @@ function Workspace() {
       window.removeEventListener("codex-panel", panel);
       window.removeEventListener("codex-action", action);
     };
-  }, [session]);
+  }, [session, isMobile, setOpenMobile]);
   useEffect(() => {
     if (!state.nativeRequests.length) return;
     const title = document.title;
@@ -262,6 +304,11 @@ function Workspace() {
     };
   }, [state.nativeRequests.length]);
   const connected = state.health?.host_ready && !state.streamError;
+  const cwd = store.cwd;
+  const projectName =
+    store.currentProject?.name ||
+    cwd.split("/").filter(Boolean).at(-1) ||
+    "本地工作区";
   const otherRequests = state.nativeRequests.filter(
     (r) => r.session_id !== state.active || !state.active,
   );
@@ -271,7 +318,6 @@ function Workspace() {
       : settingsSections.find((s) => s.id === panel)?.label || "设置";
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <WorkspaceFilePreview />
       <ThreadListSidebar
         navigation={
           <div className="sidebar-navigation">
@@ -290,12 +336,7 @@ function Workspace() {
             <div className="sidebar-project">
               <Folder />
               <div>
-                <strong>
-                  {(session?.cwd || state.nativeProtocol?.cwd || "本地工作区")
-                    .split("/")
-                    .filter(Boolean)
-                    .at(-1)}
-                </strong>
+                <strong>{projectName}</strong>
                 <span>
                   <i className={connected ? "connected" : ""} />
                   {state.streamError
@@ -326,32 +367,65 @@ function Workspace() {
           {(isMobile || sidebarState === "collapsed") && (
             <SidebarTrigger aria-label="切换侧栏" />
           )}
-          <span
-            className="chat-header-brand"
-            title={session?.cwd || session?.settings?.cwd || ""}
-          >
-            {(session?.cwd || session?.settings?.cwd || "")
-              .split("/")
-              .filter(Boolean)
-              .at(-1) || "Codex"}
-          </span>
-          <span
-            id="session-title"
-            title={state.active || ""}
-            className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
-          >
-            {state.global
-              ? "运行实例事件"
-              : state.active
-                ? store.title(state.active)
-                : ""}
-          </span>
-          <TooltipIconButton tooltip="打开文件" onClick={() => openSettings("files")}>
-            <Folder />
-          </TooltipIconButton>
-          <TooltipIconButton tooltip="打开终端" onClick={() => openSettings("terminal")}>
-            <Terminal />
-          </TooltipIconButton>
+          <div className="chat-header-heading">
+            <span
+              id="session-title"
+              title={state.active || ""}
+              className="chat-header-title"
+            >
+              {state.global
+                ? "运行实例事件"
+                : state.active
+                  ? store.title(state.active)
+                  : "新会话"}
+            </span>
+            <span className="chat-header-path" title={cwd}>
+              {projectName}
+            </span>
+          </div>
+          <div className="chat-header-tools">
+            <TooltipIconButton
+              tooltip="打开文件"
+              aria-pressed={sidePanel === "files"}
+              onClick={() =>
+                setSidePanel(sidePanel === "files" ? null : "files")
+              }
+            >
+              <Folder />
+            </TooltipIconButton>
+            <TooltipIconButton
+              tooltip="打开终端"
+              aria-pressed={terminalOpen}
+              onClick={() => showTerminal(!terminalOpen)}
+            >
+              <PanelBottom />
+            </TooltipIconButton>
+            <TooltipIconButton
+              tooltip="查看摘要"
+              aria-pressed={sidePanel === "summary"}
+              onClick={() =>
+                setSidePanel(sidePanel === "summary" ? null : "summary")
+              }
+            >
+              <Info />
+            </TooltipIconButton>
+            <TooltipIconButton
+              tooltip="查看更改"
+              aria-pressed={sidePanel === "review"}
+              onClick={() =>
+                setSidePanel(sidePanel === "review" ? null : "review")
+              }
+            >
+              <FileDiff />
+            </TooltipIconButton>
+            <TooltipIconButton
+              tooltip="切换任务面板"
+              aria-pressed={!!sidePanel}
+              onClick={() => setSidePanel(sidePanel ? null : "launcher")}
+            >
+              <PanelRight />
+            </TooltipIconButton>
+          </div>
           {!!otherRequests.length && (
             <Button
               variant="ghost"
@@ -423,117 +497,138 @@ function Workspace() {
             </DropdownMenu>
           )}
         </header>
-        <div className="shrink-0 space-y-1 px-4 text-xs">
-          {state.reset && (
-            <div
-              id="reset"
-              role="status"
-              className="flex items-center justify-between bg-muted p-2"
-            >
-              服务已重启，上一进程的事件历史已清空。持久化会话仍可核对并恢复。
-              <TooltipIconButton
-                tooltip="关闭重启提示"
-                onClick={() => store.patch({ reset: false })}
-              >
-                <X />
-              </TooltipIconButton>
-            </div>
-          )}
-          {state.streamError && (
-            <p role="status" className="p-2">
-              {state.streamError}
-            </p>
-          )}
-          {state.error && (
-            <div
-              id="error"
-              role="alert"
-              className="flex items-center justify-between gap-2 bg-destructive/10 p-2 text-destructive"
-            >
-              <span>{state.error}</span>
-              {store.canRetry && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={state.submitting}
-                  onClick={() => void store.retrySend()}
+        <div className="workbench-body">
+          <div className="workbench-chat-column">
+            <div className="shrink-0 space-y-1 px-4 text-xs">
+              {state.reset && (
+                <div
+                  id="reset"
+                  role="status"
+                  className="flex items-center justify-between bg-muted p-2"
                 >
-                  重试发送
-                </Button>
-              )}
-              <TooltipIconButton
-                tooltip="关闭错误提示"
-                onClick={() => store.patch({ error: "" })}
-              >
-                <X />
-              </TooltipIconButton>
-            </div>
-          )}
-          {session && !["ready", ...busyStatuses].includes(session.status) && (
-            <div className="flex items-center gap-2 p-2">
-              {statusLabel(session.status)}
-              <Button
-                id="resume"
-                size="sm"
-                variant="outline"
-                disabled={session.status === "closed"}
-                onClick={() => void store.action("resume")}
-              >
-                核对并恢复
-              </Button>
-            </div>
-          )}
-          {!!messages.length &&
-            (state.older ||
-              state.history ||
-              state.snapshot?.coverage.status !== "complete") && (
-              <div className="flex items-center justify-center gap-2 pt-1 text-muted-foreground">
-                <Button
-                  id="older-messages"
-                  variant="ghost"
-                  size="xs"
-                  disabled={!state.older}
-                  onClick={() => void store.older()}
-                >
-                  更早消息
-                </Button>
-                {state.history && (
-                  <Button
-                    id="latest-messages"
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => void store.latest()}
+                  服务已重启，上一进程的事件历史已清空。持久化会话仍可核对并恢复。
+                  <TooltipIconButton
+                    tooltip="关闭重启提示"
+                    onClick={() => store.patch({ reset: false })}
                   >
-                    返回最新
-                  </Button>
+                    <X />
+                  </TooltipIconButton>
+                </div>
+              )}
+              {state.streamError && (
+                <p role="status" className="p-2">
+                  {state.streamError}
+                </p>
+              )}
+              {state.error && (
+                <div
+                  id="error"
+                  role="alert"
+                  className="flex items-center justify-between gap-2 bg-destructive/10 p-2 text-destructive"
+                >
+                  <span>{state.error}</span>
+                  {store.canRetry && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={state.submitting}
+                      onClick={() => void store.retrySend()}
+                    >
+                      重试发送
+                    </Button>
+                  )}
+                  <TooltipIconButton
+                    tooltip="关闭错误提示"
+                    onClick={() => store.patch({ error: "" })}
+                  >
+                    <X />
+                  </TooltipIconButton>
+                </div>
+              )}
+              {session &&
+                !["ready", ...busyStatuses].includes(session.status) && (
+                  <div className="flex items-center gap-2 p-2">
+                    {statusLabel(session.status)}
+                    <Button
+                      id="resume"
+                      size="sm"
+                      variant="outline"
+                      disabled={session.status === "closed"}
+                      onClick={() => void store.action("resume")}
+                    >
+                      核对并恢复
+                    </Button>
+                  </div>
                 )}
-                <span>
-                  {state.history
-                    ? "已加载较早记录 · 实时更新中"
-                    : state.snapshot?.coverage.status !== "complete"
-                      ? "观察不完整：" +
-                        (state.snapshot?.coverage.reason || "未知")
-                      : "还有较早的执行记录"}
-                </span>
+              {!!messages.length &&
+                (state.older ||
+                  state.history ||
+                  state.snapshot?.coverage.status !== "complete") && (
+                  <div className="flex items-center justify-center gap-2 pt-1 text-muted-foreground">
+                    <Button
+                      id="older-messages"
+                      variant="ghost"
+                      size="xs"
+                      disabled={!state.older}
+                      onClick={() => void store.older()}
+                    >
+                      更早消息
+                    </Button>
+                    {state.history && (
+                      <Button
+                        id="latest-messages"
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => void store.latest()}
+                      >
+                        返回最新
+                      </Button>
+                    )}
+                    <span>
+                      {state.history
+                        ? "已加载较早记录 · 实时更新中"
+                        : state.snapshot?.coverage.status !== "complete"
+                          ? "观察不完整：" +
+                            (state.snapshot?.coverage.reason || "未知")
+                          : "还有较早的执行记录"}
+                    </span>
+                  </div>
+                )}
+            </div>
+            {state.global ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
+                <Terminal />
+                <h1>运行实例事件</h1>
+                <Button variant="outline" onClick={() => void choose(null)}>
+                  开始新对话
+                </Button>
+              </div>
+            ) : (
+              <div className="min-h-0 flex-1">
+                <WorkspaceFileScope cwd={cwd}>
+                  <Thread
+                    components={threadComponents}
+                    interactions={<NativeRequests state={state} />}
+                  />
+                </WorkspaceFileScope>
               </div>
             )}
+            {terminalMounted && (
+              <BottomPanel
+                state={state}
+                open={terminalOpen}
+                onClose={() => showTerminal(false)}
+              />
+            )}
+          </div>
+          <WorkbenchPanel
+            tab={sidePanel}
+            state={state}
+            mobile={isMobile}
+            onTab={setSidePanel}
+            onClose={() => setSidePanel(null)}
+          />
         </div>
-        {state.global ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
-            <Terminal />
-            <h1>运行实例事件</h1>
-            <Button variant="outline" onClick={() => void choose(null)}>
-              开始新对话
-            </Button>
-          </div>
-        ) : (
-          <div className="min-h-0 flex-1">
-            <Thread
-              components={threadComponents}
-              interactions={<NativeRequests state={state} />}
-            />
-          </div>
-        )}
       </SidebarInset>
       <Dialog
         open={!!panel}
@@ -619,7 +714,10 @@ function Workspace() {
   );
 }
 createRoot(document.getElementById("root")!).render(
-  <SidebarProvider className="h-dvh overflow-hidden">
+  <SidebarProvider
+    className="h-dvh overflow-hidden"
+    style={{ "--sidebar-width": "260px" } as React.CSSProperties}
+  >
     <Workspace />
   </SidebarProvider>,
 );

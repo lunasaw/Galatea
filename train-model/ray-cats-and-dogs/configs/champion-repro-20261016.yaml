@@ -1,0 +1,7 @@
+extends: champion.yaml
+
+ray:
+  address: 10.26.0.140:19540
+
+evaluation:
+  manifest_path: /data/ai/chenzhangyue/galatea-model/platform-data/ray-cats-and-dogs/manifests/manifest-4dd93b4e4bf9a669-0722731684e89c3c.csv

@@ -1,5 +1,10 @@
 # 06 实施与验收
 
+> **历史 Console 设计（2026-10-16 标注）**：下文“当前/本期/首版”指重构前版本，
+> 不作为现行功能或部署依据。当前为通用 Host，无内置 Galatea Adapter；
+> Skill/MCP、前端构建和 SQLite 观察存储以现行组件文档为准。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+
 本期交付验收对象是“训练 Agent 的网页聊天与追踪台”：浏览器可以通过受信网络访问现有
 Host，完成文字对话，并看到实际的 Codex 协议、Galatea 工具调用和作业状态。验收不包含
 模型质量提升、训练算法、在线推理服务、Skill 启用或“优于原生 Codex”的结论。
@@ -26,7 +31,7 @@ Host，完成文字对话，并看到实际的 Codex 协议、Galatea 工具调�
 | `src/codex_agent/console/static/*` | 删除 Token 交互；实现对话、Loop、原生/全局事件和重连 |
 | `src/codex_agent/config.py`、`cli.py` | 新 Console 配置、内网监听、删除 token-file 必填与回环强制限制 |
 | `src/codex_agent/deployment.py`、`release.py` | unit 参数、去除 Console event_dir/token 依赖；保留模型凭据和 Host/平台发布核验 |
-| `config/agent.example.json`、`deploy/galatea-codex-agent.service` | 同步新配置与启动命令 |
+| `config/agent.example.json`、`deploy/codex-agent.service` | 同步新配置与启动命令 |
 | `pyproject.toml` | 更新不再适用的 Console 产品描述；维持现有运行时依赖清单 |
 | `tests/*`、`README.md`、`docs/*` | 更新现行契约、回归与部署说明，删除已经失效的 JSONL/Token 使用步骤 |
 

@@ -1,6 +1,7 @@
 // Source: assistant-ui/assistant-ui @ 2bdd534a3d8da45e6c7a9ee6553862b83713059d (MIT). See UPSTREAM.md.
 "use client";
 
+import { ProjectSidebar } from "@/project-controls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,19 +41,13 @@ export const ThreadList: FC<{ navigation?: React.ReactNode }> = ({
   navigation,
 }) => {
   const [search, setSearch] = useState("");
-  const hasThreads = useAuiState((s) => s.threads.threadIds.length > 0);
 
   return (
     <ThreadListRoot>
       <ThreadListNew />
       <ThreadListSearch value={search} onValueChange={setSearch} />
       {navigation}
-      {hasThreads && (
-        <p className="px-2.5 pb-1 pt-5 text-xs text-muted-foreground">
-          项目会话
-        </p>
-      )}
-      <ThreadListItems searchQuery={hasThreads ? search : ""} />
+      <ProjectSidebar search={search} ThreadItem={ThreadListItem} />
     </ThreadListRoot>
   );
 };
@@ -276,7 +271,12 @@ const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
         data-slot="aui_thread-list-group-label"
         className="sidebar-project-toggle text-muted-foreground px-2.5 pt-3 pb-1 text-xs font-medium"
         aria-expanded={!!query || !collapsed[group.label]}
-        onClick={() => setCollapsed(previous => ({ ...previous, [group.label]: !previous[group.label] }))}
+        onClick={() =>
+          setCollapsed((previous) => ({
+            ...previous,
+            [group.label]: !previous[group.label],
+          }))
+        }
       >
         <span className="sidebar-group-name" title={group.label}>
           <FolderIcon size={13} />
@@ -284,13 +284,14 @@ const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
         </span>
         <ChevronRightIcon className="sidebar-project-chevron" size={12} />
       </button>
-      {(query || !collapsed[group.label]) && group.indices.map((index) => (
-        <ThreadListPrimitive.ItemByIndex
-          key={threadIds[index]}
-          index={index}
-          components={{ ThreadListItem }}
-        />
-      ))}
+      {(query || !collapsed[group.label]) &&
+        group.indices.map((index) => (
+          <ThreadListPrimitive.ItemByIndex
+            key={threadIds[index]}
+            index={index}
+            components={{ ThreadListItem }}
+          />
+        ))}
     </Fragment>
   ));
 };

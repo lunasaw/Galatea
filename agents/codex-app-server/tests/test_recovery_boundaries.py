@@ -17,7 +17,7 @@ class RecoveryBoundaryTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.store = AtomicJsonStore(Path(self.tmp.name))
         self.journal = OperationJournal(self.store)
-        self.catalog = Catalog.load(ROOT / 'config/contracts')
+        self.catalog = Catalog.load(ROOT / 'tests/fixtures/dynamic-tools')
         self.calls = []
         self.result = {'safe': True}
         def handler(*args):
@@ -41,8 +41,9 @@ class RecoveryBoundaryTests(unittest.TestCase):
         self.assertEqual(result['error']['state_changed'], 'unknown')
         self.assertEqual(len(self.calls), 1)
 
-    def test_scope_is_enforced_before_handler(self):
-        result = self.registry.call(self.context, 'galatea_inspect_project', {'project_id': 'outside'})
+    def test_actions_are_enforced_before_handler(self):
+        from dataclasses import replace
+        result = self.registry.call(replace(self.context, actions=frozenset()), 'galatea_inspect_project', {'project_id': 'outside'})
         self.assertEqual(result['error']['category'], 'forbidden')
         self.assertFalse(self.calls)
 

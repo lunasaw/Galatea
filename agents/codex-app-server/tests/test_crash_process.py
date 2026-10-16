@@ -43,11 +43,11 @@ registry.call(ToolContext('s','t','turn','call','p',actions=frozenset({'*'})), '
 
 class CrashProcessTests(unittest.TestCase):
     def test_each_crash_window_prevents_handler_reexecution_after_restart(self):
-        catalog=Catalog.load(ROOT/'config/contracts')
+        catalog=Catalog.load(ROOT/'tests/fixtures/dynamic-tools')
         for window,code in (('intent',91),('handler',92),('receipt',93)):
             with self.subTest(window=window),tempfile.TemporaryDirectory() as directory:
                 root=Path(directory)
-                result=subprocess.run([sys.executable,'-c',CHILD,directory,str(ROOT/'config/contracts'),window],
+                result=subprocess.run([sys.executable,'-c',CHILD,directory,str(ROOT/'tests/fixtures/dynamic-tools'),window],
                     env={**os.environ,'PYTHONPATH':str(ROOT/'src')},capture_output=True,timeout=10)
                 self.assertEqual(result.returncode,code,result.stderr.decode())
                 calls=[]

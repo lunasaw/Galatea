@@ -12,7 +12,7 @@ const { GalateaController } = await import(moduleUrl('tools/controller.ts'));
 const { ProjectProcessService } = await import(moduleUrl('services/project-process.ts'));
 const { RayJobsService } = await import(moduleUrl('services/ray.ts'));
 const { MlflowService } = await import(moduleUrl('services/mlflow.ts'));
-const [mode, configPath, releaseManifest, permissionPreset, attempt] = process.argv.slice(2);
+const [mode, configPath, releaseManifest, permissionPreset, attempt, candidateRunId] = process.argv.slice(2);
 if (!['plan', 'submit'].includes(mode) || !configPath || !releaseManifest) {
     throw new Error('Usage: node job/governed.mjs plan|submit configs/smoke.yaml /absolute/release.json [danger-full-access]');
 }
@@ -40,14 +40,21 @@ for (const [name, value] of [['RAY_API_SERVER_ADDRESS', rayApiServer], ['MLFLOW_
     }
 }
 const releaseRoot = resolve(repoRoot, '../platform-data/ray-cats-and-dogs-release');
+const manifest = await loadProjectManifest(resolve(projectRoot, 'galatea.project.yaml'));
+const projectProcess = new ProjectProcessService({ timeoutMs: 300_000 });
+const mlflow = new MlflowService({ baseUrl: mlflowTrackingUri });
 const controller = new GalateaController({
     projectRoot, releaseRoot,
-    manifest: await loadProjectManifest(resolve(projectRoot, 'galatea.project.yaml')),
-    process: new ProjectProcessService({ timeoutMs: 300_000 }),
+    manifest,
+    process: projectProcess,
     ray: new RayJobsService({ baseUrl: rayApiServer }),
-    mlflow: new MlflowService({ baseUrl: mlflowTrackingUri }),
+    mlflow,
 });
-const role = configPath.includes('smoke') ? 'smoke' : 'trial';
+const role = configPath.includes('champion') ? 'champion' : configPath.includes('smoke') ? 'smoke' : 'trial';
+if (role === 'champion' && mode === 'submit' && !/^[a-f0-9]{32}$/.test(candidateRunId ?? '')) {
+    throw new Error('Champion requires the selected eligible Trial Run ID as the sixth argument');
+}
+if (role !== 'champion' && candidateRunId) throw new Error('Candidate binding applies only to Champion');
 const input = { configPath, releaseManifestPath: relative(releaseRoot, releaseManifest), role, attempt };
 const planned = await controller.planRun(input);
 if (!planned.ok) throw new Error(JSON.stringify(planned));
@@ -60,8 +67,20 @@ if (mode === 'plan') {
 } else {
     const evidence = planned.data.evidence;
     const authorization = { kind: 'full-access', permissionPreset, stage: evidence.stage, artifactId: evidence.artifactId, evidenceDigest: evidence.digest };
-    const submitted = await controller.submitJob({ ...input, authorization });
-    await writeFile(resolve(evidenceRoot, `${role}-${attempt}-submission.json`), JSON.stringify({ target, authorization, submitted }, null, 2) + '\n');
+    let candidate;
+    let candidateAuthorization;
+    if (role === 'champion') {
+        const { freezeCandidate } = await import('./finalization.mjs');
+        candidate = await freezeCandidate({ controller, mlflow, process: projectProcess, manifest, projectRoot, planned: planned.data, candidateRunId });
+        const bound = candidate.evidence;
+        candidateAuthorization = { kind: 'full-access', permissionPreset, stage: bound.stage, artifactId: bound.artifactId, evidenceDigest: bound.digest };
+        await writeFile(resolve(evidenceRoot, `${role}-${attempt}-freeze.json`), JSON.stringify(candidate, null, 2) + '\n');
+    }
+    const submitted = await controller.submitJob({
+        ...input, authorization,
+        ...(candidate ? { candidateRunId, candidateAuthorization } : {}),
+    });
+    await writeFile(resolve(evidenceRoot, `${role}-${attempt}-submission.json`), JSON.stringify({ target, authorization, candidateAuthorization, submitted }, null, 2) + '\n');
     if (!submitted.ok) throw new Error(JSON.stringify(submitted));
     console.log(JSON.stringify({ target, submitted }, null, 2));
 }

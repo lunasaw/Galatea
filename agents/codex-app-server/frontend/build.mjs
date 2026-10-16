@@ -111,7 +111,7 @@ for (const input of Object.keys(result.metafile.inputs)) {
   }
 }
 const notices =
-  "Third-party notices for the Galatea Console bundle\n\n" +
+  "Third-party notices for the Codex Agent Console bundle\n\n" +
   "Vendored assistant-ui components (MIT), commit 2bdd534a3d8da45e6c7a9ee6553862b83713059d\n" +
   (await readFile("licenses/assistant-ui-components.txt", "utf8")) +
   "\n\n" +

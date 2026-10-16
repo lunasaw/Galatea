@@ -209,7 +209,12 @@ test('MLflow service paginates Runs, metric history, and Artifact listings', asy
 test('MLflow Artifact verification reads proxy bytes and checks digest and size', async () => {
   const artifact = Buffer.from('model-bytes')
   const server = await mockServer((request, response) => {
-    if (request.path.startsWith('/api/2.0/mlflow-artifacts/artifacts/model.bin')) {
+    if (request.path === '/api/2.0/mlflow/runs/get?run_id=run-1') {
+      return void json(response, { run: { info: {
+        run_id: 'run-1', artifact_uri: 'mlflow-artifacts:/2/run-1/artifacts',
+      } } })
+    }
+    if (request.path === '/api/2.0/mlflow-artifacts/artifacts/2/run-1/artifacts/model.bin') {
       response.writeHead(200, { 'content-type': 'application/octet-stream' })
       response.end(artifact)
       return
@@ -226,6 +231,51 @@ test('MLflow Artifact verification reads proxy bytes and checks digest and size'
       runId: 'run-1', path: 'model.bin', size: 11,
       digest: 'sha256:357e5d6fafa34d27360fec24b4326d3534905e33c6acdee60198fb078b7b79e5', verified: true,
     })
+    await assert.rejects(mlflow.verifyArtifact({
+      runId: 'run-1', path: 'model.bin', expectedDigest: `sha256:${'0'.repeat(64)}`,
+    }), (error: unknown) => error instanceof HttpServiceError && error.category === 'integrity-error')
+    await assert.rejects(new MlflowService({ baseUrl: server.baseUrl, maxArtifactBytes: 10 })
+      .getArtifact({ runId: 'run-1', path: 'model.bin' }), /size limit/)
+  } finally {
+    await server.close()
+  }
+})
+
+test('MLflow Artifact roots honor proxy paths and reject unsafe or external locations before downloading', async () => {
+  let artifactUri: string | undefined
+  const server = await mockServer((request, response) => {
+    if (request.path.includes('/mlflow/runs/get?run_id=run-1')) {
+      return void json(response, { run: { info: { run_id: 'run-1', artifact_uri: artifactUri } } })
+    }
+    response.end('verified')
+  })
+  try {
+    const mlflow = new MlflowService({ baseUrl: `${server.baseUrl}/tracking`, token: 'private-token' })
+    for (const [uri, expected] of [
+      ['mlflow-artifacts:/2/run-1/artifacts', '/tracking/api/2.0/mlflow-artifacts/artifacts/2/run-1/artifacts/reports/a%20b.json'],
+      [`mlflow-artifacts://${new URL(server.baseUrl).host}/2/run-1/artifacts`,
+        '/tracking/api/2.0/mlflow-artifacts/artifacts/2/run-1/artifacts/reports/a%20b.json'],
+      [`${server.baseUrl}/custom-artifacts/2/run-1/artifacts`, '/custom-artifacts/2/run-1/artifacts/reports/a%20b.json'],
+    ]) {
+      artifactUri = uri
+      const artifact = await mlflow.getArtifact({ runId: 'run-1', path: 'reports/a b.json' })
+      assert.equal(Buffer.from(artifact.bytes).toString(), 'verified')
+      assert.equal(server.requests.at(-1)?.path, expected)
+      assert.equal(server.requests.at(-1)?.authorization, 'Bearer private-token')
+    }
+    for (const uri of [
+      undefined, 's3://bucket/run/artifacts', 'file:///tmp/artifacts',
+      'mlflow-artifacts://other.example/2/run/artifacts', 'https://other.example/artifacts',
+      'mlflow-artifacts:/2/../other', 'mlflow-artifacts:/2/%2e%2e/other',
+      'mlflow-artifacts:/2/%2fother', 'mlflow-artifacts:/2/run?secret=value',
+      'mlflow-artifacts:/2/run#fragment', `${server.baseUrl.replace('://', '://user:password@')}/artifacts`,
+    ]) {
+      artifactUri = uri
+      const previous = server.requests.length
+      await assert.rejects(mlflow.getArtifact({ runId: 'run-1', path: 'model.bin' }),
+        (error: unknown) => error instanceof HttpServiceError && error.category === 'integrity-error')
+      assert.equal(server.requests.length, previous + 1, 'unsafe roots must only query Run metadata')
+    }
   } finally {
     await server.close()
   }

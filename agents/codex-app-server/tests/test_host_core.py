@@ -54,7 +54,7 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         root = Path(self.directory.name)
         self.store = AtomicJsonStore(root / "state")
         self.events = EventLog()
-        self.catalog = Catalog.load(ROOT / "config/contracts")
+        self.catalog = Catalog.load(ROOT / "tests/fixtures/dynamic-tools")
         self.calls = []
 
         def handler(context, arguments):
@@ -66,7 +66,7 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         self.client = FakeClient()
         self.host = AgentHost(registry=registry, event_log=self.events, store=self.store,
                               client_factory=lambda: self.client, reconciler=lambda: None,
-                              principal_id="p", project_ids={"project"}, campaign_ids={"campaign"},
+                              principal_id="p",
                               actions={"galatea_get_capabilities"})
         await self.host.start()
 
@@ -175,7 +175,7 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         await self.host.stop()
         replacement = AgentHost(registry=self.host.registry, event_log=self.events, store=self.store,
                                 client_factory=lambda: self.client, reconciler=lambda: None,
-                                principal_id="p", project_ids={"project"}, campaign_ids={"campaign"},
+                                principal_id="p",
                                 actions={"galatea_get_capabilities"})
         await replacement.start()
         response = await replacement.handle_tool_call({"id": 9, "params": {

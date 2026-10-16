@@ -23,8 +23,8 @@ export function ThreadListSidebar({
   navigation?: React.ReactNode;
 }) {
   return (
-    <Sidebar className="border-0" {...props}>
-      <SidebarHeader className="aui-sidebar-header mb-2">
+    <Sidebar className="workbench-sidebar" {...props}>
+      <SidebarHeader className="aui-sidebar-header">
         <div className="aui-sidebar-header-content flex items-center justify-between">
           <SidebarMenu>
             <SidebarMenuItem>

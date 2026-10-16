@@ -41,7 +41,6 @@ export type Step = {
   completed_at?: string;
   item_id?: string;
   [key: `summary_${number}`]: string | undefined;
-  job?: { job_id?: string; status?: string };
 };
 export type Turn = {
   id: string;

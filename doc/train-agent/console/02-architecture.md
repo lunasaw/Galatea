@@ -1,5 +1,10 @@
 # 02 架构与职责
 
+> **历史 Console 设计（2026-10-16 标注）**：下文“当前/本期/首版”指重构前版本，
+> 不作为现行功能或部署依据。当前为通用 Host，无内置 Galatea Adapter；
+> Skill/MCP、前端构建和 SQLite 观察存储以现行组件文档为准。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+
 本期定位是“训练 Agent 的网页聊天与追踪台”。改造范围限于现有 Galatea Python Host 内的
 HTTP/SSE、浏览器页面、协议观察和内存投影；不改造 Codex 模型或 Agent Loop，不接入 Skill，
 不新增训练/推理后端。页面调用仍由既有 Host、Runtime 和 Galatea 工具链完成。

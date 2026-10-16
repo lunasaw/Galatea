@@ -29,13 +29,12 @@ class ConsoleConfigTests(unittest.TestCase):
             with self.subTest(console=console), self.assertRaises(ValueError):
                 AgentConfig.from_dict(raw, Path('/tmp/config'))
         raw = self.raw(); raw['paths']['event_dir'] = 'events'
-        with self.assertRaisesRegex(ValueError, 'event_dir.*removed'):
+        with self.assertRaisesRegex(ValueError, 'invalid paths fields'):
             AgentConfig.from_dict(raw, Path('/tmp/config'))
 
     def test_cli_overrides_config_without_bypassing_release_check(self):
         config = AgentConfig.from_dict(self.raw(), Path('/tmp/config'))
         with patch('codex_agent.cli.load_config', return_value=(config, config.raw)), patch('codex_agent.cli.check') as check, \
-             patch('codex_agent.platform.build_service', return_value=(object(), object())), \
              patch('codex_agent.app.build_host', return_value=(object(), object())), patch('uvicorn.run') as run:
             main(['--config', '/tmp/config/agent.json', 'serve', '--host', '10.1.2.3', '--port', '19000'])
             check.assert_called_once()

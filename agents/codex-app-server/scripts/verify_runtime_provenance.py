@@ -62,7 +62,7 @@ def collect(package: Path, output: Path):
     installed_tree=package_manifest(package)
     if installed_tree!=package_manifest(downloaded):
         raise GateError('installed runtime differs from signed registry artifact')
-    report={'schema_version':'galatea.runtime-provenance/v1','status':'passed',**binding,
+    report={'schema_version':'codex-agent.runtime-provenance/v1','status':'passed',**binding,
             'verification':'npm-audit-signatures-and-sigstore-attestations',
             'codex_version':'codex-cli '+version,'runtime_package_tree_sha256':installed_tree['sha256'],
             'runtime_binary_sha256':file_sha256(package/'bin/codex'),

@@ -44,6 +44,13 @@ class ManagedProcess:
             notification=notification, on_failure=on_failure, observer=self.observer,
             diagnostic=self.diagnostic, runtime_instance_id=uuid.uuid4().hex))
         await self.client.initialize()
+        if self.config.skill_roots:
+            for root in self.config.skill_roots:
+                if not root.is_dir():
+                    raise ValueError('configured skill root is not a directory')
+            await self.client.peer.request('skills/extraRoots/set', {
+                'extraRoots': [str(root) for root in self.config.skill_roots],
+            })
         return self.client
 
     async def stop(self):

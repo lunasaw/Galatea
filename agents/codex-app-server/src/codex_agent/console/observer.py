@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
 
-native_context = ContextVar('galatea_observation_context', default=None)
+native_context = ContextVar('codex_observation_context', default=None)
 
 
 @contextmanager

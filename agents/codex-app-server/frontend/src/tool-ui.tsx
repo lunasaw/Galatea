@@ -15,11 +15,14 @@ import {
   ChevronRight,
   Users,
   Layers,
+  BookOpen,
+  Folder,
 } from "lucide-react";
 import { ToolFallback } from "./components/assistant-ui/elements/tool-fallback.aui";
 import { toolState } from "./messages";
 import type { Step } from "./types";
-import { openFile } from "./workspace-file";
+import { WorkspaceFileScope, WorkspaceLink } from "./workspace-file";
+import { commandActions } from "./command-actions";
 
 const object = (v: unknown): Record<string, any> =>
   v && typeof v === "object" ? (v as Record<string, any>) : {};
@@ -35,6 +38,7 @@ export function CodexToolFallback(props: ToolCallMessagePartProps) {
   const d = object(step.detail);
   const state = toolState(step);
   const pending = state === "running" && props.status.type !== "running";
+  const actions = step.type === "commandExecution" ? commandActions(d) : [];
   const label =
     step.type === "warning"
       ? "提示"
@@ -50,7 +54,13 @@ export function CodexToolFallback(props: ToolCallMessagePartProps) {
             }[state];
   const Icon =
     step.type === "commandExecution"
-      ? Terminal
+      ? actions[0]?.type === "read"
+        ? BookOpen
+        : actions[0]?.type === "search"
+          ? Search
+          : actions[0]?.type === "listFiles"
+            ? Folder
+            : Terminal
       : step.type === "fileChange"
         ? FileDiff
         : step.type === "webSearch"
@@ -90,9 +100,49 @@ export function CodexToolFallback(props: ToolCallMessagePartProps) {
       <summary data-slot="tool-fallback-trigger">
         <Icon size={15} aria-hidden />
         <span className="native-activity-title" title={title}>
-          {title}
+          {actions.length ? (
+            <WorkspaceFileScope cwd={typeof d.cwd === "string" ? d.cwd : ""}>
+              {actions.map((action, index) => (
+                <span key={index}>
+                  {index > 0 ? " · " : ""}
+                  {action.type === "read" ? (
+                    <>
+                      {state === "complete"
+                        ? "已读取 "
+                        : state === "running" && !pending
+                          ? "正在读取 "
+                          : "读取 "}
+                      {action.path ? (
+                        <WorkspaceLink href={action.path}>
+                          {action.name || action.path.split("/").at(-1)}
+                        </WorkspaceLink>
+                      ) : (
+                        action.name || "文件"
+                      )}
+                    </>
+                  ) : action.type === "search" ? (
+                    <>
+                      {state === "complete" ? "已在" : "在"}{" "}
+                      {action.path || "工作目录"} 搜索
+                      {action.query ? ` “${action.query}”` : "文件"}
+                    </>
+                  ) : (
+                    <>
+                      {state === "complete" ? "已浏览" : "浏览"}{" "}
+                      {action.path || "工作目录"}
+                    </>
+                  )}
+                </span>
+              ))}
+            </WorkspaceFileScope>
+          ) : (
+            title
+          )}
         </span>
-        <span className="native-activity-status">
+        <span
+          className="native-activity-status"
+          data-complete={state === "complete"}
+        >
           {state === "running" && !pending ? (
             <LoaderCircle className="animate-spin" size={12} />
           ) : state === "failed" ? (
@@ -122,12 +172,7 @@ export function CodexToolFallback(props: ToolCallMessagePartProps) {
         ) : step.type === "fileChange" ? (
           (d.changes || []).map((change: any, i: number) => (
             <div key={i} className="native-file-change">
-              <button
-                className="workspace-file-link"
-                onClick={() => openFile(change.path)}
-              >
-                {change.path}
-              </button>
+              <WorkspaceLink href={change.path}>{change.path}</WorkspaceLink>
               <pre className="native-diff">
                 {String(change.diff || "")
                   .split("\n")

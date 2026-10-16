@@ -13,7 +13,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '../frontend/node_mo
     const shot=async name=>{if(process.env.CONSOLE_SCREENSHOTS){fs.mkdirSync(process.env.CONSOLE_SCREENSHOTS,{recursive:true});await page.mouse.move(0,0);await page.waitForTimeout(300);await page.screenshot({path:path.join(process.env.CONSOLE_SCREENSHOTS,name+'.png')});}};
     await page.goto(process.env.CONSOLE_TEST_URL);
     await page.getByRole('heading',{name:'今天想构建什么？'}).waitFor();
-    assert.equal(await page.getByRole('button', {name:'添加图片',exact:true}).count(), 1);
+    assert.equal(await page.getByRole('button', {name:'添加图片或文本文件',exact:true}).count(), 1);
     await shot('welcome');
     const search = page.getByRole('searchbox', {name:'搜索会话'});
     await search.fill('does-not-exist');

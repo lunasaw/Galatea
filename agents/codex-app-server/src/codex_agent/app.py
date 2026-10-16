@@ -1,38 +1,29 @@
-"""Assembly helpers for a single Agent Host instance.
-
-The module intentionally accepts an already-constructed Galatea Service. This
-keeps credentials and backend construction in deployment code rather than in
-the Console or model process.
-"""
+"""Assemble a generic native Codex runtime and optional tool extensions."""
 from __future__ import annotations
 
 import asyncio
 
-from .catalog import Catalog, digest
+from .catalog import digest
 from .console.server import ConsoleApp
 from .events import EventLog
-from .galatea_adapter import GalateaAdapter
+from .providers import ProviderSet
 from .host import AgentHost
 from .process import ManagedProcess
 from .registry import ToolRegistry
-from .state import AtomicJsonStore, OperationJournal
+from .state import AtomicJsonStore, OperationJournal, payload_digest
 from .release import verify_release
 from .stage0 import GateError, file_sha256
 
 
-def build_host(config, service, principal, *, development=False):
-    if (principal.principal_id, principal.project_ids, principal.campaign_ids, principal.actions) != (
-            config.principal_id, config.project_ids, config.campaign_ids, config.actions):
-        raise GateError("backend principal differs from Host configuration")
-    catalog = Catalog.load(config.contracts.parent)
-    adapter = GalateaAdapter(service, principal=principal)
+def build_host(config, *, development=False):
+    catalog = config.catalog()
+    providers = ProviderSet()
     store = AtomicJsonStore(config.state_dir)
     from .console.adapters.sqlite import SqliteConsoleObservationStore
     events = EventLog(SqliteConsoleObservationStore(config.state_dir / 'console.sqlite3')
                       if config.raw.get('console', {}).get('storage', {}).get('backend') == 'sqlite' else None)
     process = ManagedProcess(config, observer=events.observer, diagnostic=events.diagnostic)
-    registry = ToolRegistry(catalog, OperationJournal(store),
-                            adapter.handlers(catalog.schemas))
+    registry = ToolRegistry(catalog, OperationJournal(store))
     host = None
     accepted = {}
 
@@ -42,9 +33,11 @@ def build_host(config, service, principal, *, development=False):
             manifest = await asyncio.to_thread(source_manifest, config)
         else:
             manifest = await asyncio.to_thread(verify_release, config)
+        providers.load(config.providers, catalog)
+        registry.bind_handlers(providers.handlers)
         accepted.update(manifest)
         keys = ("runtime_binary_sha256", "runtime_compatibility_sha256",
-                "effective_config_sha256", "agent_config_sha256")
+                "effective_config_sha256", "agent_config_sha256", "extensions_sha256")
         host.bindings.update({key: manifest[key] for key in keys})
 
     async def start_process():
@@ -76,14 +69,12 @@ def build_host(config, service, principal, *, development=False):
             host._save(session)
 
     def reconcile():
-        adapter.reconcile_all()
-        registry.reconcile_unknown(adapter.observe_receipt)
+        providers.reconcile(registry, config_digest=payload_digest(host.bindings))
 
     host = AgentHost(registry=registry, event_log=events, store=store,
                      client_factory=start_process, reconciler=reconcile,
-                     principal_id=principal.principal_id, project_ids=set(principal.project_ids),
-                     campaign_ids=set(principal.campaign_ids), actions=set(principal.actions),
+                     principal_id=config.principal_id, actions=set(config.actions),
                      max_active_turns=config.max_active_turns, workspace_dir=config.workspace_dir,
-                     client_stop=process.stop, admission_check=check_admission, startup_check=startup_check,
+                     client_stop=process.stop, extensions_close=providers.close, admission_check=check_admission, startup_check=startup_check,
                      configuration_changed=configuration_changed if development else None)
     return host, ConsoleApp(host, events)

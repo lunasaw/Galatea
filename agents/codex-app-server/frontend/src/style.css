@@ -469,6 +469,95 @@ summary > svg:last-child {
   font-size: 0.7rem;
   color: var(--muted-foreground);
 }
+.integration-panel {
+  overflow-wrap: anywhere;
+}
+.integration-muted,
+.integration-path {
+  color: var(--muted-foreground);
+}
+.integration-path {
+  display: block;
+  margin: 0.5rem 0;
+  font-size: 0.75rem;
+}
+.integration-toolbar,
+.integration-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.integration-toolbar {
+  margin: 1rem 0 0.5rem;
+}
+.integration-search {
+  flex: 1 1 180px;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--input);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--background);
+}
+.integration-badge {
+  font-size: 0.7rem;
+  border-radius: 0.3rem;
+  padding: 0.12rem 0.4rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+.integration-badge[data-state="connected"] {
+  color: #15713e;
+  background: #e9f6ee;
+}
+.integration-badge[data-state="failed"],
+.integration-badge[data-state="authenticationRequired"] {
+  color: #994400;
+  background: #fff1e5;
+}
+.integration-error {
+  color: var(--destructive) !important;
+  white-space: pre-wrap;
+  margin: 0.6rem 0;
+}
+.integration-status:empty {
+  display: none;
+}
+.integration-status,
+.integration-empty {
+  margin: 0.7rem 0;
+  color: var(--muted-foreground);
+}
+.integration-tool,
+.integration-apps li {
+  margin: 0.6rem 0;
+}
+.integration-tool p {
+  margin: 0.2rem 0;
+}
+.integration-auth,
+.integration-detail {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.8rem;
+  margin-top: 0.8rem;
+}
+.integration-detail h3,
+.integration-marketplace h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.integration-marketplace {
+  margin-top: 1.2rem;
+}
+.integration-detail h4 {
+  font-weight: 600;
+  margin-top: 1rem;
+}
+.integration-detail .integration-heading {
+  justify-content: space-between;
+}
 .native-terminal {
   background: #181818;
   color: #e7e7e7;

@@ -114,6 +114,32 @@ class NativeWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.host.send_message('multimodal', 'override', 'x', options={'threadId': 'other'})
 
+    async def test_mcp_reload_requires_null_through_http_bridge(self):
+        self.client.peer = type('Peer', (), {'healthy': True})()
+        self.client.peer.request = AsyncMock(return_value={})
+        app = ConsoleApp(self.host, self.events)
+        response = await call(app, 'POST', '/api/native/call',
+            {'method': 'config/mcpServer/reload', 'params': None}, {'idempotency-key': 'reload-null'})
+        self.assertEqual(response[0]['status'], 200)
+        self.client.peer.request.assert_awaited_once_with('config/mcpServer/reload', None, timeout=60)
+        response = await call(app, 'POST', '/api/native/call',
+            {'method': 'config/mcpServer/reload', 'params': {}}, {'idempotency-key': 'reload-object'})
+        self.assertEqual(response[0]['status'], 409)
+        self.assertEqual(self.client.peer.request.await_count, 1)
+
+    async def test_plugin_reconcile_obeys_release_immutability_and_updates_dev_binding(self):
+        self.client.peer = type('Peer', (), {'healthy': True})()
+        self.client.peer.request = AsyncMock(return_value={
+            'changedPlugins': [], 'failedRemotePluginIds': [], 'failedMaterializationRemotePluginIds': []})
+        self.host.configuration_changed = None
+        with self.assertRaisesRegex(ValueError, 'immutable release'):
+            await self.host.native.call('plugin/reconcile', {'reason': 'user'}, 'immutable-reconcile')
+        self.client.peer.request.assert_not_awaited()
+        self.host.configuration_changed = AsyncMock()
+        await self.host.native.call('plugin/reconcile', {'reason': 'user'}, 'dev-reconcile')
+        self.client.peer.request.assert_awaited_once()
+        self.host.configuration_changed.assert_awaited_once()
+
     async def test_import_running_native_thread_tracks_lifecycle_without_replaying_turn(self):
         self.client.peer = type('Peer', (), {'healthy': True})()
         self.client.peer.request = AsyncMock(return_value={'thread': {'id': 'child-thread', 'cwd': '/fixture',

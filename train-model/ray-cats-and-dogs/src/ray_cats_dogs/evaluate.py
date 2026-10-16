@@ -12,7 +12,32 @@ def evaluate_checkpoint(
     pet_images_root: str,
     image_size: tuple[int, int],
     batch_size: int,
+    claim_root: str | None = None,
+    claim_binding: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    import hashlib
+
+    from ray_cats_dogs.finalization import claim_test_once
+
+    if not claim_root or not claim_binding:
+        raise RuntimeError("Final evaluation requires a frozen candidate and test-once claim")
+    with checkpoint.as_directory() as checkpoint_directory:
+        digest = hashlib.sha256(
+            (Path(checkpoint_directory) / "best-model.pt").read_bytes()
+        ).hexdigest()
+    if digest != claim_binding.get("checkpoint_sha256"):
+        raise RuntimeError("Evaluation checkpoint differs from frozen candidate")
+    # The atomic, fsync'ed marker precedes any test dataset construction/read.
+    # It survives worker/Job failures and is never automatically released.
+    claim = claim_test_once(Path(claim_root), claim_binding)
+    for record in test_records:
+        relative = Path(record["relative_path"])
+        if relative.is_absolute() or ".." in relative.parts:
+            raise RuntimeError("Invalid final test path")
+        source = Path(pet_images_root) / relative
+        if hashlib.sha256(source.read_bytes()).hexdigest() != record["sha256"]:
+            raise RuntimeError("Test sample content differs from frozen manifest")
+
     import numpy as np
     import pandas as pd
     import torch
@@ -114,6 +139,7 @@ def evaluate_checkpoint(
         )
     ]
     return {
+        "test_once_claim": claim,
         "metrics": metrics,
         "classification_report": classification_report(
             labels_array,

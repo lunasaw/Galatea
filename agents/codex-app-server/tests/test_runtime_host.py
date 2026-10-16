@@ -21,22 +21,17 @@ from codex_agent.state import AtomicJsonStore, OperationJournal
 from codex_agent.console.models import EventQuery, SnapshotQuery
 
 
-@unittest.skipUnless(os.environ.get('GALATEA_TEST_RUNTIME_PACKAGE'), 'real runtime opt-in required')
+@unittest.skipUnless(os.environ.get('CODEX_TEST_RUNTIME_PACKAGE'), 'real runtime opt-in required')
 class RealHostTests(unittest.IsolatedAsyncioTestCase):
     async def test_native_tool_completion_and_cross_process_resume(self):
-        with tempfile.TemporaryDirectory() as directory, MockModel() as model:
+        with tempfile.TemporaryDirectory() as directory, MockModel("galatea", "galatea_get_capabilities", {"protocol_version": "galatea.tools/v1"}) as model:
             root = Path(directory)
-            package = Path(os.environ['GALATEA_TEST_RUNTIME_PACKAGE'])
+            package = Path(os.environ['CODEX_TEST_RUNTIME_PACKAGE'])
             (root / 'codex-home').mkdir()
             (root / 'codex-home/config.toml').write_text(mock_config(model.server.server_port))
-            config = AgentConfig.from_dict({'schema_version': 'codex-agent/v1', 'paths': {
-                'codex_home': 'codex-home', 'runtime_dir': str(package), 'state_dir': 'state',
-                'workspace_dir': 'workspace', 'contracts': str(ROOT / 'config/contracts/tools.json'),
-                'catalog_metadata': str(ROOT / 'config/contracts/catalog-metadata.json')},
-                'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.154.0'},
-                'galatea': {'principal': {'principal_id': 'p', 'actions': ['galatea_get_capabilities']}}}, root)
-            catalog = Catalog.load(config.contracts.parent)
-            compatibility = RuntimeContract.load(config.contracts.parent / 'runtime-compatibility.json', catalog)
+            config = AgentConfig.from_dict({'schema_version': 'codex-agent/v2', 'paths': {'codex_home': 'codex-home', 'runtime_dir': str(package), 'state_dir': 'state', 'workspace_dir': 'workspace'}, 'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.154.0'}, 'agent': {'id': 'p'}, 'tools': {'catalog_dir': str(ROOT / 'tests/fixtures/dynamic-tools'), 'actions': ['galatea_get_capabilities'], 'providers': [{'path': str(ROOT / 'tests/fixtures/dynamic-tools/provider.py')}]}}, root)
+            catalog = Catalog.load(config.catalog_dir)
+            compatibility = RuntimeContract.load(config.catalog_dir / 'runtime-compatibility.json', catalog)
             store, events, calls = AtomicJsonStore(config.state_dir), EventLog(), []
             def handler(context, args):
                 calls.append(context.call_id)
@@ -47,7 +42,7 @@ class RealHostTests(unittest.IsolatedAsyncioTestCase):
                 async def start():
                     return await process.start(host.handle_tool_call, notification=host.handle_notification, on_failure=host.runtime_failed)
                 host = AgentHost(registry=registry, event_log=events, store=store, client_factory=start,
-                    client_stop=process.stop, reconciler=lambda: None, principal_id='p', project_ids=set(), campaign_ids=set(),
+                    client_stop=process.stop, reconciler=lambda: None, principal_id='p',
                     actions={'galatea_get_capabilities'}, workspace_dir=config.workspace_dir)
                 return host
             async def completed(host):

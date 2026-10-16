@@ -4,6 +4,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
+
+from jsonschema import Draft202012Validator
 from pathlib import Path
 
 
@@ -18,10 +21,18 @@ def digest(value: object) -> str:
 
 class Catalog:
     def __init__(self, schemas: dict, metadata: dict):
-        if metadata.get("schema_version") != "galatea.catalog/v1" or metadata.get("namespace") != "galatea":
+        if metadata.get("schema_version") != "codex-agent.catalog/v1" or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", metadata.get("namespace", "")):
             raise ValueError("Unsupported catalog metadata")
-        if set(schemas) != set(metadata.get("tools", {})) or not schemas:
+        if set(schemas) != set(metadata.get("tools", {})):
             raise ValueError("Catalog metadata must cover the entire contract")
+        if not isinstance(metadata.get("description"), str):
+            raise ValueError("Namespace description is required")
+        for name, schema in schemas.items():
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                raise ValueError("Invalid tool name")
+            Draft202012Validator.check_schema(schema)
+            if schema.get("type") != "object":
+                raise ValueError("Tool input must be an object schema")
         for entry in metadata["tools"].values():
             if not isinstance(entry.get("description"), str) or not entry["description"].strip():
                 raise ValueError("An explicit description is required")
@@ -35,10 +46,18 @@ class Catalog:
         self.metadata = copy.deepcopy(metadata)
         self.digest = digest({"schemas": schemas, "metadata": metadata})
 
+    @property
+    def namespace(self):
+        return self.metadata["namespace"]
+
+    @classmethod
+    def empty(cls):
+        return cls({}, {"schema_version": "codex-agent.catalog/v1", "namespace": "host", "description": "Host tools", "tools": {}})
+
     @classmethod
     def load(cls, directory: Path) -> Catalog:
         contract = json.loads((directory / "tools.json").read_text())
-        if contract.get("schema_version") != "galatea.tools/v1":
+        if contract.get("schema_version") != "codex-agent.tools/v1":
             raise ValueError("Unsupported tool contract")
         return cls(contract["tools"], json.loads((directory / "catalog-metadata.json").read_text()))
 
@@ -48,7 +67,7 @@ class Catalog:
         names = sorted(self.schemas if "*" in actions else actions)
         if not names:
             return []
-        return [{"type": "namespace", "name": "galatea", "description": self.metadata["description"],
+        return [{"type": "namespace", "name": self.namespace, "description": self.metadata["description"],
                  "tools": [{"type": "function", "name": name,
                             "description": self.metadata["tools"][name]["description"],
                             "inputSchema": copy.deepcopy(self.schemas[name])} for name in names]}]

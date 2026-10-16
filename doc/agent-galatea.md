@@ -1,88 +1,114 @@
-# Codex 与 Galatea 平台架构
+# Galatea 与 Codex Agent 架构
 
-更新：2026-10-14。Agent Runtime 统一为 Codex。仓库工作流由 Codex 和 `.codex/skills/`
-驱动；Web Agent 使用 `agents/codex-app-server/` 托管原生 `codex app-server`。
-平台继续通过 Ray、MLflow 和 S3 API 提供执行、治理和持久化。
+更新：2026-10-16。以当前工作区源码、配置与契约为准。
 
-## 当前组件和调用关系
+本文说明当前仓库可由代码和项目契约确认的架构。Codex 是唯一 Agent Runtime；仓库没有
+DeepSeek Harness、`dsh-galatea` 插件或第二套 Agent Loop。Web Host 托管原生 Codex Runtime，
+Ray/MLflow 治理由独立的平台组件和项目固定入口负责。Web Host 的真实业务端到端训练联动
+仍须单独验收。
 
 ```mermaid
 flowchart LR
-    User[用户] --> Codex[Codex 仓库工作流]
-    Codex --> Skills[.codex/skills]
-    Skills --> Entry[项目固定治理入口]
-    Entry --> Governance[galatea-governance]
-    User --> Console[Web Console]
-    Console --> Host[Codex Agent Host]
-    Host <-->|stdio JSON-RPC| Runtime[codex app-server]
-    Host --> Registry[Dynamic Tool Registry]
-    Registry --> Service[galatea_mcp.Service]
-    Codex -->|可选 MCP transport| Service
-    Governance --> Ray[Ray Jobs API]
-    Governance --> MLflow[MLflow Tracking / Artifact API]
-    Service --> Ray
-    Service --> MLflow
-    Service --> S3[MinIO / S3 API]
+    User[用户 / 工程师] --> UI[Codex Agent Web 工作台]
+    UI --> Host[通用 Python Host · HTTP/SSE · 会话恢复]
+    Host --> AppServer[原生 codex app-server · 唯一 Agent Runtime]
+    Skills[工作区 / 配置的 Skill] --> AppServer
+    AppServer --> Native[原生文件 / Shell 工具]
+    AppServer --> MCP[原生 MCP 客户端]
+    AppServer --> Registry[Host Dynamic Tool Registry]
+    Registry --> Provider[可选 Python Tool Provider]
+    Native --> Project[仓库固定项目入口]
+    MCP -. 显式配置 .-> Campaign[独立 Galatea MCP · Campaign / 预算 / 证据]
+    Provider --> Service[Provider 自己配置的后端]
+    Project --> Governance[galatea-governance · YAML / Release / readiness]
+    Campaign --> Ray[Ray Jobs / Train]
+    Governance --> Ray
+    Ray --> MLflow[MLflow Tracking / Artifact / Registry API]
+    MLflow --> Store[MinIO / S3 Artifact]
 ```
 
-| 组件 | 职责 | 源码与文档 |
-| --- | --- | --- |
-| Codex | 原生 Agent Loop、Thread/Turn、Skill、sandbox 和审批 | [Codex Host](../agents/codex-app-server/README.md) |
-| Codex Agent Host | JSON-RPC 路由、持久化恢复、工具调用和带鉴权的 HTTP/SSE Console | [Host 架构](../agents/codex-app-server/docs/01-architecture.md) |
-| Python 平台治理服务 | Campaign/Principal、预算、提交幂等、最终测试标记、Job 与 Artifact 证据 | [galatea-mcp](../services/galatea-mcp/README.md) |
-| 项目治理库 | 项目 YAML、不可变 Release、Readiness、授权证据和固定 Ray 入口校验 | [galatea-governance](../packages/galatea-governance/README.md) |
-| Skill | 仓库方法与可独立发布的训练流程 | [仓库 Skill](../.codex/skills/)、[Skill 包](../packages/galatea-training-skills/README.md) |
-| Workload | 项目环境、数据/切分、固定 Driver、训练/评价和 Artifact | `train-model/<project>/` |
+## Agent Runtime 与 Web Host
 
-Host 的 17 个 Galatea 工具通过 Dynamic Tool Registry 直接调用 Python Service，
-不启动第二个 MCP transport。独立 MCP transport 仍可供 Codex 客户端使用；两者不能
-同时持有同一业务状态目录的 writer lock。Codex 负责模型推理和会话，平台库负责执行约束。
+- 原生 `codex app-server` 持有 Agent Loop、模型调用、Thread、Turn、Skill 执行、内建工具、
+  沙箱策略和审批交互。Host 通过 stdio JSON-RPC 管理子进程并实现 Web 工作台与事件投影。
+- `agents/codex-app-server/` 是通用 Host，不是 Agent Runtime 的替代实现，也不是 Galatea
+  插件。它提供 HTTP/SSE Console、运行时进程管理、通用会话状态与恢复，以及可选的
+  Dynamic Tool Registry。自定义 Python Provider 由管理员配置；没有配置时不暴露这些工具。
+- Skill 根目录从 `agent.json` 配置并交给原生 Codex；MCP transport、服务和凭据从受控
+  `codex-home/config.toml` 配置，由原生 Codex 连接。默认配置不包含业务 MCP；配置 stdio MCP 后，
+  原生 Codex 启动其子进程，HTTP MCP 则由外部服务独立运行。
+- Host 使用单一已配置身份，不是多租户授权系统。Console 面向受控网络；对外访问需由认证代理
+  或等价网络边界保护。
+- 当前 Host 配置版本是 `codex-agent/v2`，Runtime/API 协议锁定值见 Host 配置、兼容性证据
+  和部署文档。旧业务 Host 的配置、状态与接纳记录不自动迁移。
 
-## 仓库入口迁移
+## 两个独立的 Galatea 治理入口
 
-已删除旧 Agent 插件目录、对应 npm/peer 依赖、工具注册、Session/审批适配、服务 unit、
-专用运维文档和旧架构图。固定项目入口需要的领域校验及其六个测试套件迁至
-`packages/galatea-governance/`；运行依赖只有 `yaml`，没有 Agent Runtime 或模型客户端。
-`ray-cats-and-dogs/job/governed.mjs` 已改为导入该平台库。
+### 项目 YAML 固定入口
 
-猫狗项目继续使用已有 YAML/Release 契约和证据绑定。当前 Web Agent 使用独立的
-Campaign/Registry 契约；接入项目时必须登记兼容的 workload、Release、身份和预算。
-迁移平台库不等于已把所有 workload 注册到 Web Agent。
+仓库中的 `.codex/skills/` 工作流使用项目声明和固定执行入口。项目的
+`galatea.project.yaml`、不可变 Release、readiness、执行身份和证据由
+[`packages/galatea-governance`](../packages/galatea-governance/README.md) 等项目代码检查，
+实际入口由所属 `train-model/<project>/` 维护。治理库自身没有模型客户端、Agent Loop、
+Session、MCP transport 或 Host 插件接口。
 
-依赖安装与回归：
+对于声明 `executionBackend: ray` 的项目，所有 Training Run（包括 smoke、baseline、Trial、
+Champion 和重训）都必须通过项目固定的 Ray 治理入口；本地开发、短时运行、私有或
+`non-promotable` 标签不构成绕过理由。主机、集群、数据、预算、最终测试与晋级按项目契约
+分别验证。Job 成功本身不是质量通过或生产推广授权。
 
-```bash
-cd packages/galatea-governance
-npm ci
-npm test
-npm run typecheck
-npm run build
-```
+### 独立 Galatea MCP Campaign 服务
 
-在仓库根目录使用具备平台依赖的 Python 环境：
+[`services/galatea-mcp`](../services/galatea-mcp/README.md) 独立实现项目与 Campaign 注册、受限
+工具、服务端授权、预算、幂等提交/恢复以及 Run、Artifact 和评价证据检查。它可经 MCP
+stdio 或 Streamable HTTP transport 服务原生 Codex 客户端；transport 和业务服务与 Host
+分开部署。
 
-```bash
-python -m unittest discover -s tests -p 'test_*.py'
-python -m unittest discover -s agents/codex-app-server/tests -p 'test_*.py'
-PYTHONPATH=services/galatea-mcp/src \
-  python -m unittest discover -s services/galatea-mcp/tests -p 'test_*.py'
-```
+Host 当前没有 Galatea Adapter，不直接 import `galatea_mcp.Service`，也不默认加载其工具目录。
+需要从 Web 工作台使用 Campaign MCP 时，必须由管理员在该 Host 的 Codex MCP 配置中显式连接，
+并对外部身份、工具可见性、审批、幂等、等待/恢复和训练结果完成单独验收。配置一个 MCP
+连接不会把 Campaign 服务转成项目 YAML 治理入口，反向也一样。两者状态、Plan、预算、Release
+和数据/测试约束不可互换。
 
-## 执行与部署边界
+## 权限、训练状态与恢复
 
-每次 Training Run 仍须绑定不可变 Dataset/Split 和 Release、明确的目标集群与授权、
-Readiness、固定 Driver、MLflow Run 和 Artifact 回读证据。迁移代码或授予执行权限
-不能绕过这些检查，也不能通过通用 `ray job submit` 或本地训练替代治理入口。
+Codex 的沙箱、工具许可和原生审批决定 Agent 是否能执行相应本地操作或完成需要审查的调用。
+这些设置不签发 Campaign 授权、不批准数据使用或 GPU 预算，也不授予最终测试和生产 Alias
+权限。项目入口或 Campaign MCP 必须在服务端/执行端验证各自的业务契约，不能只靠 Skill 或提示词。
 
-生产 Alias 更新保持独立授权；Web Agent 首版工具集不提供推广工具。共享集群上的
-项目 YAML 入口与 Campaign 服务各有自己的约束，不构成统一全局配额或租户隔离。
-机器路径、服务端点和多集群操作见 [平台运行记忆](platform-runtime-memory.md)。
+Codex 管理 Thread/Turn 生命周期；Host 按自身实现恢复原生会话并保护通用写调用的操作身份。
+Ray Job、Campaign、MLflow Run 与业务回执由各自项目入口或 MCP 服务持有。通用 Host 不持续
+轮询训练 Job、不解释训练阶段、不把 `wait_external` 自动变成调度事件，也不负责恢复 Campaign。
 
-Web Agent 的生产模板仍要求经过接纳的 Runtime/合同/配置与独立模型凭据。当前机器
-安装的 Codex CLI 版本不能直接替代 Host 已冻结的协议与发布证据；版本变化需重新验收。
-源码入口统一完成后，生产服务是否上线以实际 unit、配置和健康检查为准。
+[`packages/galatea-training-skills`](../packages/galatea-training-skills/README.md) 发布的独立
+Skill 包保留历史 v1 `Agent Turn` 输出和 `wait_external` 工作流约定；先前消费该契约的 Python
+Runner 已删除。该包不是当前通用 Host 的 Campaign 调度插件。需要使用该流程时，需实现并验收
+能消费结构化输出、等待外部 Job、按原 Thread 恢复决策的独立编排组件；未完成此项前，仓库
+训练工作流以 `.codex/skills/` 和项目固定入口为准。
 
-部署使用 [配置与部署](../agents/codex-app-server/docs/06-config-deployment.md)、
-[生产接纳记录](../agents/codex-app-server/docs/12-production-readiness.md)及
-[unit 模板](../agents/codex-app-server/deploy/galatea-codex-agent.service)。
-`doc/train-agent/` 中的 Python Runner 方案保留为历史参考，当前 Runtime/Host 文档优先。
+## 状态与验收边界
+
+- Host 的浏览器工作台、动态扩展、原生协议和恢复路径有独立测试；测试替身不证明外部业务
+  MCP 的真实认证、项目权限或真实训练成功。
+- 项目治理入口、Galatea MCP、Codex Host 和模型 workload 分别发布和配置；更新源码、配置、
+  Skill、依赖、入口或数据身份后按所属契约重新构建不可变 Release/运行时接纳记录。
+- 仓库文档和模拟后端测试不等于某台主机部署完成、某个 Campaign 被批准、GPU 训练验收、
+  最终 holdout 评测或模型晋级已授权。
+
+## 当前实现文档
+
+源码核对入口：[Host 装配](../agents/codex-app-server/src/codex_agent/app.py)、
+[配置解析](../agents/codex-app-server/src/codex_agent/config.py)、
+[Provider 扩展](../agents/codex-app-server/src/codex_agent/providers.py)、
+[MCP transport](../services/galatea-mcp/src/galatea_mcp/server.py) 和
+[项目治理控制器](../packages/galatea-governance/src/tools/controller.ts)。
+
+- [Codex Agent Host](../agents/codex-app-server/README.md)
+- [Host 架构与集成边界](../agents/codex-app-server/docs/01-architecture.md)
+- [Host 配置与部署](../agents/codex-app-server/docs/06-config-deployment.md)
+- [Host 权限和扩展信任](../agents/codex-app-server/docs/07-security-boundaries.md)
+- [Galatea MCP](../services/galatea-mcp/README.md)
+- [项目治理库](../packages/galatea-governance/README.md)
+- [当前机器平台运行记忆](platform-runtime-memory.md)
+- [`doc/train-agent/`](train-agent/README.md) 提供当前文档导航并留存已归档 Runner/Console
+  方案；历史设计、命令和验收数字不是当前实现或部署依据。

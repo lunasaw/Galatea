@@ -24,6 +24,14 @@ import {
 } from "./components/ui/dropdown-menu";
 import { consoleStore as store } from "./store";
 import { native } from "./native";
+import { ProjectPicker } from "./project-controls";
+import {
+  identifyPermission,
+  permissionPresets,
+  type PermissionPreset,
+} from "./permission-presets";
+import { busyStatuses } from "./store";
+import { Hand, Shield, ShieldAlert } from "lucide-react";
 
 export const openSettings = (tab = "settings") =>
   window.dispatchEvent(new CustomEvent("codex-panel", { detail: tab }));
@@ -152,27 +160,81 @@ export function ComposerOptions() {
 export function WorkspaceContext() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const session = state.sessions.find((s) => s.id === state.active);
-  const cwd = session?.cwd || state.nativeProtocol?.cwd || "";
-  const policy =
-    session?.settings?.sandboxPolicy?.type ||
-    session?.settings?.sandbox ||
-    "workspace-write";
+  const [permissionOpen, setPermissionOpen] = useState(false);
+  const disabled =
+    state.settingsBusy ||
+    state.creating ||
+    state.submitting ||
+    !!session?.active_turn_id ||
+    !!(session && busyStatuses.has(session.status));
+  const selected = identifyPermission(store.permissionConfiguration);
+  useEffect(() => {
+    const open = () => setPermissionOpen(true);
+    window.addEventListener("codex-permissions", open);
+    return () => window.removeEventListener("codex-permissions", open);
+  }, []);
   return (
     <div className="workspace-context">
-      <button type="button" onClick={() => openSettings()} title={cwd}>
-        <Folder />
-        {cwd.split("/").filter(Boolean).at(-1) || "选择工作目录"}
-        <ChevronDown />
-      </button>
-      <button type="button" onClick={() => openSettings("permissions")}>
-        <ShieldCheck />
-        {["dangerFullAccess", "danger-full-access"].includes(policy)
-          ? "完全访问"
-          : ["readOnly", "read-only"].includes(policy)
-            ? "只读"
-            : "默认权限"}
-        <ChevronDown />
-      </button>
+      <ProjectPicker disabled={disabled} />
+      <DropdownMenu open={permissionOpen} onOpenChange={setPermissionOpen}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label="切换权限"
+            className={selected === "full" ? "permission-full" : ""}
+          >
+            <ShieldCheck />
+            {selected === "custom"
+              ? "自定义权限"
+              : selected === "full"
+                ? "完全访问"
+                : permissionPresets[selected].label}
+            <ChevronDown />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          className="permission-menu"
+        >
+          <DropdownMenuLabel>应如何批准 Codex 操作？</DropdownMenuLabel>
+          {(
+            Object.entries(permissionPresets) as [
+              PermissionPreset,
+              (typeof permissionPresets)[PermissionPreset],
+            ][]
+          ).map(([id, preset]) => {
+            const Icon =
+              id === "ask" ? Hand : id === "auto" ? Shield : ShieldAlert;
+            const supportsAuto = JSON.stringify(
+              state.nativeProtocol?.definitions?.ApprovalsReviewer || {},
+            ).includes("auto_review");
+            return (
+              <DropdownMenuItem
+                key={id}
+                disabled={disabled || (id === "auto" && !supportsAuto)}
+                className={id === "full" ? "permission-full" : ""}
+                onSelect={() => void store.choosePermission(id)}
+              >
+                <Icon />
+                <div>
+                  <span>{preset.label}</span>
+                  <small>
+                    {id === "auto" && !supportsAuto
+                      ? "当前运行时不支持自动审批"
+                      : preset.description}
+                  </small>
+                </div>
+                {selected === id && <Check className="ml-auto" />}
+              </DropdownMenuItem>
+            );
+          })}
+          {selected === "custom" && (
+            <p className="permission-custom">当前会话使用自定义权限配置</p>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <span className="composer-shortcut">/ 命令</span>
     </div>
   );

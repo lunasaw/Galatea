@@ -1,5 +1,10 @@
 # 独立部署与实施路线（历史归档）
 
+> **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
+> 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
+> 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](../../agents/codex-app-server/docs/README.md)。
+
 > 本文描述的独立 Python Runner 已于 2026-09-22 删除，不再对应当前部署方案。当前方案见
 > [`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md)。下文仅保留历史决策，
 > 不应按其中的 Runner 路径或命令部署。

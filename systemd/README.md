@@ -25,18 +25,23 @@ Worker 端口范围为 `18200–18399`，与 GCS 端口分离。
 MinIO 凭据由 `/etc/minio/minio.env` 管理，Jupyter Token 由当前运行实例生成。不要把密码、
 Token 或其他会话凭据写入仓库；需要访问时从受保护的主机配置或服务日志中获取。
 
-旧机器的 Ray Runtime Package 只读凭据由 `/etc/minio/ray-runtime-s3.env` 管理。
-当前 unit 尚未配置该文件；需要从私有 MinIO 下载 Runtime Package 时，按
-`doc/ray-start.md` 创建只读凭据并配置 `EnvironmentFile`。
+Ray Runtime Package 只读凭据由 `/etc/minio/ray-runtime-s3.env` 管理；仓库当前
+`ray-head.service` 已通过 `EnvironmentFile` 引用该文件。新主机安装前按
+`doc/ray-start.md` 准备对应的只读身份，不能替换为发布者或 MLflow 服务端凭据。
 
 ## Codex Agent
 
 Agent Runtime 统一使用 Codex。Web Agent 的 unit 模板位于
-[`agents/codex-app-server/deploy/galatea-codex-agent.service`](../agents/codex-app-server/deploy/galatea-codex-agent.service)，
-Console 默认监听 `127.0.0.1:18880`，使用 Bearer token；由 Host 启动原生
+[`agents/codex-app-server/deploy/codex-agent.service`](../agents/codex-app-server/deploy/codex-agent.service)，
+Console 默认监听 `0.0.0.0:18880`，需受控内网或带认证的反向代理；由 Host 启动原生
 `codex app-server --listen stdio://` 子进程。
 
-部署前准备专用账号、模型配置/凭据、Runtime、合同和接纳记录，并用实际主机路径生成 unit。
-安装、只读检查、唯一业务状态 writer 和服务切换见
+部署前准备专用账号、模型配置/凭据、Runtime、扩展配置和接纳记录，并用实际主机路径生成 unit。
+安装、配置、接纳和服务运行边界见
 [Codex Host 配置与部署](../agents/codex-app-server/docs/06-config-deployment.md)及
 [生产接纳记录](../agents/codex-app-server/docs/12-production-readiness.md)。模板不是已验收的运行配置。
+
+Host 仅接受 `codex-agent/v2`，不安装或启动 Galatea Service。需要平台工具时，独立部署
+`services/galatea-mcp/` 并在原生 `codex-home/config.toml` 配置 MCP；Skill 根与可选 Python
+Provider 在 `agent.json` 配置。旧业务 Host 的配置、状态和接纳记录不自动迁移。
+当前职责与训练授权边界见 [Codex 与 Galatea 架构](../doc/agent-galatea.md)。

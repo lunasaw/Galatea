@@ -4,7 +4,7 @@ export type Obj = Record<string, any>;
 export const json = (value: unknown) => JSON.stringify(value, null, 2);
 export async function native<T = Obj>(
   method: string,
-  params: Obj = {},
+  params: Obj | null = {},
   key = requestKey(),
 ): Promise<T> {
   return api<T>("/api/native/call", { method, params }, key);

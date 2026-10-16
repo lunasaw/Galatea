@@ -21,6 +21,11 @@ npm run build
 Node 版本要求见 `package.json`；项目入口直接使用 Node 原生 TypeScript 导入。
 
 Web Agent 统一使用 [`agents/codex-app-server`](../../agents/codex-app-server/README.md)，
-其 Dynamic Tool Registry 直接调用 Python `galatea_mcp.Service`。
-两者分别接入项目 YAML 契约和 Campaign 注册表；本库不是 app-server 的工具插件，
-也不替代 Campaign 登记、预算或生产发布接纳。
+该 Host 通过配置连接外部 MCP 或可选 Python Tool Provider，不内置本库或
+`galatea_mcp.Service`。本库用于项目 YAML 固定入口；独立
+[`galatea-mcp`](../../services/galatea-mcp/README.md) 使用自己的项目与 Campaign 注册表。
+两条治理路径的状态、Plan、授权和 Release 契约不能直接互换。
+
+本库不是 app-server 的工具插件，也不替代 Campaign 登记、预算或 Host 发布接纳。
+Codex 原生审批与平台业务授权分别校验，当前接入和迁移边界见
+[架构说明](../../doc/agent-galatea.md)。

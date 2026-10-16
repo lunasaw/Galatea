@@ -1,5 +1,5 @@
 {
-  "schema_version": "galatea.tools/v1",
+  "schema_version": "codex-agent.tools/v1",
   "tools": {
     "galatea_get_capabilities": {
       "type": "object",

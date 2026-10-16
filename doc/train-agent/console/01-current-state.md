@@ -1,6 +1,13 @@
-# 01 当前实现与本期边界
+# 01 重构前基线与当期边界（历史记录）
 
-核对日期：2026-10-15。本文记录当前 checkout 中能够从源码确认的事实。
+> **历史 Console 设计（2026-10-16 标注）**：下文“当前/本期/首版”指重构前版本，
+> 不作为现行功能或部署依据。当前为通用 Host，无内置 Galatea Adapter；
+> Skill/MCP、前端构建和 SQLite 观察存储以现行组件文档为准。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+
+2026-10-16 更新：下文保留 2026-10-15 Console 改造前的源码基线，不再描述当前实现。通用 Host 重构已移除进程内 GalateaAdapter、业务包依赖和固定工具目录，Skill、Tool Provider 与外部 MCP 改为独立配置。当前架构、启动方式及验证边界以 [Codex Agent Host](../../../agents/codex-app-server/README.md) 为准。
+
+历史核对日期：2026-10-15。本文正文记录当时 checkout 的事实；下文“当前”均指该历史版本。
 方案中的目标行为与当前代码能力必须分开描述，不能把旧设计文档中的计划视为已实现。
 
 本期交付只把现有 Host 包装成训练 Agent 的网页聊天与追踪台：浏览器负责文字对话和观察

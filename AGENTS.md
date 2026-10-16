@@ -48,7 +48,7 @@ evaluation, and recovery paths remain explicit.
 Use the documented Conda installation and activate the shared environment for platform work:
 
 ```bash
-source /data/conda/etc/profile.d/conda.sh
+source /data/miniconda3/etc/profile.d/conda.sh
 conda activate attend-ray-py312
 ```
 
@@ -64,11 +64,15 @@ jupyter lab --no-browser --allow-root --ServerApp.root_dir="$PWD"
 Check the current platform before diagnosing training failures:
 
 ```bash
-systemctl is-active minio.service mlflow.service jupyterlab.service
-curl -fsS -H 'Host: localhost' http://127.0.0.1:5000/health
-curl -fsS http://127.0.0.1:9000/minio/health/live
-ray status
+systemctl is-active minio.service mlflow.service ray-head.service
+curl -fsS http://127.0.0.1:18103/health
+curl -fsS http://127.0.0.1:18101/minio/health/live
+ray status --address=10.26.0.140:18104
 ```
+
+These are the documented development profile values. Confirm the target profile before using another
+cluster; JupyterLab is configured separately when needed. Host-specific facts live in
+`doc/local-services-18100.md` and `doc/platform-runtime-memory.md`.
 
 Validate service units before installation or after changes:
 
@@ -158,12 +162,20 @@ for the project. The Skill must remain reusable across frameworks and experiment
 - Codex is the sole Agent Runtime. Repository workflows use Codex and `.codex/skills/`; the Web Agent uses
   `agents/codex-app-server/`, which hosts the native `codex app-server` process. Implement Agent features
   against its actual protocol and source-level tool, permission, event, and capability abstractions.
-- `services/galatea-mcp/` owns Python platform governance and can serve Codex over MCP or run in process
-  through the app-server Host's Dynamic Tool Registry. `packages/galatea-governance/` owns the independent
+- `services/galatea-mcp/` owns Python platform governance and can serve Codex over external MCP. The generic
+  app-server Host has no built-in Galatea adapter or platform dependency; optional Python tools are configured
+  independently through its Provider contract. `packages/galatea-governance/` owns the independent
   project-YAML policies used by fixed repository entrypoints. Neither owns an Agent Loop or model client.
+- Native Codex approval and sandbox policy do not grant Campaign, dataset, training-budget or production
+  promotion authorization. Keep external MCP state and project-YAML governance contracts explicit; they
+  are separate integrations, not interchangeable Host sessions or plans.
+- The Host accepts `codex-agent/v2` configuration. Removed business adapters and the historical Python
+  Runner are not deployment entrypoints. The versioned training Skill bundle retains its v1 output and
+  waiting contract; the generic Host does not automatically schedule `wait_external` or resume a Campaign.
+  See `doc/agent-galatea.md` for current integration and acceptance boundaries.
 - Support Skill capabilities as first-class runtime capabilities: discover, load, route, and execute Skills
   through the repository or configured Skill interfaces rather than hard-coding project-specific prompt text.
-- Model allowlists and permission grants through the SDK permission layer. A denied or unknown action should
+- Model allowlists and permission grants through the native Codex protocol permission layer. A denied or unknown action should
   be able to request approval from the console or user-facing permission flow, and users should be able to
   grant scoped access directly when the runtime supports it.
 - Keep permission requests structured and reusable, including command/tool identity, scope, reason,
@@ -194,7 +206,7 @@ no global coverage threshold, but new reusable logic should include focused test
 Run the current repository unit tests with:
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+/data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
   -s tests -p 'test_*.py'
 ```
 
@@ -204,14 +216,10 @@ from a clean kernel. Any real optimizer step or checkpoint smoke for a Ray/Galat
 entry point; local tests should use forward-only or mocked component fixtures. Keep governed smoke budgets
 deliberately small and disable automatic parameter searches unless the search itself is under test.
 
-For the current Cats vs Dogs example, configure a non-source copy with `EPOCHS = 1` and
-`RUN_AUTO_TUNING = False`, then execute it without overwriting the source notebook:
-
-```bash
-jupyter nbconvert --execute --to notebook \
-  train-model/cats-and-dogs/cats-vs-dogs-classification.ipynb \
-  --output-dir /tmp --output cats-vs-dogs-smoke.ipynb
-```
+Notebook validation must remain read-only or forward-only when run locally. Any optimizer step, fit,
+checkpoint or durable training evidence belongs to the declared governed backend, including a one-epoch
+smoke. Follow the owning project's fixed entrypoint and write permitted notebook outputs to a temporary
+directory without overwriting source notebooks.
 
 For documentation or service changes, run applicable health checks from `doc/`, validate Markdown links,
 and confirm that documented paths, ports, users, and service behavior match the repository units.

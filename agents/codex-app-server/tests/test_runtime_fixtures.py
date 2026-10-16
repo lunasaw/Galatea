@@ -17,7 +17,7 @@ FIXTURE = ROOT / "tests/fixtures/codex-0.154.0"
 
 class RuntimeFixtureTests(unittest.TestCase):
     def setUp(self):
-        self.catalog = Catalog.load(ROOT / "config/contracts")
+        self.catalog = Catalog.load(ROOT / "tests/fixtures/dynamic-tools")
         self.provenance = json.loads((FIXTURE / "provenance.json").read_text())
 
     def test_every_captured_fixture_matches_its_digest(self):
@@ -43,7 +43,7 @@ class RuntimeFixtureTests(unittest.TestCase):
         self.assertNotIn("dynamicTools", schema["properties"])
 
     def test_full_and_subset_requests_match_approved_wire_contract(self):
-        profile = RuntimeContract.load(ROOT / "config/contracts/runtime-compatibility.json", self.catalog)
+        profile = RuntimeContract.load(ROOT / "tests/fixtures/dynamic-tools/runtime-compatibility.json", self.catalog)
         for name, actions in (("full", {"*"}), ("subset", {"galatea_get_capabilities"})):
             surfaces = json.loads((FIXTURE / f"{name}-tool-surfaces.json").read_text())
             self.assertEqual(len(surfaces), 3)

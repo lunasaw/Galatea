@@ -18,7 +18,7 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { cn } from "@/lib/utils";
-import { localFileTarget, openFile } from "@/workspace-file";
+import { WorkspaceLink, WorkspaceImageLink } from "@/workspace-file";
 import { makeLightSyntaxHighlighter } from "@assistant-ui/react-syntax-highlighter";
 import { Light } from "react-syntax-highlighter";
 import javascript from "react-syntax-highlighter/dist/esm/languages/hljs/javascript";
@@ -122,18 +122,12 @@ const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
 const defaultComponents = memoizeMarkdownComponents({
   SyntaxHighlighter,
   // The Host has no image/attachment endpoint. Do not fetch remote message images.
-  img: ({ alt, src }) =>
-    typeof src === "string" && localFileTarget(src) ? (
-      <button
-        type="button"
-        className="workspace-file-link"
-        onClick={() => openFile(src)}
-      >
-        查看图片：{alt || "图片"}
-      </button>
-    ) : (
-      <span>[图片：{alt || "图片"}]</span>
-    ),
+  img: ({ alt, src }) => (
+    <WorkspaceImageLink
+      src={typeof src === "string" ? src : undefined}
+      alt={alt}
+    />
+  ),
   h1: ({ className, ...props }) => (
     <h1
       className={cn(
@@ -197,28 +191,14 @@ const defaultComponents = memoizeMarkdownComponents({
       {...props}
     />
   ),
-  a: ({ className, href, ...props }) =>
-    localFileTarget(href) ? (
-      <button
-        type="button"
-        className="workspace-file-link"
-        title={href}
-        onClick={() => openFile(href!)}
-      >
-        {props.children}
-      </button>
-    ) : (
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer noopener"
-        className={cn(
-          "aui-md-a text-primary hover:text-primary/80 underline underline-offset-2",
-          className,
-        )}
-        {...props}
-      />
-    ),
+  a: ({ className, href, children }) => (
+    <WorkspaceLink
+      href={href}
+      className={cn("aui-md-a underline underline-offset-2", className)}
+    >
+      {children}
+    </WorkspaceLink>
+  ),
   blockquote: ({ className, ...props }) => (
     <blockquote
       className={cn(

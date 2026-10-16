@@ -128,13 +128,14 @@ class NativeBridge:
         await host._check_admission()
         if method.startswith(('config/value/', 'config/batch', 'externalAgentConfig/import')) or method in {
                 'experimentalFeature/enablement/set', 'skills/config/write', 'skills/extraRoots/set',
-                'plugin/install', 'plugin/uninstall', 'marketplace/add', 'marketplace/remove', 'marketplace/upgrade'}:
+                'plugin/install', 'plugin/uninstall', 'plugin/reconcile',
+                'marketplace/add', 'marketplace/remove', 'marketplace/upgrade'}:
             if not host.configuration_changed:
                 raise ValueError('immutable release configuration; use a development Host to edit settings')
             changes_config = True
         else:
             changes_config = False
-        thread_id = params.get('threadId')
+        thread_id = (params or {}).get('threadId')
         session = host._session_for_thread(thread_id)
         if method == 'thread/start':
             options = dict(params)

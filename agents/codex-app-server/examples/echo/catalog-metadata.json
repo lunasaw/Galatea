@@ -1,0 +1,13 @@
+{
+  "schema_version": "codex-agent.catalog/v1",
+  "namespace": "example",
+  "description": "Standalone example tools",
+  "tools": {
+    "echo": {
+      "description": "Return the supplied text with an optional configured prefix.",
+      "read_only": true,
+      "idempotent": true,
+      "public_fields": ["text"]
+    }
+  }
+}

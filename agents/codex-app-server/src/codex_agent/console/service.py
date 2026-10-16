@@ -11,7 +11,7 @@ from .ports import StoreUnavailable, InvalidCursor, CursorAhead, UnknownEvent
 
 
 CAPABILITIES = {
-    'console_schema_version': 'galatea.console/v1', 'console_role': 'training_agent_chat_trace',
+    'console_schema_version': 'codex-agent.console/v1', 'console_role': 'agent_chat_trace',
     'storage': {'backend': 'memory', 'retention': 'process_lifetime'},
     'skill_integration': True, 'inference_endpoint': False, 'native_codex_comparison': 'versioned_protocol',
     'principal_scope': 'host_configured', 'network_access': 'trusted_network_required', 'interactive_requests': True,
@@ -71,7 +71,7 @@ class ConsoleObservationService:
                        rpc_id=entry['payload'].get('id'), correlation='unavailable')
             bindings = []
         self._seq += 1
-        row.update(schema_version='galatea.console.event/v1', epoch=self.epoch,
+        row.update(schema_version='codex-agent.console.event/v1', epoch=self.epoch,
                    seq=str(self._seq), event_id=f'{self.epoch}:{self._seq}')
         if entry['direction'] == 'host_to_runtime':
             self._outbound_ids[entry['capture_id']] = row['event_id']

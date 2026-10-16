@@ -1,0 +1,8 @@
+# Isolated development reproduction; training parameters remain in baseline.yaml.
+extends: baseline.yaml
+
+run:
+  promotable: true
+
+ray:
+  address: 10.26.0.140:19540

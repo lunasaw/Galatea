@@ -125,6 +125,11 @@ def require_governed_execution(project_name: str, promotable: bool) -> dict[str,
         )
     if any((job.metadata or {}).get(key) != value for key, value in values.items()):
         raise RuntimeError("Governed binding differs from actual Ray Job metadata")
+    # Candidate fields come from the actual Jobs API, after Driver verification.
+    for key in ("candidate_run_id", "candidate_evidence_digest"):
+        value = (job.metadata or {}).get(key)
+        if isinstance(value, str) and value:
+            values[key] = value
     return values
 
 

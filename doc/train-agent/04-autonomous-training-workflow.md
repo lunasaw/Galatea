@@ -1,5 +1,10 @@
 # 从需求到模型交付的 Python Codex 工作流
 
+> **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
+> 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
+> 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](../../agents/codex-app-server/docs/README.md)。
+
 ## 1. 入口与批准范围
 
 用户给出任务、数据引用、验收标准和预算，Runner 形成需求草案。

@@ -1,5 +1,10 @@
 # 方案 04：独立 Skill 包实施计划
 
+> **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
+> 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
+> 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+
 > 后续实现使用 superpowers:executing-plans；实际编写 Skill 时加载 skill-creator。
 
 **目标：**训练方法和分析流程独立安装，不依赖 Galatea checkout 或现有插件。

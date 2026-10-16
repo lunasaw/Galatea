@@ -20,12 +20,13 @@ from codex_agent.stage0 import (
 
 class CatalogTests(unittest.TestCase):
     def setUp(self):
-        self.catalog = Catalog.load(ROOT / "config/contracts")
+        self.catalog = Catalog.load(ROOT / "tests/fixtures/dynamic-tools")
 
-    def test_published_contract_is_identical_to_service_contract(self):
-        source = ROOT.parents[1] / "services/galatea-mcp/contracts/tools.json"
-        self.assertEqual(source.read_bytes(), (ROOT / "config/contracts/tools.json").read_bytes())
-        self.assertEqual(len(self.catalog.schemas), 17)
+    def test_empty_catalog_needs_no_platform_contract(self):
+        catalog = Catalog.empty()
+        self.assertEqual(catalog.dynamic_tools(set()), [])
+        self.assertEqual(catalog.dynamic_tools({'*'}), [])
+        self.assertEqual(catalog.metadata['schema_version'], 'codex-agent.catalog/v1')
 
     def test_principal_subset_preserves_exact_schema(self):
         tools = self.catalog.dynamic_tools({"galatea_get_capabilities", "galatea_query_runs"})
@@ -66,7 +67,7 @@ class CatalogTests(unittest.TestCase):
 
 class SurfaceTests(unittest.TestCase):
     def setUp(self):
-        self.tools = Catalog.load(ROOT / "config/contracts").dynamic_tools({"galatea_get_capabilities"})
+        self.tools = Catalog.load(ROOT / "tests/fixtures/dynamic-tools").dynamic_tools({"galatea_get_capabilities"})
         self.request = {"tools": copy.deepcopy(self.tools)}
         function = self.request["tools"][0]["tools"][0]
         function["parameters"] = function.pop("inputSchema")

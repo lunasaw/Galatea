@@ -1,76 +1,53 @@
-# 09 测试与验收
+# 测试验收
 
-实施决策（2026-09-23）：已按用户确认采用双层 schema 合同。原始 `tools.json` 负责 Host 严格
-参数校验；`runtime-compatibility.json` 冻结真实模型请求的 schema 并绑定 binary/package/protocol
-摘要。下文“模型 schema 一致”指与此兼容性合同逐字段一致，Host 原始约束保持不变。
-当前 Console 和 0.154.0 实测见 [验收记录](13-console-acceptance.md)；旧版证据保留在历史实施记录。
+安装 `python -m pip install -e '.[test]'` 后在项目目录运行：
 
-## 1. 单元测试
+```sh
+python -m unittest discover -s tests -p 'test_*.py'
+cd frontend
+npm test
+npm run build
+```
 
-- 17 个支持工具合同全部生成 dynamic tool schema，名称、namespace、required、枚举和 digest 一致；
-  principal 过滤后的 session 子集不能出现未授权工具。
-- JSON Schema 拒绝额外字段、错误类型、缺失字段、越界 limit、错误 project/campaign scope。
-- Tool Registry 对每个工具返回既有 envelope；敏感字段脱敏；response 超过 256 KiB 时失败关闭。
-- `callId` 重放返回同一 receipt；相同 id 不同参数返回 conflict。
-- mutation handler 在主服务状态不可用、授权不足和未知副作用时不重试。
+浏览器测试使用独立的模拟 Host。另开一个终端，在项目目录执行 `python tests/console_browser_fixture.py 18881`；保持其运行，在 `frontend` 目录执行：
 
-## 2. App-server 协议测试
+```sh
+npx playwright install chromium
+export CONSOLE_TEST_URL=http://127.0.0.1:18881
+npm run test:browser
+node ../tests/test_native_browser.cjs
+node ../tests/test_chat_interaction.cjs
+node ../tests/test_conversation_parity.cjs
+node ../tests/test_workbench_browser.cjs
+```
 
-使用复制的真实 binary 和 mock model endpoint，不能只 mock Host 自己的 RPC：
+已有 Chromium 时可设置 `CHROMIUM_EXECUTABLE=/absolute/path/chrome`。测试仅操作模拟会话，不连接运行中的 Agent 服务。
 
-1. `initialize.capabilities.experimentalApi=true`/`thread/start` 成功；未 opt in 时请求必须被拒绝。
-   对完整全集和受限 principal 分别捕获实际模型 request，确认新建时有效工具清单精确等于各自批准
-   的 Galatea allowlist，且不存在 shell、文件、HTTP、MCP/plugin、协作或模型管理工具。
-2. 模型产生 dynamic function call，Host 收到 `item/tool/call`，返回成功 text content，
-   app-server 继续第二次模型请求并完成 turn。
-3. Host 返回 `success=false`，模型收到错误 envelope 并能正常结束或继续。
-4. tool handler 延迟、超时、取消时，Host 返回明确失败/unknown，app-server 不被卡死。
-5. `thread/read`、跨进程 `thread/resume` 后，从实际模型 request 确认工具清单和历史 item 正确；
-   catalog/runtime/effective-config digest 变化、rollout 缺失或恢复能力未经阶段 0 证明时均被阻止。
-6. app-server 异常退出、stdout EOF、坏 JSON-RPC、重复 response id 均 fail closed。
+`test_workbench_browser.cjs` 覆盖任务面板开关、草稿保留、Diff 轮次隔离、计划、目录浏览、
+文件预览、底部命令执行与面板状态保留，以及深色和手机布局。
+设置 `CONSOLE_SCREENSHOTS=/absolute/output/path` 可保存浏览器验收截图。
 
-## 3. Console 测试
+Python 回归覆盖配置拒绝、无扩展 Host、可配置 namespace、Provider 加载与清理、参数/操作 allowlist、回执去重、未知操作恢复、进程恢复、权限请求及 Console SQLite/SSE。
 
-- 原生双向消息、初始化/未知方法、数字与字符串 ID、0、晚绑定和重复/异常回执全部可查。
-- 观察异步端口验证连续水位、批次原子性、同 ID 重试、固定水位分页、无匹配游标和无丢唤醒。
-- 超过 8192 条突发、1000 步与 64 KiB 正文仍完整保留，无浏览器时继续采集。
-- 无 Token 的查询和既有控制保持持久化幂等；跨源 POST 拒绝，旧 epoch 明确重置。
-- 公开长正文、公开推理摘要、累计用量保留；嵌套 JSON 伪凭据和私有数据脱敏；HTML 不执行。
-- 投影/关联/提交故障分别注入，公开原文仍可查或明确 content_unavailable，观察故障不冒充业务故障。
-- 浏览器测试创建、发送、最终文本去重、刷新、工具和原生详情，以及固定水位“更早”翻页。
-- 实际 uvicorn 验证生命周期和 HTTP/SSE；传输测试覆盖 UTF-8、CRLF、半帧、多 data 行和大整数游标。
+真实原生运行时测试需显式指定包目录（必须包含 bin/codex 与 codex-package.json）：
 
-## 4. 平台集成测试
+```sh
+CODEX_TEST_RUNTIME_PACKAGE=/absolute/path/runtime \
+  python -m unittest discover -s tests -p 'test_*.py'
+```
 
-- 只读 preflight 不创建 Ray Job、不读取 final test、不修改 MLflow Alias。
-- `plan_run` 与 `submit_job` 在 fake Ray/MLflow backend 下保存 plan、idempotency key 和
-  operation receipt。
-- `submit_job` 后 Host 崩溃，重启只 observe 原 operation，不重复提交。
-- 在 intent 写入后、handler 执行中、receipt 写入前分别注入崩溃，重启只通过 operation/业务幂等
-  键对账；callId 重放只有在已有确定 receipt 时才返回成功。
-- 操作 unknown、后端 404、MLflow artifact digest 错误、Campaign revision 过期均被拒绝。
-- compare/freeze/verify 只能对同一 dataset/split/preprocess/metric protocol 的 evidence 操作。
-- 后台 reconciler 能推进 pending/unknown operation；启动首次 reconcile 失败、循环退出或 freshness
-  超时时 readiness 失败，不静默停滞；Registry 与 reconciler 不能并发破坏单写锁。
+历史协议用例同时校验包文件摘要和执行位；版本相同而文件内容或执行位不一致也会拒绝，不能据此绕过兼容性检查。
 
-## 5. 运行验收记录
+原生测试以本地模拟模型和 stdio MCP echo 验证：外置 Skill 发现与加载、Agent 工具调用和结果消费、Shell 审批、用户提问、Dynamic Tools 成功/失败与跨进程恢复。不访问付费模型或训练平台。
 
-每项记录 `expected`、`observed`、`evidence_path`、`runtime_version`、`git_revision` 和
-`status`。以下事实不能用本地 fake 代替：
+独立协议探针也必须显式选择扩展契约与只读工具。以下为已冻结兼容性描述的历史协议样本；`examples/echo` 尚未生成正式兼容性描述，使用上面的源码集成测试验证：
 
-- 真实复制的 Codex binary 能完成 dynamic tool round-trip；
-- 真实配置的 MLflow Tracking/Artifact API 可读；
-- Ray Job identity、资源边界和 stop/reconcile 语义；
-- 正式 Campaign 的数据、split、code、environment 和 quality gate；
-- systemd 进程组清理以及配置目录权限；
-- package tree manifest、effective Codex config 来源与 digest，以及子进程 `HOME`/`CODEX_HOME`
-  隔离。
-- 子进程环境中没有 backend secrets；若阶段 0 选择强 secret isolation，还要证明 app-server 身份
-  不能读取 Host secret 文件、环境或 credential store，只能获得已批准的 Galatea capability。
+```sh
+python scripts/runtime_probe.py --package /absolute/path/runtime \
+  --output /absolute/path/probe-output --contracts tests/fixtures/dynamic-tools \
+  --probe-tool galatea_get_capabilities --probe-arguments '{"protocol_version":"galatea.tools/v1"}'
+```
 
-## 6. 回退
+`tests/fixtures/dynamic-tools` 和 `codex-*` 为历史真实 wire 回归样本；其中业务名称仅属于测试数据。默认运行时无此 catalog。`examples/echo` 为新的独立通用扩展示例。
 
-回退只停止新 Host 实例，保留 `config/codex-home`、Host state 和 operation 引用；Console 内存历史在停进程后清空。
-不得删除状态目录来“重置”会话，也不得重新提交所有未知 Job。若内化 adapter 有问题，可暂时
-恢复既有 `services/galatea-mcp` 独立服务用于只读核对，但新 Agent 不应自动切换到 MCP；切换
-必须是显式部署版本变更并重新执行协议/权限验收。
+此范围不等于真实训练业务联动、外部 MCP 认证、Apps、插件或生产部署已验收。接入具体业务后需要另行验证该服务的权限、幂等、超时恢复和业务可视化。

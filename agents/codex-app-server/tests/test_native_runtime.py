@@ -22,7 +22,7 @@ from runtime_probe import mock_config, sse
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@unittest.skipUnless(os.environ.get('GALATEA_TEST_RUNTIME_PACKAGE'), 'native runtime opt-in required')
+@unittest.skipUnless(os.environ.get('CODEX_TEST_RUNTIME_PACKAGE'), 'native runtime opt-in required')
 class NativeInteractionRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_native_shell_approval_then_question_through_host(self):
         requests = []
@@ -60,21 +60,17 @@ class NativeInteractionRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 (root / 'codex-home').mkdir()
                 config_text = mock_config(server.server_port).replace('mock-model', 'gpt-5.4').replace('shell_tool = false', 'shell_tool = true').replace('unified_exec = false', 'unified_exec = true').replace('[tools.experimental_request_user_input]\nenabled = false', '[tools.experimental_request_user_input]\nenabled = true')
                 (root / 'codex-home/config.toml').write_text(config_text)
-                package = Path(os.environ['GALATEA_TEST_RUNTIME_PACKAGE'])
-                config = AgentConfig.from_dict({'schema_version': 'codex-agent/v1', 'paths': {
-                    'codex_home': 'codex-home', 'runtime_dir': str(package), 'state_dir': 'state', 'workspace_dir': 'workspace',
-                    'contracts': str(ROOT / 'config/contracts/tools.json'), 'catalog_metadata': str(ROOT / 'config/contracts/catalog-metadata.json')},
-                    'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.154.0'},
-                    'galatea': {'principal': {'principal_id': 'fixture', 'actions': ['galatea_get_capabilities']}}}, root)
+                package = Path(os.environ['CODEX_TEST_RUNTIME_PACKAGE'])
+                config = AgentConfig.from_dict({'schema_version': 'codex-agent/v2', 'paths': {'codex_home': 'codex-home', 'runtime_dir': str(package), 'state_dir': 'state', 'workspace_dir': 'workspace'}, 'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.154.0'}, 'agent': {'id': 'fixture'}, 'tools': {'catalog_dir': str(ROOT / 'tests/fixtures/dynamic-tools'), 'actions': ['galatea_get_capabilities'], 'providers': [{'path': str(ROOT / 'tests/fixtures/dynamic-tools/provider.py')}]}}, root)
                 events = EventLog()
                 process = ManagedProcess(config, observer=events.observer)
-                catalog = Catalog.load(config.contracts.parent)
+                catalog = Catalog.load(config.catalog_dir)
                 store = AtomicJsonStore(config.state_dir)
                 async def start():
                     return await process.start(host.handle_tool_call, notification=host.handle_notification, on_failure=host.runtime_failed)
                 host = AgentHost(registry=ToolRegistry(catalog, OperationJournal(store), {name: lambda *_: {} for name in catalog.schemas}), event_log=events, store=store,
                     client_factory=start, client_stop=process.stop, reconciler=lambda: None, principal_id='fixture',
-                    project_ids=set(), campaign_ids=set(), actions={'galatea_get_capabilities'}, workspace_dir=config.workspace_dir)
+                     actions={'galatea_get_capabilities'}, workspace_dir=config.workspace_dir)
                 try:
                     await host.start()
                     await host.create_session('native-approval')

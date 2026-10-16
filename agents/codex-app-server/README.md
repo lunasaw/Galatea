@@ -1,101 +1,90 @@
-# Galatea Codex App Server Agent
+# Codex Agent Host
 
-已实现原生 Codex app-server Host、17 个 Galatea 工具的进程内 Registry、持久化恢复边界和
-无 Token 的网页聊天与完整协议追踪 Console。**runtime schema 兼容性调整已确认并通过实测**：模型侧校验冻结的
-wire schema，Host 继续严格校验原始工具 schema。
+基于原生 `codex app-server` 的通用 Agent 与网页工作台。Agent 自主选择 Skill、工具和下一步行动；Host 负责进程、会话、审批、调用记录和恢复，不定义训练阶段或业务节点。
 
-设计入口见 [docs/README.md](docs/README.md)，本次 0.154.0 目标版本、TDD 和浏览器/安装验证见
-[Console 验收记录](docs/13-console-acceptance.md)。旧版生产接纳记录仅保留历史事实。
+当前完成第一阶段：可独立运行，通过配置连接 Skill、自定义 Tool 和外部 MCP。第二阶段再接入 Galatea 等业务服务，并增加阶段、资源和产物可视化。
 
-## 一键源码启动
+仓库整体职责见 [Codex 与 Galatea 架构](../../doc/agent-galatea.md)。本组件不内置 Galatea Adapter；
+项目 YAML 固定入口与 MCP Campaign 服务分别维护业务授权和执行证据。旧训练 Skill 包的
+`wait_external` 不会触发 Host 自动轮询或恢复 Campaign，使用该约定需另行实现并验收外部编排。
 
-需要已安装 Conda，以及模型登录信息（默认读取 `~/.codex/auth.json`）或 `OPENAI_API_KEY`。
-在任意目录执行：
+## 启动
 
-```bash
-sh /data/ai/chenzhangyue/galatea-model/galatea/agents/codex-app-server/start.sh
+在本目录执行：
+
+```sh
+sh start.sh
 ```
 
-脚本创建项目内 Conda 环境、安装 Python/Node 依赖和固定版本的 Codex 引擎、构建网页，
-然后以前台方式从源码启动。再次执行会先停止该脚本启动的旧实例及其子进程，再重新启动；
-`Ctrl+C` 停止服务。默认监听 `0.0.0.0:18880`，通过 `http://服务器IP:18880/` 访问。
-可用 `GALATEA_HOST`、`GALATEA_PORT` 调整监听地址和端口。
+脚本在 `.local` 创建独立 Conda 环境，安装本项目依赖与固定版本 Codex，构建前端。首次从 `CODEX_AGENT_AUTH_DIR`（默认 `~/.codex`）复制模型连接与认证；也可提供 `OPENAI_API_KEY`。无需安装 Galatea Python 包或运行训练平台。
 
-环境、引擎、配置、认证副本及运行数据全部放在本目录 `.local/`（Git 忽略）；
-配置为 `.local/agent.json` 和 `.local/codex-home/config.toml`，首次生成后保留修改。
-可用 `GALATEA_AUTH_DIR` 指定首次导入认证和模型设置的目录，`GALATEA_MODEL` 指定初始模型。
-此方式不需要 `/opt/galatea-agent`、`/var/lib/galatea-agent`、systemd 或已部署的 Ray/MLflow/MinIO。
-默认提供原生 Codex 编码工作台：Shell/文件、审批与提问、Skills/MCP/插件、图片输入、会话恢复及 SQLite 历史。
-使用训练等平台工具时，仍需配置对应平台服务和权限。完整范围和验证边界见 [原生工作台](docs/15-native-workspace.md)。
-`serve --dev` 使用源码启动检查；下述正式部署命令继续要求已接纳 release。
+首次生成 `.local/agent.json` 与 `.local/codex-home/config.toml`，之后保留用户编辑。`CODEX_AGENT_MODEL`、`CODEX_AGENT_WORKSPACE` 控制首次生成的模型和工作目录，`CODEX_AGENT_HOST`、`CODEX_AGENT_PORT` 控制脚本监听地址。
 
-## 安装与测试
+也可以在任意目录安装、使用独立配置启动：
 
-在独立应用环境安装本包及仓库内 Galatea 包；不会启动 MCP transport：
-
-```bash
-python -m pip install -e services/galatea-mcp -e 'agents/codex-app-server[test]'
+```sh
+python -m pip install -e '.[test]'
+codex-agent --config /absolute/path/agent.json serve --dev
 ```
 
-平台依赖按原服务的 `platform` extras 和主机环境管理。开发测试可直接运行：
+参考 [agent.example.json](config/agent.example.json) 和 [配置与部署](docs/06-config-deployment.md)。原生配置中的模型、权限和 MCP 继续由 Codex 管理，固定协议版本为 **0.154.0**。
 
-```bash
-/data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
-  -s agents/codex-app-server/tests -p 'test_*.py'
+## 接入能力
 
-PYTHONPATH=services/galatea-mcp/src \
-  /data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
-  -s services/galatea-mcp/tests -p 'test_*.py'
+- **Skill**：在 `agent.json` 中设置 `skills.roots`。每个目录包含若干 `<skill>/SKILL.md`，通过原生 `skills/extraRoots/set` 注册；Codex 仍发现工作区和原生 Skill。页面可选择 Skill，Agent 也可根据任务判断使用。
+- **MCP**：在 `codex-home/config.toml` 配置 `[mcp_servers.<name>]`，支持独立 stdio 进程和远程服务。模板见 [mcp.example.toml](config/mcp.example.toml)。Host 不实现上传、训练等业务服务。
+- **自定义 Tool**：通过 `tools.catalog_dir` 和 `tools.providers` 加载独立 Python 扩展。示例见 [echo](examples/echo/provider.py)；未配置时无 Host 自定义工具，原生编码工具仍可用。
+
+例如将以下字段加入 `agent.json`，并替换绝对路径：
+
+```json
+{
+  "skills": {"roots": ["/absolute/path/skills"]},
+  "codex": {
+    "binary": "/absolute/path/runtime/bin/codex",
+    "runtime_version": "codex-cli 0.154.0",
+    "inherit_env": ["EXAMPLE_SERVICE_TOKEN"]
+  },
+  "tools": {
+    "catalog_dir": "/absolute/path/examples/echo",
+    "actions": ["echo"],
+    "providers": [{"path": "/absolute/path/examples/echo/provider.py", "options": {"prefix": "hello "}}]
+  }
+}
 ```
 
-显式加入真实 binary 测试（本地 mock Responses endpoint，无真实模型调用、训练或 final test）：
+这是配置片段，需要与模板中的 `schema_version` 和 `paths` 合并。外部服务的授权与幂等由服务负责；Host 自定义 Tool 额外提供参数校验、操作日志和未知结果恢复接口。详见 [Tool 扩展契约](docs/03-tool-registry.md)。
 
-```bash
-GALATEA_TEST_RUNTIME_PACKAGE=/absolute/path/to/codex-package \
-  /data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
-  -s agents/codex-app-server/tests -p 'test_*.py'
+## 重构边界
+
+仅接受 `codex-agent/v2` 配置；旧 `principal`、`galatea`、`paths.contracts` 和固定工具目录已删除。旧配置不会自动迁移，已有文件不会被覆盖。升级应新建配置和状态目录，重新配置业务扩展；旧部署的接纳证据不能用于新版本。
+
+当前网页保留通用对话、模型/权限设置、文件与终端、Skill/MCP、审批、事件和会话恢复。业务节点的定义与判断交给 Agent 和 Skill；业务阶段图、训练仪表盘和产物面板留在第二阶段。
+
+## 项目与权限交互
+
+侧栏的 `＋` 可添加服务器上的已有目录，或创建文件夹作为项目。`…` 可创建、重命名分组；
+项目、分组和会话支持拖动排序，项目菜单也提供上移、下移和移动分组。
+每个项目有独立 ID 和名称，多个项目可以选择同一个文件夹，会话归属不按目录合并。
+项目名称、分组、折叠状态、排序及会话归属保存在当前浏览器的 localStorage，不与 Codex Desktop 或其他浏览器同步。
+已有按目录保存的项目会自动迁移，保留名称、分组和会话。
+跨项目拖动会话、输入框下方切换项目都会通过 `thread/settings/update` 更新该会话后续任务的工作目录；
+正在运行的会话需结束回复后才能移动。
+
+输入框下方的权限菜单直接切换「请求批准」「帮我批准」「完全访问权限」，`/permissions` 打开同一个菜单。
+设置使用原生 `approvalPolicy`、`approvalsReviewer` 和 `sandboxPolicy`；新会话在创建时传入对应权限，
+已有会话更新成功后才改变显示，原生拒绝时保留原设置。自定义权限以「自定义权限」显示。
+输入框 `＋` 支持图片、文本和代码文件，也支持原有附件拖放；文本文件内容随消息发送。
+
+## 验证
+
+```sh
+python -m unittest discover -s tests -p 'test_*.py'
+cd frontend
+npm test
+npm run build
 ```
 
-它包含全工具/受限 principal 的新建、续轮、跨进程恢复、成功/失败回执，以及使用生产
-`ManagedProcess → JsonRpcPeer → AgentHost → ToolRegistry` 的端到端测试。兼容性 fixture
-必须经过审查；测试不能根据当前 runtime 输出自动重写期望值。
+真实原生协议验证通过 `CODEX_TEST_RUNTIME_PACKAGE=/absolute/path/runtime` 开启，使用本地模拟 Responses 服务与 MCP echo 进程，不调用付费模型或实际训练。完整说明见 [测试验收](docs/09-test-acceptance.md)。
 
-## 运行
-
-生产使用独立配置目录，参照 [配置及部署](docs/06-config-deployment.md) 准备 runtime、原始合同、
-兼容性合同、模型认证文件、平台配置和已接纳 release。模板保持未接纳状态，不能直接启动：
-
-```bash
-codex-agent --config /var/lib/galatea-agent/agent.json inspect-runtime
-codex-agent --config /var/lib/galatea-agent/agent.json check
-codex-agent --config /var/lib/galatea-agent/agent.json preflight
-codex-agent --config /var/lib/galatea-agent/agent.json serve
-```
-
-`inspect-runtime` 生成供审查的摘要，不授予发布权限；`check` 要求全部 release 证据；`preflight`
-只读核对官方 Ray/MLflow/S3 API，加 `--artifact-index` 检查受限 Run 的 Artifact 目录。
-它不依赖 release 已接纳，也不打开业务状态。`serve` 同样强制门禁，使用 ASGI lifespan 在同一事件循环启动/停止
-Host，并通过原 Service 权限、Campaign、Release 和资源预算决定工具执行。
-
-默认监听 `0.0.0.0:18880`，通过 `http://服务器IP:18880/` 访问，无登录步骤。
-部署必须先限制可信内网来源；可用配置 `console.host/port` 或 CLI `--host/--port` 调整。
-页面支持聊天、执行流程、协议原文及分页；源码启动默认持久化 Console 历史，旧 memory 配置仍只保留当前进程记录。
-Host 会话、执行幂等、工具 journal 和恢复边界继续持久化。
-
-## 证据与限制
-
-```bash
-/data/miniconda3/envs/attend-ray-py312/bin/python \
-  agents/codex-app-server/scripts/runtime_probe.py \
-  --package /absolute/path/to/codex-package --output /tmp/galatea-codex-probe-new
-```
-
-探针只接受 `entrypoint=bin/codex` 的统一包。退出码 `1` 表示协议/兼容性失败；`2` 表示协议通过，
-正式部署证据仍不完整。本次证据见[Console 验收记录](docs/13-console-acceptance.md)，原始日志位于
-仓库根目录的 `outputs/console-20261015/`（Git 忽略）。此前证据保留在
-`outputs/codex-app-server-compatibility-20260923/`，历史失败 fixture 保留原始来源记录。
-
-当前目标版本由用户确认为参考项目的 `codex-cli 0.154.0`。已核验真实 schema、工具面、
-只读模拟模型往返和跨进程恢复；详见验收记录。0.153.4 的历史来源/部署证据不能迁移到新版本。
-0.154.0 的最终来源验证、真实模型/平台部署和网络 ACL 现场验收仍须独立接纳。
-本次没有切换系统服务、配置隧道、运行真实训练或更改模型 Alias。
+开发模式不要求部署接纳文件。正式启动仍要求 runtime 来源、协议、扩展和恢复证据；参见 [生产状态](docs/12-production-readiness.md)。

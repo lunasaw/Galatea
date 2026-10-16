@@ -25,6 +25,7 @@ import {
   type Obj,
 } from "./native";
 import type { NativeRequest } from "./types";
+import { SkillsPanel, McpPanel, PluginsPanel } from "./integrations";
 
 const Json = ({ value }: { value: unknown }) => (
   <pre className="json">{json(value)}</pre>
@@ -441,9 +442,10 @@ function Settings({ state }: { state: ConsoleState }) {
   const [model, setModel] = useState(currentSettings.model);
   const [effort, setEffort] = useState(currentSettings.effort);
   const [cwd, setCwd] = useState(
-    session?.cwd || state.nativeProtocol?.cwd || "",
+    store.cwd,
   );
-  const policyType = session?.settings?.sandboxPolicy?.type;
+  const permission = store.permissionConfiguration;
+  const policyType = permission.sandboxPolicy?.type;
   const [sandbox, setSandbox] = useState(
     (
       {
@@ -452,11 +454,11 @@ function Settings({ state }: { state: ConsoleState }) {
         dangerFullAccess: "danger-full-access",
       } as Obj
     )[policyType] ||
-      session?.settings?.sandbox ||
+      permission.sandbox ||
       "workspace-write",
   );
   const [approval, setApproval] = useState(
-    session?.settings?.approvalPolicy || "on-request",
+    permission.approvalPolicy || "on-request",
   );
   const [mode, setMode] = useState(currentSettings.mode);
   const [search, setSearch] = useState("live");
@@ -685,188 +687,22 @@ function Settings({ state }: { state: ConsoleState }) {
   );
 }
 
-function Library({ kind, state }: { kind: string; state: ConsoleState }) {
+function Apps() {
   const [data, setData] = useState<Obj>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [name, setName] = useState("");
-  const [value, setValue] = useState('{"command":"","args":[]}');
-  const method = (
-    {
-      skills: "skills/list",
-      mcp: "mcpServerStatus/list",
-      plugins: "plugin/list",
-      apps: "app/list",
-    } as Obj
-  )[kind];
   const load = async () => {
     setBusy(true);
     setError("");
-    try {
-      setData(
-        await native(
-          method,
-          kind === "skills"
-            ? {
-                cwds: [
-                  state.sessions.find((s) => s.id === state.active)?.cwd ||
-                    state.nativeProtocol?.cwd,
-                ].filter(Boolean),
-                forceReload: true,
-              }
-            : {},
-        ),
-      );
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
+    try { setData(await native("app/list", {})); }
+    catch (error) { setError(String(error)); }
+    finally { setBusy(false); }
   };
-  useEffect(() => {
-    void load();
-  }, [kind]);
-  const act = async (method: string, params: Obj) => {
-    setError("");
-    try {
-      const r = await native(method, params);
-      if (safeUrl(r.authorizationUrl || r.authUrl || r.url)) setData(r);
-      else await load();
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-  const skills: Obj[] = (data.data || []).flatMap(
-    (entry: Obj) => entry.skills || [],
-  );
-  return (
-    <div className="native-form">
-      <div className="native-options">
-        <Button variant="outline" disabled={busy} onClick={() => void load()}>
-          刷新列表
-        </Button>
-      </div>
-      {kind === "skills" &&
-        skills.map((skill) => (
-          <article className="native-card" key={skill.path}>
-            <strong>{skill.name}</strong>
-            <p>{skill.description}</p>
-            <code>{skill.path}</code>
-            <div className="native-options">
-              <Button
-                onClick={async () => {
-                  try {
-                    await store.send(`请使用 ${skill.name} 技能。`, [
-                      { type: "skill", name: skill.name, path: skill.path },
-                    ]);
-                  } catch (e) {
-                    setError(String(e));
-                  }
-                }}
-              >
-                在对话中使用
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() =>
-                  void act("skills/config/write", {
-                    path: skill.path,
-                    enabled: skill.enabled === false,
-                  })
-                }
-              >
-                {skill.enabled === false ? "启用" : "停用"}
-              </Button>
-            </div>
-          </article>
-        ))}
-      {kind === "mcp" && (
-        <>
-          <Field label="MCP 服务名称">
-            <input value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label="服务配置">
-            <textarea
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-            />
-          </Field>
-          <div className="native-options">
-            <Button
-              onClick={() => {
-                try {
-                  if (!name || !/^[\w-]+$/.test(name))
-                    throw new Error("使用字母、数字、下划线或连字符");
-                  void act("config/value/write", {
-                    keyPath: `mcp_servers.${name}`,
-                    value: JSON.parse(value),
-                    mergeStrategy: "replace",
-                  });
-                } catch (e) {
-                  setError(String(e));
-                }
-              }}
-            >
-              保存服务
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => void act("config/mcpServer/reload", {})}
-            >
-              重新加载
-            </Button>
-          </div>
-        </>
-      )}
-      {kind === "plugins" && (
-        <>
-          <Field label="插件名称">
-            <input value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label="Marketplace 绝对路径（可选）">
-            <input
-              value={value.startsWith("{") ? "" : value}
-              onChange={(e) => setValue(e.target.value)}
-            />
-          </Field>
-          <Button
-            disabled={!name || busy}
-            onClick={() =>
-              void act("plugin/install", {
-                pluginName: name,
-                ...(!value.startsWith("{") && value
-                  ? { marketplacePath: value }
-                  : {}),
-              })
-            }
-          >
-            安装插件
-          </Button>
-          <Field label="卸载插件 ID">
-            <input value={name} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Button
-            variant="outline"
-            disabled={!name || busy}
-            onClick={() => void act("plugin/uninstall", { pluginId: name })}
-          >
-            卸载插件
-          </Button>
-        </>
-      )}
-      {safeUrl(data.authorizationUrl || data.authUrl || data.url) && (
-        <a
-          href={safeUrl(data.authorizationUrl || data.authUrl || data.url)}
-          target="_blank"
-          rel="noreferrer"
-        >
-          打开授权页面
-        </a>
-      )}
-      <Json value={data} />
-      <ErrorText error={error} />
-    </div>
-  );
+  useEffect(() => { void load(); }, []);
+  return <div className="native-form">
+    <Button variant="outline" disabled={busy} onClick={() => void load()}>刷新列表</Button>
+    <Json value={data} /><ErrorText error={error} />
+  </div>;
 }
 
 function History({ state }: { state: ConsoleState }) {
@@ -988,9 +824,11 @@ function History({ state }: { state: ConsoleState }) {
 function TerminalFiles({
   state,
   files,
+  compact = false,
 }: {
   state: ConsoleState;
   files: boolean;
+  compact?: boolean;
 }) {
   const [path, setPath] = useState(
     state.sessions.find((s) => s.id === state.active)?.cwd ||
@@ -1045,11 +883,22 @@ function TerminalFiles({
       setError(String(e));
     }
   };
+  const terminalOutput = (output || data.stdout !== undefined) && (
+    <pre className="native-terminal">
+      {output || data.stdout}
+      {data.stderr}
+    </pre>
+  );
   return (
-    <div className="native-form">
+    <div className={compact ? "native-form compact-terminal" : "native-form"}>
       <Field label={files ? "文件或目录的绝对路径" : "命令工作目录"}>
         <input value={path} onChange={(e) => setPath(e.target.value)} />
       </Field>
+      {compact && (
+        <div className="compact-terminal-output" aria-label="终端输出">
+          {terminalOutput || <p>输入命令，在当前工作目录执行。</p>}
+        </div>
+      )}
       {files ? (
         <>
           <div className="native-options">
@@ -1087,21 +936,28 @@ function TerminalFiles({
           <form
             onSubmit={async (e) => {
               e.preventDefault();
+              if (processId || !command.trim()) return;
               const id = requestKey();
-              const baseline = await api<Obj>("/api/events/history?limit=1");
-              cursor.current = baseline.watermark;
-              setOutput("");
               setProcessId(id);
-              await invoke("command/exec", {
-                command: ["/bin/sh", "-lc", command],
-                cwd: path,
-                processId: id,
-                streamStdin: true,
-                streamStdoutStderr: true,
-                timeoutMs: 300000,
-              });
-              await new Promise((resolve) => setTimeout(resolve, 400));
-              setProcessId("");
+              try {
+                const baseline = await api<Obj>("/api/events/history?limit=1");
+                cursor.current = baseline.watermark;
+                setOutput("");
+                setData({});
+                await invoke("command/exec", {
+                  command: ["/bin/sh", "-lc", command],
+                  cwd: path,
+                  processId: id,
+                  streamStdin: true,
+                  streamStdoutStderr: true,
+                  timeoutMs: 300000,
+                });
+                await new Promise((resolve) => setTimeout(resolve, 400));
+              } catch (error) {
+                setError(String(error));
+              } finally {
+                setProcessId("");
+              }
             }}
           >
             <Field label="Shell 命令">
@@ -1144,15 +1000,10 @@ function TerminalFiles({
               </div>
             </>
           )}
-          {(output || data.stdout !== undefined) && (
-            <pre className="native-terminal">
-              {output || data.stdout}
-              {data.stderr}
-            </pre>
-          )}
+          {!compact && terminalOutput}
         </>
       )}
-      <Json value={data} />
+      {!compact && <Json value={data} />}
       <ErrorText error={error} />
     </div>
   );
@@ -1247,23 +1098,36 @@ function ProtocolExplorer({ state }: { state: ConsoleState }) {
 export function NativeControl({
   state,
   initialTab = "settings",
+  compact = false,
 }: {
   state: ConsoleState;
   initialTab?: string;
+  compact?: boolean;
 }) {
   const tab = initialTab;
   return (
-    <div id="native-control">
+    <div id={compact ? "terminal-control" : "native-control"}>
       {tab === "settings" ? (
         <Settings state={state} />
       ) : tab === "history" ? (
         <History state={state} />
       ) : tab === "terminal" || tab === "files" ? (
-        <TerminalFiles key={tab} state={state} files={tab === "files"} />
+        <TerminalFiles
+          key={tab}
+          state={state}
+          files={tab === "files"}
+          compact={compact}
+        />
       ) : tab === "protocol" ? (
         <ProtocolExplorer state={state} />
+      ) : tab === "skills" ? (
+        <SkillsPanel state={state} />
+      ) : tab === "mcp" ? (
+        <McpPanel state={state} />
+      ) : tab === "plugins" ? (
+        <PluginsPanel state={state} />
       ) : (
-        <Library key={tab} state={state} kind={tab} />
+        <Apps />
       )}
     </div>
   );

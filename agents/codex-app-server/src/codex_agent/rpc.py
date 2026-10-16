@@ -4,6 +4,8 @@ import asyncio
 import json
 from .console.observer import native_context
 
+_DEFAULT_PARAMS = object()
+
 
 class ProtocolError(RuntimeError):
     pass
@@ -150,14 +152,17 @@ class JsonRpcPeer:
         except Exception as exc:
             await self._fail(exc)
 
-    async def request(self, method: str, params: dict | None = None, *, timeout=None):
+    async def request(self, method: str, params=_DEFAULT_PARAMS, *, timeout=None):
         self.start()
         self._next_id += 1
         request_id = self._next_id
         future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
         try:
-            await self.send({"id": request_id, "method": method, "params": params or {}})
+            # Unit methods use explicit JSON null; omitted params retain the
+            # object default used by the rest of the client.
+            await self.send({"id": request_id, "method": method,
+                             "params": {} if params is _DEFAULT_PARAMS else params})
             return await asyncio.wait_for(future, self.timeout if timeout is None else timeout)
         except (TimeoutError, asyncio.CancelledError) as exc:
             # A timed-out mutation may already have happened: never reuse this peer.
@@ -182,7 +187,7 @@ class AppServerClient:
         self.peer, self.initialized = peer, False
 
     async def initialize(self, *, experimental_api=True):
-        result = await self.peer.request("initialize", {"clientInfo": {"name": "galatea-codex-agent", "version": "0.1.0"},
+        result = await self.peer.request("initialize", {"clientInfo": {"name": "codex-agent", "version": "0.1.0"},
                                                          "capabilities": {"experimentalApi": experimental_api}})
         await self.peer.send({"method": "initialized", "params": {}})
         self.initialized = True

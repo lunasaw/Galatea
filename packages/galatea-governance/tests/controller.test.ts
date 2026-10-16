@@ -754,6 +754,29 @@ test('binds both normalized integrity reports into post-Run evidence', async () 
   assert.notEqual(originalDigest, '')
 })
 
+test('verifies Python numeric source digests without accepting altered content or Run bindings', async () => {
+  const { controller, runs, integrityArtifacts } = await fixture()
+  const run = runs.get('trial-2')!
+  // Exact json.dumps(sort_keys=True, separators=(",", ":")) producer bytes.
+  const material = '{"payload":{"range":[0.0,1.0],"small":1e-07},"report_id":"preprocessing","role":"trial","schema_version":"galatea/integrity/v1","status":"passed"}'
+  const contentDigest = createHash('sha256').update(material).digest('hex')
+  const text = `{"content_digest":"${contentDigest}",${material.slice(1)}`
+  const publish = (text: string) => {
+    const bytes = new TextEncoder().encode(text)
+    const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+    integrityArtifacts.set('trial-2:reports/preprocessing-parity.json', { bytes, digest })
+    runs.set('trial-2', { ...run, data: { ...run.data, params: run.data!.params!.map(param =>
+      param.key === 'integrity.preprocessing_artifact_digest' ? { ...param, value: digest } : param) } })
+  }
+  publish(text)
+  assert.equal((await controller.buildStageEvidence({ runId: 'trial-2', stage: 'training-optimization' })).ok, true)
+  publish(text.replace('1.0', '2.0'))
+  assert.equal((await controller.buildStageEvidence({ runId: 'trial-2', stage: 'training-optimization' })).ok, false)
+  publish(text)
+  runs.set('trial-2', run)
+  assert.equal((await controller.buildStageEvidence({ runId: 'trial-2', stage: 'training-optimization' })).ok, false)
+})
+
 test('recomputes final evidence through Artifact APIs before promotion', async () => {
   const { controller, aliases, artifacts } = await fixture()
   const verified = await controller.verifyCandidate({ runId: 'champion-1' })

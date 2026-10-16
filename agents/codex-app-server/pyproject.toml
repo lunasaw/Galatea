@@ -3,11 +3,11 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "galatea-codex-app-server"
+name = "codex-agent-host"
 version = "0.1.0"
-description = "Native Codex app-server Host with governed Galatea tools and in-memory chat and protocol trace Console"
+description = "Generic native Codex host with configurable skills, tools, MCP and a chat console"
 requires-python = ">=3.11"
-dependencies = ["jsonschema>=4.25,<5", "uvicorn>=0.35,<0.41", "galatea-mcp==0.1.0"]
+dependencies = ["jsonschema>=4.25,<5", "uvicorn>=0.35,<0.41"]
 
 [project.optional-dependencies]
 test = ["httpx>=0.28,<0.29"]

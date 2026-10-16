@@ -8,6 +8,19 @@ import type {
   NativeRequest,
   NativeProtocol,
 } from "./types";
+import {
+  emptyLayout,
+  mergeProjects,
+  parseProjectLayout,
+  normalizeProjectPath,
+  projectForPath,
+  projectName,
+  type ProjectLayout,
+} from "./project-state";
+import {
+  permissionSettings,
+  type PermissionPreset,
+} from "./permission-presets";
 
 declare global {
   var ConsoleTransport: {
@@ -103,6 +116,11 @@ export type ConsoleState = {
   }>;
   preferences: { model: string; effort: string; mode: string };
   settingsBusy: boolean;
+  projectLayout: ProjectLayout;
+  draftCwd: string;
+  draftProjectId: string;
+  draftPermission: PermissionPreset | null;
+  runtimeDefaults: Record<string, any>;
 };
 
 export class ConsoleStore {
@@ -151,6 +169,11 @@ export class ConsoleStore {
     models: [],
     preferences: { model: "", effort: "medium", mode: "default" },
     settingsBusy: false,
+    projectLayout: emptyLayout(),
+    draftCwd: "",
+    draftProjectId: "",
+    draftPermission: null,
+    runtimeDefaults: {},
   };
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -169,7 +192,18 @@ export class ConsoleStore {
   };
   async init() {
     try {
-      const titles = localStorage.getItem("galatea.titles");
+      const permission = localStorage.getItem("codex-agent.draft-permission");
+      this.patch({
+        projectLayout: parseProjectLayout(
+          localStorage.getItem("codex-agent.projects"),
+        ),
+        draftCwd: localStorage.getItem("codex-agent.project") || "",
+        draftProjectId: localStorage.getItem("codex-agent.project-id") || "",
+        draftPermission: ["ask", "auto", "full"].includes(permission || "")
+          ? (permission as PermissionPreset)
+          : null,
+      });
+      const titles = localStorage.getItem("codex-agent.titles");
       if (titles) this.patch({ titles: JSON.parse(titles) });
       const [health, sessions, capabilities, nativeProtocol, nativeRequests] =
         await Promise.all([
@@ -186,7 +220,8 @@ export class ConsoleStore {
         nativeProtocol,
         nativeRequests,
       });
-      const previous = localStorage.getItem("galatea.active");
+      this.saveProjectLayout({});
+      const previous = localStorage.getItem("codex-agent.active");
       if (previous && sessions.some((s) => s.id === previous))
         await this.select(previous);
       const [models, config] = await Promise.all([
@@ -203,6 +238,7 @@ export class ConsoleStore {
       this.patch({
         models: models.data || [],
         preferences: this.defaults,
+        runtimeDefaults: config.config || {},
       });
     } catch (error) {
       this.fail(error);
@@ -229,6 +265,195 @@ export class ConsoleStore {
   async nativeCall(method: string, params: unknown) {
     const key = requestKey();
     return api(`/api/native/call`, { method, params }, key);
+  }
+  get cwd() {
+    const session = this.state.sessions.find((s) => s.id === this.state.active);
+    return (
+      session?.cwd ||
+      session?.settings?.cwd ||
+      this.state.draftCwd ||
+      this.state.nativeProtocol?.cwd ||
+      ""
+    );
+  }
+  get projects() {
+    return mergeProjects(this.state.projectLayout, [
+      this.state.nativeProtocol?.cwd || "",
+      this.state.draftCwd,
+      ...this.state.sessions
+        .filter((s) => !s.archived)
+        .map((s) => s.cwd || s.settings?.cwd || ""),
+    ]);
+  }
+  projectForSession(id: string) {
+    if (this.state.projectLayout.threadProjects[id] === "") return undefined;
+    const session = this.state.sessions.find((s) => s.id === id);
+    if (!session) return undefined;
+    const path = session.cwd || session.settings?.cwd || "";
+    const projects = this.projects;
+    const assigned = projects.find(
+      (p) => p.id === this.state.projectLayout.threadProjects[id],
+    );
+    return assigned?.path === path ? assigned : projectForPath(projects, path);
+  }
+  get currentProject() {
+    if (this.state.active) return this.projectForSession(this.state.active);
+    return (
+      this.projects.find((p) => p.id === this.state.draftProjectId) ||
+      projectForPath(this.projects, this.cwd)
+    );
+  }
+  saveProjectLayout(update: Partial<ProjectLayout>) {
+    const threadProjects = { ...this.state.projectLayout.threadProjects };
+    // Bind older sessions before a new project or a reorder can change any fallback.
+    for (const session of this.state.sessions) {
+      const project = this.projectForSession(session.id);
+      if (project) threadProjects[session.id] = project.id;
+    }
+    const projectLayout = {
+      ...this.state.projectLayout,
+      projects: this.projects,
+      ...update,
+      threadProjects: { ...threadProjects, ...update.threadProjects },
+    };
+    localStorage.setItem("codex-agent.projects", JSON.stringify(projectLayout));
+    this.patch({ projectLayout });
+  }
+  addProject(path: string, name = "", section = "") {
+    path = normalizeProjectPath(path);
+    const baseName = name.trim() || projectName(path);
+    let label = baseName;
+    if (!name.trim()) {
+      let index = 2;
+      while (this.projects.some((p) => p.name === label))
+        label = `${baseName} (${index++})`;
+    }
+    const project = { id: requestKey(), path, name: label, section };
+    this.saveProjectLayout({ projects: [...this.projects, project] });
+    return project;
+  }
+  removeProject(id: string) {
+    const project = this.projects.find((p) => p.id === id);
+    if (!project) return;
+    const threadProjects = Object.fromEntries(this.state.sessions
+      .filter((s) => this.projectForSession(s.id)?.id === id)
+      .map((s) => [s.id, ""]));
+    this.saveProjectLayout({
+      projects: this.projects.filter((p) => p.id !== id),
+      hiddenPaths: [...new Set([...this.state.projectLayout.hiddenPaths, project.path])],
+      threadProjects,
+    });
+    if (this.state.draftProjectId === id) this.setDraftProject({id: "", path: ""});
+  }
+  private setDraftProject(project: { id: string; path: string }) {
+    localStorage.setItem("codex-agent.project", project.path);
+    localStorage.setItem("codex-agent.project-id", project.id);
+    this.patch({ draftCwd: project.path, draftProjectId: project.id });
+  }
+  async startProject(projectId: string) {
+    if (this.state.creating || this.state.submitting || this.state.settingsBusy)
+      return;
+    const project = this.projects.find((p) => p.id === projectId);
+    if (!project) return;
+    this.saveProjectLayout({});
+    this.setDraftProject(project);
+    await this.select(null);
+  }
+  async moveSessionToProject(id: string, projectId: string) {
+    const project = this.projects.find((p) => p.id === projectId);
+    const session = this.state.sessions.find((s) => s.id === id);
+    if (
+      !project ||
+      !session ||
+      this.state.settingsBusy ||
+      this.state.submitting ||
+      this.state.creating
+    )
+      return false;
+    if (
+      (session.cwd || session.settings?.cwd) !== project.path &&
+      !(await this.updateSessionSettings(id, { cwd: project.path }))
+    )
+      return false;
+    this.saveProjectLayout({ threadProjects: { [id]: project.id } });
+    return true;
+  }
+  async updateSessionSettings(id: string, settings: Record<string, unknown>) {
+    const session = this.state.sessions.find((s) => s.id === id);
+    if (this.state.settingsBusy || this.state.submitting || this.state.creating)
+      return false;
+    if (
+      !session?.thread_id ||
+      session.active_turn_id ||
+      busyStatuses.has(session.status)
+    ) {
+      this.fail(new Error("请在当前回复结束后更改会话设置"));
+      return false;
+    }
+    this.patch({ settingsBusy: true, error: "" });
+    try {
+      await this.nativeCall("thread/settings/update", {
+        threadId: session.thread_id,
+        ...settings,
+      });
+      this.patch({
+        sessions: this.state.sessions.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                ...(typeof settings.cwd === "string"
+                  ? { cwd: settings.cwd }
+                  : {}),
+                settings: { ...s.settings, ...settings },
+              }
+            : s,
+        ),
+      });
+      return true;
+    } catch (error) {
+      this.fail(error);
+      return false;
+    } finally {
+      this.patch({ settingsBusy: false });
+    }
+  }
+  async chooseProject(projectId: string) {
+    if (this.state.settingsBusy || this.state.submitting || this.state.creating)
+      return false;
+    const project = this.projects.find((p) => p.id === projectId);
+    if (!project) return false;
+    const id = this.state.active;
+    if (id && !(await this.moveSessionToProject(id, project.id))) return false;
+    this.saveProjectLayout({});
+    this.setDraftProject(project);
+    return true;
+  }
+  get permissionConfiguration(): Record<string, any> {
+    const settings = this.state.sessions.find(
+      (s) => s.id === this.state.active,
+    )?.settings;
+    const defaults = this.state.runtimeDefaults;
+    if (!this.state.active && this.state.draftPermission)
+      return permissionSettings(this.state.draftPermission);
+    return {
+      sandbox: defaults.sandbox_mode || "workspace-write",
+      approvalPolicy: defaults.approval_policy || "on-request",
+      approvalsReviewer: defaults.approvals_reviewer || "user",
+      ...(defaults.permissions ? { permissions: defaults.permissions } : {}),
+      ...settings,
+    };
+  }
+  async choosePermission(preset: PermissionPreset) {
+    if (this.state.settingsBusy || this.state.submitting || this.state.creating)
+      return false;
+    if (this.state.active)
+      return this.updateSessionSettings(this.state.active, {
+        ...permissionSettings(preset),
+        permissions: null,
+      });
+    localStorage.setItem("codex-agent.draft-permission", preset);
+    this.patch({ draftPermission: preset, error: "" });
+    return true;
   }
   get composerSettings() {
     const settings = this.state.sessions.find(
@@ -312,7 +537,7 @@ export class ConsoleStore {
         [id]: first.text.trim().slice(0, 48),
       };
       this.patch({ titles });
-      localStorage.setItem("galatea.titles", JSON.stringify(titles));
+      localStorage.setItem("codex-agent.titles", JSON.stringify(titles));
     }
   }
   title(id: string) {
@@ -325,7 +550,7 @@ export class ConsoleStore {
   async rename(id: string, title: string) {
     if (!title.trim() || !this.state.sessions.some((s) => s.id === id)) return;
     const titles = { ...this.state.titles, [id]: title.trim().slice(0, 120) };
-    localStorage.setItem("galatea.titles", JSON.stringify(titles));
+    localStorage.setItem("codex-agent.titles", JSON.stringify(titles));
     this.patch({ titles });
     const threadId = this.state.sessions.find((s) => s.id === id)?.thread_id;
     if (threadId) {
@@ -370,8 +595,8 @@ export class ConsoleStore {
       older: false,
       eventLive: true,
     });
-    if (id) localStorage.setItem("galatea.active", id);
-    else localStorage.removeItem("galatea.active");
+    if (id) localStorage.setItem("codex-agent.active", id);
+    else localStorage.removeItem("codex-agent.active");
     if (!id && !global) return;
     try {
       const [health, sessions] = await Promise.all([
@@ -435,14 +660,20 @@ export class ConsoleStore {
     this.actions.set("create", key);
     try {
       const { model, effort } = this.state.preferences;
-      const session = await api<Session>(
-        "/api/sessions",
-        model
-          ? { options: { model, config: { model_reasoning_effort: effort } } }
-          : {},
-        key,
-      );
+      const project = this.currentProject;
+      const options = {
+        ...(this.state.draftCwd ? { cwd: this.state.draftCwd } : {}),
+        ...(this.state.draftPermission
+          ? permissionSettings(this.state.draftPermission, true)
+          : {}),
+        ...(model ? { model, config: { model_reasoning_effort: effort } } : {}),
+      };
+      const session = await api<Session>("/api/sessions", { options }, key);
       this.actions.delete("create");
+      if (project)
+        this.saveProjectLayout({
+          threadProjects: { [session.id]: project.id },
+        });
       await this.refreshSessions();
       await this.select(session.id);
       if (model && !(await this.updateComposerSettings(this.state.preferences)))
@@ -559,7 +790,7 @@ export class ConsoleStore {
       [id]: this.state.titles[id] || text.trim().slice(0, 48),
     };
     this.patch({ titles });
-    localStorage.setItem("galatea.titles", JSON.stringify(titles));
+    localStorage.setItem("codex-agent.titles", JSON.stringify(titles));
     await this.sendTo(id, text, this.pending.key, input, this.pending.options);
   }
   retrySend = async () => {

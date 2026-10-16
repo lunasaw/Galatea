@@ -1,10 +1,17 @@
 # Galatea MCP
 
 独立 Python 平台治理服务，无 Agent Runtime 或模型框架的源码依赖。
-Codex 可通过 MCP transport 调用；[`codex-app-server` Host](../../agents/codex-app-server/README.md)
-通过进程内 Dynamic Tool Registry 复用同一 Service 和权限约束。
+Codex 通过原生 MCP 客户端连接本服务的 stdio 或 Streamable HTTP transport。
+[`codex-app-server` Host](../../agents/codex-app-server/README.md) 是通用工作台，
+不依赖本包，也不内置 GalateaAdapter、Campaign 身份或固定 Galatea 工具目录。
+接入时单独部署本服务，在受控 `codex-home/config.toml` 中配置 MCP；
+如另写 Host Tool Provider，须独立实现和验收，不能假定仓库已经提供适配器。
 实现 `galatea.tools/v1` 的 17 个工具、单写 JSON 状态、批准槽位/预算、幂等提交与恢复、
 验证集比较、冻结候选、干净 Champion、test-once 和 API Artifact 核验。
+
+Codex 沙箱/审批控制 Agent 的执行能力；本服务独立检查项目、Campaign、预算与数据权限。
+Host 会话 ID、原生 Thread ID 和 MCP session ID 都不是业务授权。整体边界见
+[当前架构](../../doc/agent-galatea.md)。
 
 ## 安装和本地验证
 
@@ -81,4 +88,7 @@ CPU/GPU 指标是保守上限，不是账单。deadline 由 workload 与 MCP wat
 
 状态路径：`campaigns/<id>.json`、`evaluation-uses/<test-sha256>.json`、`writer.lock`。
 文件损坏保留原件并阻止执行。备份/回退必须连同测试标记，禁止靠清空状态重试。
-完整真实验收见 [端到端联调手册](../../doc/train-agent/08-e2e-integration-runbook.md)。
+当前 MCP 安装、身份和业务验收以本页、部署配置及所属 workload README 为准；Web 接入还需按
+[Host 测试验收](../../agents/codex-app-server/docs/09-test-acceptance.md)验证原生协议与外部服务边界。
+[旧端到端联调手册](../../doc/train-agent/08-e2e-integration-runbook.md)仅保留故障演练和验收设计，
+其中已删除 Runner 的制品与命令不是当前部署入口。

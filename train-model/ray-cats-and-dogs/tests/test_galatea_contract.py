@@ -199,16 +199,29 @@ class GalateaContractTest(unittest.TestCase):
                 patch(
                     "mlflow.pytorch.log_model",
                     return_value=SimpleNamespace(model_uri="models:/m-123"),
-                ),
+                ) as log_model,
                 patch(
                     "mlflow.artifacts.download_artifacts",
                     side_effect=[str(logged_model_directory), str(run_descriptor)],
                 ) as download,
+                patch(
+                    "ray_cats_dogs.model_artifacts.verify_packaged_model",
+                    return_value={"default_loader_verified": True},
+                ) as verify_packaged,
+                patch("mlflow.log_dict") as log_dict,
                 patch("mlflow.log_artifacts") as log_artifacts,
             ):
                 model_uri = _log_mlflow_model(checkpoint, config, "run-123")
 
         self.assertEqual("runs:/run-123/model", model_uri)
+        self.assertEqual(
+            [str(PROJECT_ROOT / "src" / "ray_cats_dogs")],
+            log_model.call_args.kwargs["code_paths"],
+        )
+        verify_packaged.assert_called_once_with(logged_model_directory, config.image_size)
+        log_dict.assert_called_once_with(
+            {"default_loader_verified": True}, "verification/model-fresh-process-load.json"
+        )
         log_artifacts.assert_called_once_with(
             str(logged_model_directory), artifact_path="model"
         )

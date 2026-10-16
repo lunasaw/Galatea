@@ -146,16 +146,6 @@ class Projector:
                 if isinstance(result, dict):
                     values['result'] = result
                     values['success'] = result.get('success')
-                    for content in result.get('contentItems', []):
-                        try:
-                            envelope = json.loads(content.get('text', ''))
-                        except (ValueError, TypeError):
-                            continue
-                        data = envelope.get('data') if isinstance(envelope, dict) else None
-                        if isinstance(data, dict):
-                            values['operation_id'] = data.get('operation_id')
-                            if data.get('job_id') or data.get('job'):
-                                values['job'] = data.get('job', data)
                 change('steps', f'tool:{thread}:{turn}:{call}', values)
         if method in {'turn/started', 'turn/completed'} and turn:
             change('turns', turn, {**common, 'status': params.get('turn', {}).get('status', 'unknown'), 'detail': params.get('turn'),

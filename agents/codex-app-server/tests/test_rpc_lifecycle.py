@@ -53,6 +53,16 @@ class RPCLifecycleTests(unittest.IsolatedAsyncioTestCase):
             self.feed({'id': request['id'], 'result': request['method']})
         self.assertEqual(await asyncio.gather(first, second), ['first', 'second'])
 
+    async def test_explicit_null_params_survives_wire_and_omitted_params_stays_object(self):
+        for explicit_null in (True, False):
+            pending = asyncio.create_task(self.peer.request('config/mcpServer/reload', None)
+                if explicit_null else self.peer.request('model/list'))
+            request = await self.writer.messages.get()
+            self.assertIn('params', request)
+            self.assertEqual(request['params'], None if explicit_null else {})
+            self.feed({'id': request['id'], 'result': {}})
+            self.assertEqual(await pending, {})
+
     async def test_timeout_and_eof_fail_all_requests(self):
         with self.assertRaises(TimeoutError):
             await self.peer.request('never')

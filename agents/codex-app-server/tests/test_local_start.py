@@ -1,4 +1,5 @@
 import importlib.util
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -13,9 +14,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
-sys.path.insert(0, str(ROOT.parents[1] / 'services/galatea-mcp/src'))
 from codex_agent.config import AgentConfig
-from codex_agent.local import build_local_service, prepare, source_manifest
+from codex_agent.local import prepare, source_manifest
 from codex_agent.stage0 import GateError
 
 spec = importlib.util.spec_from_file_location('local_process', ROOT / 'scripts/local_process.py')
@@ -35,7 +35,7 @@ class SourceStartupTests(unittest.TestCase):
         (self.auth / 'config.toml').write_text('model = "fixture"\nmodel_provider = "custom"\n'
             '[model_providers.custom]\nname = "Custom"\nbase_url = "http://localhost/v1"\n'
             'http_headers = {"X-Test" = "example"}\n')
-        self.env = patch.dict(os.environ, {'GALATEA_AUTH_DIR': str(self.auth)}, clear=True)
+        self.env = patch.dict(os.environ, {'CODEX_AGENT_AUTH_DIR': str(self.auth)}, clear=True)
         self.env.start()
         self.addCleanup(self.env.stop)
         self.binary = Path('/usr/bin/true').resolve()
@@ -66,17 +66,20 @@ class SourceStartupTests(unittest.TestCase):
         self.config()
         self.assertEqual(path.read_text(), changed)
 
-    def test_source_checks_runtime_and_restricts_unconfigured_platform(self):
+    def test_source_checks_runtime_without_any_business_configuration(self):
         config = self.config()
+        self.assertEqual(config.catalog().schemas, {})
+        self.assertEqual(config.providers, ())
+        self.assertNotIn('galatea', config.raw)
+        self.assertFalse((config.config_dir / 'platform-state').exists())
         with self.assertRaises(GateError):
             source_manifest(config)
-        service, principal = build_local_service(config)
-        self.assertIsNotNone(service.call(principal, 'galatea_get_capabilities', {}))
-        raw = json.loads(json.dumps(config.raw))
-        raw['galatea']['principal']['actions'].append('galatea_submit')
-        restricted = AgentConfig.from_dict(raw, config.config_dir)
-        with self.assertRaises(ValueError):
-            build_local_service(restricted)
+
+    def test_source_rejects_a_runtime_outside_the_supported_protocol(self):
+        config = replace(self.config(), runtime_version='codex-cli 0.153.4')
+        with patch('codex_agent.local.subprocess.check_output', return_value=config.runtime_version):
+            with self.assertRaisesRegex(GateError, 'supported Codex'):
+                source_manifest(config)
 
     def test_restart_kills_only_recorded_project_and_children(self):
         directory = self.project / '.local'

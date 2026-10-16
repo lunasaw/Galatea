@@ -116,7 +116,8 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r['text'] for r in snapshot['messages']], ['go', 'hello world'])
         tools = [s for s in snapshot['steps'] if s.get('type') == 'tool']
         self.assertEqual(len(tools), 1)
-        self.assertEqual(tools[0]['job']['status'], 'RUNNING')
+        self.assertIn('RUNNING', json.dumps(tools[0]['result']))
+        self.assertNotIn('job', tools[0])
         self.assertTrue(tools[0]['observed_at'])
         self.assertEqual(snapshot['turns'][0]['status'], 'failed')
         self.assertEqual(snapshot['turns'][0]['usage']['total']['totalTokens'], 20)

@@ -22,19 +22,17 @@ class AgentHost:
     """Durable admission and observation around the native app-server loop."""
 
     def __init__(self, *, registry: ToolRegistry, event_log, store: AtomicJsonStore,
-                 client_factory, reconciler, principal_id: str, project_ids: set[str],
-                 campaign_ids: set[str], actions: set[str], max_active_turns: int = 4,
+                 client_factory, reconciler, principal_id: str, actions: set[str], max_active_turns: int = 4,
                  workspace_dir=None, bindings=None, tool_timeout=60.0, client_stop=None, admission_check=None, startup_check=None,
-                 configuration_changed=None):
+                 configuration_changed=None, extensions_close=None):
         self.registry, self.events, self.store = registry, event_log, store
         self.client_factory, self.reconciler, self.client_stop = client_factory, reconciler, client_stop
-        self.principal_id, self.project_ids = principal_id, frozenset(project_ids)
-        self.campaign_ids, self.actions = frozenset(campaign_ids), frozenset(actions)
+        self.principal_id, self.actions = principal_id, frozenset(actions)
         self.max_active_turns, self.tool_timeout = max_active_turns, tool_timeout
         self.workspace_dir = workspace_dir or store.root
         self.admission_check, self.startup_check = admission_check, startup_check
         self.bindings = {**(bindings or {}), 'catalog_digest': registry.catalog.digest,
-                         'principal_digest': payload_digest([principal_id, sorted(project_ids), sorted(campaign_ids), sorted(actions)])}
+                         'principal_digest': payload_digest([principal_id, sorted(actions)])}
         self.client, self.ready = None, False
         self._sessions, self._attached, self._cancels = {}, set(), {}
         self._admission = asyncio.Lock()
@@ -43,6 +41,7 @@ class AgentHost:
         self._reconcile_task, self._writer = None, None
         self._workers = set()
         self.configuration_changed = configuration_changed
+        self.extensions_close = extensions_close
         self.native = NativeBridge(self)
 
     async def _reconcile(self):
@@ -70,7 +69,7 @@ class AgentHost:
             for session in self.list_sessions():
                 if (self.configuration_changed and not session.get('active_turn_id') and
                         all(session.get(key) == self.bindings.get(key) for key in
-                            ('catalog_digest', 'principal_digest', 'runtime_binary_sha256', 'runtime_compatibility_sha256'))):
+                            ('catalog_digest', 'principal_digest', 'runtime_binary_sha256', 'runtime_compatibility_sha256', 'extensions_sha256'))):
                     session.update({key: self.bindings[key] for key in ('effective_config_sha256', 'agent_config_sha256') if key in self.bindings})
                 self.events.bind(session['id'], session['thread_id'])
                 if session['status'] != 'closed':
@@ -105,17 +104,23 @@ class AgentHost:
             self._reconcile_task.cancel()
             await asyncio.gather(self._reconcile_task, return_exceptions=True)
             self._reconcile_task = None
-        close = self.client_stop or getattr(self.client, 'stop', None)
-        if close:
-            result = close()
-            if inspect.isawaitable(result):
-                await result
-        # Worker threads cannot be killed safely; keep the writer lock until they exit.
-        if self._workers:
-            await asyncio.gather(*self._workers, return_exceptions=True)
-        if self._writer:
-            self._writer.__exit__(None, None, None)
-            self._writer = None
+        try:
+            close = self.client_stop or getattr(self.client, 'stop', None)
+            if close:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+        finally:
+            try:
+                # Keep providers and the writer lock alive until workers exit.
+                if self._workers:
+                    await asyncio.gather(*self._workers, return_exceptions=True)
+                if self.extensions_close:
+                    await asyncio.to_thread(self.extensions_close)
+            finally:
+                if self._writer:
+                    self._writer.__exit__(None, None, None)
+                    self._writer = None
 
     def assert_ready(self, max_age=60.0):
         peer = getattr(self.client, 'peer', None)
@@ -245,7 +250,7 @@ class AgentHost:
         try:
             self.assert_ready()
             identifier(call_id)
-            if (not session or session['id'] not in self._attached or params.get('namespace') != 'galatea'
+            if (not session or session['id'] not in self._attached or params.get('namespace') != self.registry.catalog.namespace
                     or session['status'] != 'running' or params.get('turnId') != session.get('active_turn_id')):
                 raise HostNotReady('unbound tool call')
         except (HostNotReady, ValueError):
@@ -255,7 +260,7 @@ class AgentHost:
             journal_id = payload_digest([session['id'], call_id])
             cancel = self._cancels.setdefault(session['id'], threading.Event())
             context = ToolContext(session['id'], params['threadId'], params['turnId'], journal_id,
-                                  self.principal_id, self.project_ids, self.campaign_ids, self.actions,
+                                  self.principal_id, self.actions,
                                   session['catalog_digest'], payload_digest(self.bindings),
                                   time.monotonic() + self.tool_timeout, cancel)
             name, arguments = params.get('tool', ''), params.get('arguments', {})

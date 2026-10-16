@@ -3,7 +3,6 @@
 set -eu
 umask 077
 PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
-REPO_DIR=$(CDPATH= cd -- "$PROJECT_DIR/../.." && pwd -P)
 LOCAL_DIR="$PROJECT_DIR/.local"
 mkdir -p "$LOCAL_DIR"
 exec 9>"$LOCAL_DIR/start.lock"
@@ -26,13 +25,13 @@ if [ ! -x "$ENV_DIR/bin/python" ]; then
 fi
 export PATH="$ENV_DIR/bin:$PATH"
 PYTHON="$ENV_DIR/bin/python"
-DEPS_HASH=$(cat "$PROJECT_DIR/pyproject.toml" "$REPO_DIR/services/galatea-mcp/pyproject.toml" \
+DEPS_HASH=$(cat "$PROJECT_DIR/pyproject.toml" \
     "$PROJECT_DIR/deploy/requirements-linux-x86_64-py312.lock" | cksum)
 if [ ! -f "$LOCAL_DIR/dependencies.stamp" ] || [ "$(cat "$LOCAL_DIR/dependencies.stamp")" != "$DEPS_HASH" ]; then
     echo "Installing project dependencies..."
     "$PYTHON" -m pip install --require-hashes --only-binary=:all: \
         -r "$PROJECT_DIR/deploy/requirements-linux-x86_64-py312.lock"
-    "$PYTHON" -m pip install --no-deps -e "$REPO_DIR/services/galatea-mcp" -e "$PROJECT_DIR"
+    "$PYTHON" -m pip install --no-deps -e "$PROJECT_DIR"
     "$PYTHON" -m pip check
     printf '%s\n' "$DEPS_HASH" > "$LOCAL_DIR/dependencies.stamp"
 fi
@@ -57,13 +56,11 @@ if [ -f "$PROJECT_DIR/frontend/package-lock.json" ]; then
     (cd "$PROJECT_DIR/frontend" && npm run build)
 fi
 
-export PYTHONPATH="$PROJECT_DIR/src:$REPO_DIR/services/galatea-mcp/src"
+export PYTHONPATH="$PROJECT_DIR/src"
 export PYTHONNOUSERSITE=1
-export AWS_EC2_METADATA_DISABLED=true
-export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 "$PYTHON" -m codex_agent.local "$PROJECT_DIR" "$RUNTIME"
 "$PYTHON" "$PROJECT_DIR/scripts/local_process.py" stop "$PROJECT_DIR"
-echo "Starting: http://${GALATEA_HOST:-0.0.0.0}:${GALATEA_PORT:-18880} (Ctrl+C to stop)"
+echo "Starting: http://${CODEX_AGENT_HOST:-0.0.0.0}:${CODEX_AGENT_PORT:-18880} (Ctrl+C to stop)"
 exec "$PYTHON" "$PROJECT_DIR/scripts/local_process.py" run "$PROJECT_DIR" \
     "$PYTHON" -m codex_agent.cli --config "$LOCAL_DIR/agent.json" serve --dev \
-    --host "${GALATEA_HOST:-0.0.0.0}" --port "${GALATEA_PORT:-18880}"
+    --host "${CODEX_AGENT_HOST:-0.0.0.0}" --port "${CODEX_AGENT_PORT:-18880}"

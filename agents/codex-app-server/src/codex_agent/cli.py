@@ -4,7 +4,6 @@ import argparse
 import json
 from pathlib import Path
 
-from .catalog import Catalog
 from .config import AgentConfig
 from .stage0 import GateError
 from .release import verify_release, load_json, measure
@@ -19,7 +18,7 @@ def check(config_path: Path):
     config, raw = load_config(config_path)
     manifest = verify_release(config)
     return {"status": "accepted-release", "catalog_digest": manifest["dynamic_tool_catalog_sha256"],
-            "runtime_version": manifest["codex_version"], "training_started": False}
+            "runtime_version": manifest["codex_version"]}
 
 
 def main(argv=None):
@@ -28,8 +27,6 @@ def main(argv=None):
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("check")
     subparsers.add_parser("inspect-runtime")
-    preflight_parser = subparsers.add_parser("preflight")
-    preflight_parser.add_argument("--artifact-index", action="store_true")
     unit = subparsers.add_parser("render-unit")
     unit.add_argument("--executable", type=Path, required=True)
     unit.add_argument("--user", required=True)
@@ -65,13 +62,6 @@ def main(argv=None):
         asyncio.run(inspect_runtime())
         print(json.dumps(manifest, indent=2))
         return 0
-    from .platform import build_service, preflight
-    if args.command == "preflight":
-        # Read-only evidence gathering precedes release acceptance and never takes
-        # the production Service's writer lock.
-        result = preflight(config, artifact_index=args.artifact_index)
-        print(json.dumps(result, indent=2))
-        return 0 if result["status"] == "platform-reachable" else 2
     if not args.dev:
         check(args.config)
     from .app import build_host
@@ -80,21 +70,11 @@ def main(argv=None):
     import re
     if not re.fullmatch(r'[A-Za-z0-9_.:-]+', listen_host) or not 1 <= listen_port <= 65535:
         raise ValueError('invalid Console listen address or port')
-    if args.dev and not config.raw['galatea'].get('platform'):
-        from .local import build_local_service
-        service, principal = build_local_service(config)
-    else:
-        service, principal = build_service(config)
     import uvicorn
-    try:
-        host, application = build_host(config, service, principal, development=args.dev)
-        uvicorn.run(application, host=listen_host, port=listen_port, log_level="info", lifespan="on",
-                    limit_concurrency=64, timeout_keep_alive=10, ws="none",
-                    timeout_graceful_shutdown=10 if args.dev else None)
-    finally:
-        store = getattr(service, "store", None)
-        if store:
-            store.close()
+    host, application = build_host(config, development=args.dev)
+    uvicorn.run(application, host=listen_host, port=listen_port, log_level="info", lifespan="on",
+                limit_concurrency=64, timeout_keep_alive=10, ws="none",
+                timeout_graceful_shutdown=10 if args.dev else None)
     return 0
 
 

@@ -180,14 +180,43 @@ export class MlflowService {
     readonly path: string
     readonly signal?: AbortSignal
   }): Promise<MlflowArtifact> {
-    if (input.path.includes('\\') || input.path.startsWith('/')
+    if (/[\u0000-\u001f\u007f\\]/.test(input.path) || input.path.startsWith('/')
       || input.path.split('/').some(segment => segment === '' || segment === '.' || segment === '..')) {
       throw new TypeError('Artifact path must be a safe relative path')
     }
+    const run = await this.getRun(input.runId, input.signal)
+    const artifactUri = run.info['artifact_uri']
+    if (typeof artifactUri !== 'string') {
+      throw new HttpServiceError('MLflow Run has no Artifact URI', 'integrity-error', false)
+    }
+    // Resolve the Run's root, rather than treating run_id as a proxy path selector.
+    // Keep authenticated downloads on the configured service; direct object stores
+    // require a separate credential-aware client and must not receive this token.
+    const rawPath = /^(?:mlflow-artifacts|https?):(?:\/\/[^/]+)?(\/[^?#]*)$/.exec(artifactUri)?.[1]
+    let root: URL
+    try {
+      root = new URL(artifactUri)
+      if (rawPath === undefined || /[\u0000-\u001f\u007f\\]/.test(artifactUri)
+        || root.username || root.password || root.search || root.hash
+        || rawPath.split('/').some(segment => {
+          const decoded = decodeURIComponent(segment)
+          return decoded === '.' || decoded === '..' || /[/\\\u0000-\u001f\u007f]/.test(decoded)
+        })) throw new Error('unsafe Artifact URI')
+    } catch {
+      throw new HttpServiceError('MLflow Artifact URI is malformed or unsafe', 'integrity-error', false)
+    }
+    const tracking = new URL(this.baseUrl)
+    let artifactRoot: string
+    if (root.protocol === 'mlflow-artifacts:' && (!root.host || root.host === tracking.host)) {
+      artifactRoot = `${this.baseUrl}/api/2.0/mlflow-artifacts/artifacts${rawPath}`
+    } else if ((root.protocol === 'http:' || root.protocol === 'https:') && root.origin === tracking.origin) {
+      artifactRoot = root.href
+    } else {
+      throw new HttpServiceError('MLflow Artifact URI must use the configured HTTP proxy', 'integrity-error', false)
+    }
     const encodedPath = input.path.split('/').map(encodeURIComponent).join('/')
-    const query = new URLSearchParams({ run_id: input.runId })
     const bytes = await requestBytes(
-      `${this.baseUrl}/api/2.0/mlflow-artifacts/artifacts/${encodedPath}?${query}`,
+      `${artifactRoot.replace(/\/+$/, '')}/${encodedPath}`,
       { ...this.options(input.signal), maxResponseBytes: this.maxArtifactBytes },
     )
     return {

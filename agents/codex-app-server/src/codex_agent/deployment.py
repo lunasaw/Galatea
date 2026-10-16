@@ -21,11 +21,10 @@ def render_unit(config, *, executable, user, environment_file, conflicts=None):
     executable, environment = map(_path, (executable, environment_file))
     root = _path(config.config_dir)
     writes = [config.codex_home, config.config_dir/'codex-process-home', config.state_dir,
-              config.workspace_dir, Path(config.raw['galatea']['state_root']),
-              Path(config.raw['galatea']['platform']['artifact_download_root'])]
+              config.workspace_dir]
     writes = list(dict.fromkeys(_path(path) for path in writes))
     readonly = _path(config.codex_home/'config.toml')
-    lines = ['[Unit]', 'Description=Galatea native Codex Agent Host',
+    lines = ['[Unit]', 'Description=Native Codex Agent Host',
         'After=network-online.target', 'Wants=network-online.target']
     if conflicts:
         lines += ['Conflicts='+conflicts, 'After='+conflicts]

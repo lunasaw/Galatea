@@ -1,6 +1,6 @@
 {
-  "schema_version": "galatea.runtime-compatibility/v1",
-  "host_catalog_sha256": "fa23fbb0966f69788d6a0e6af3aab14296f7d7c5f44eda7037ae94f81ce1e0cf",
+  "schema_version": "codex-agent.runtime-compatibility/v1",
+  "host_catalog_sha256": "d0c7994906ddeab71723039f3bc136fb2f8e4b1d2107382f66a5c7b4f1582f2d",
   "runtime_binding": {
     "codex_version": "codex-cli 0.154.0",
     "runtime_binary_sha256": "3188814c35471432d4123203e0eb38e5bddc60226e3d7ddf0e59e649ea140022",

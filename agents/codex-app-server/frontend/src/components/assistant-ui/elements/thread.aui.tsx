@@ -103,9 +103,11 @@ export type ThreadComponents = {
   Welcome?: ComponentType | undefined;
   ToolFallback?: ToolCallMessagePartComponent | undefined;
   ToolGroup?:
-    ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>> | undefined;
+    | ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
+    | undefined;
   ReasoningGroup?:
-    ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>> | undefined;
+    | ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
+    | undefined;
   TaskGroup?: ComponentType<{ group: ThreadGroupPart }> | undefined;
 };
 
@@ -116,7 +118,10 @@ const messageGroupBy = groupPartByType({
 });
 
 type ThreadGroupKey =
-  "group-chainOfThought" | "group-reasoning" | "group-tool" | "group-task";
+  | "group-chainOfThought"
+  | "group-reasoning"
+  | "group-tool"
+  | "group-task";
 
 const TASK_GROUP_PATH: readonly ThreadGroupKey[] = [
   "group-chainOfThought",
@@ -465,7 +470,9 @@ const ThreadScrollToBottom: FC = () => {
 const ThreadWelcome: FC = () => {
   return (
     <div className="aui-thread-welcome-root mb-7 flex flex-col px-2 text-center">
-      <div className="welcome-mark" aria-hidden="true"><span>›_</span></div>
+      <div className="welcome-mark" aria-hidden="true">
+        <span>›_</span>
+      </div>
       <p
         role="heading"
         aria-level={1}
@@ -660,7 +667,8 @@ const AssistantMessage: FC = () => {
   const activity = !!meta?.activity;
   const running = useAuiState((s) => s.message.status?.type === "running");
   const turn = meta?.turn as
-    { status?: string; started_at?: string; completed_at?: string } | undefined;
+    | { status?: string; started_at?: string; completed_at?: string }
+    | undefined;
   const [expanded, setExpanded] = useState(running);
   useEffect(() => setExpanded(running), [running]);
   const stateLabel = running
@@ -693,15 +701,15 @@ const AssistantMessage: FC = () => {
         <button
           type="button"
           className="activity-trigger"
+          aria-label={stateLabel}
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
         >
           <span className={running ? "activity-spinner" : "activity-dot"} />
           <span>
-            {stateLabel}
             {elapsed !== null && Number.isFinite(elapsed)
-              ? ` · ${elapsed >= 60 ? `${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒` : `${elapsed} 秒`}`
-              : ""}
+              ? `${turn?.status === "completed" ? "用时" : `${stateLabel} · `}${elapsed >= 60 ? `${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒` : `${elapsed} 秒`}`
+              : stateLabel}
           </span>
           <span className="activity-count">
             {String(meta?.itemCount || 0)} 项

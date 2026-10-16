@@ -1,4 +1,4 @@
-Third-party notices for the Galatea Console bundle
+Third-party notices for the Codex Agent Console bundle
 
 Vendored assistant-ui components (MIT), commit 2bdd534a3d8da45e6c7a9ee6553862b83713059d
 MIT License

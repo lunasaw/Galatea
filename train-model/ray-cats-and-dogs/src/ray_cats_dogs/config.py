@@ -94,6 +94,7 @@ class MlflowSettings:
 class EvaluationSettings:
     evaluate_test: bool
     minimum_test_accuracy: float
+    manifest_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -296,7 +297,8 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
     training_values = _mapping(raw, "training")
     ray_values = _mapping(raw, "ray")
     mlflow_values = _mapping(raw, "mlflow")
-    evaluation_values = _mapping(raw, "evaluation")
+    evaluation_values = dict(_mapping(raw, "evaluation"))
+    evaluation_values.setdefault("manifest_path", None)
 
     _check_keys("run", run_values, {"role", "name_prefix", "seed", "log_model"} | ({"promotable"} if "promotable" in run_values else set()))
     _check_keys(
@@ -366,7 +368,7 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
     _check_keys(
         "evaluation",
         evaluation_values,
-        {"evaluate_test", "minimum_test_accuracy"},
+        {"evaluate_test", "minimum_test_accuracy", "manifest_path"},
     )
 
     config = ProjectConfig(
@@ -461,6 +463,10 @@ def load_config(path: Path, overrides: tuple[str, ...] = ()) -> ProjectConfig:
             evaluate_test=bool(evaluation_values["evaluate_test"]),
             minimum_test_accuracy=float(
                 evaluation_values["minimum_test_accuracy"]
+            ),
+            manifest_path=(
+                Path(evaluation_values["manifest_path"])
+                if evaluation_values["manifest_path"] else None
             ),
         ),
     )

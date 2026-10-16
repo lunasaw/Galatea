@@ -1,6 +1,13 @@
 # 训练 Agent 网页聊天与追踪台方案
 
-更新：2026-10-15。状态：方案已按 TDD 实施，当前验证及现场待验收项见 [实施验收记录](../../../agents/codex-app-server/docs/13-console-acceptance.md)。
+> **历史 Console 方案（2026-10-16 标注）**：正文“本期/首版/当前”均指早期设计。
+> 当前工作台已支持 Skill、MCP、模型/权限、文件与终端，并可用 SQLite 持久化观察记录；
+> 旧文中的内置 Galatea Registry、仅内存存储和无前端构建链不再是当前架构。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+
+更新：2026-10-16。本目录保留早期 Console 设计及其需求背景；当前实现已完整重构为独立的 [Codex Agent Host](../../../agents/codex-app-server/README.md)，配置和架构以组件文档为准。
+
+当前第一阶段通过配置接入 Skill、自定义 Tool 与外部 MCP，由 Agent 自主判断行动；Host 不再包含 Galatea Service、业务身份字段或固定训练流程。第二阶段再接入业务服务，增加业务阶段和产物可视化。下文“本期”指早期 Console 项目，不能作为当前业务耦合或功能限制的依据。
 
 本期交付定位为“训练 Agent 的网页聊天与追踪台”：在现有 Codex Host 上提供浏览器聊天、完整协议事件追踪和训练工具调用过程展示。
 它不改造模型或 Agent Loop，不新增训练算法、模型推理服务或工具能力，也不承诺比原生 Codex 更聪明或更通用。
@@ -56,7 +63,7 @@ Q3/Q4 组合意味着应用本身不验证访问者身份；通过非回环地�
 
 Console UI 作为当前 Python ASGI Host 的静态资源和路由实现；本期不增加独立 Console 服务、Node 构建链、Redis 或隧道。
 完整运行链仍依赖受控的 Codex Runtime 包和模型服务、Galatea Python 包、Ray、MLflow、对象存储、Python/系统运行环境及其配置凭据。
-当前 `galatea-mcp` 发行包的依赖图包含 MCP Python SDK，但新 Host 通过进程内 Registry 适配业务，不启动 MCP Server transport。
+在本归档方案对应的旧 Host 中，`galatea-mcp` 曾通过进程内 Registry 适配业务；当前通用 Host 已移除该依赖，使用原生 Codex 配置的外部 MCP 或独立 Provider。
 Codex Runtime 沿用当前受控的原版二进制/资源复制与发布核验，Console 不复制或改写它的 Agent Loop；
 “独立”不表示不依赖这份 Runtime。
 
@@ -106,5 +113,5 @@ Console 提供对话、Agent Loop、原生事件详情和运行实例事件，�
 | [06 实施与验收](06-implementation-and-acceptance.md) | 文件级改造、配置迁移、实施次序、测试矩阵及交付标准 |
 
 本目录分章保留设计时的基线和要求；当前实现、测试结果、配置迁移及未完成的现场验收，以
-[2026-10-15 实施验收记录](../../../agents/codex-app-server/docs/13-console-acceptance.md) 为准。
+[当前验收边界](../../../agents/codex-app-server/docs/13-console-acceptance.md) 为准。
 本次仅启动本机模拟测试服务，没有部署业务服务、配置网络或提交真实训练任务。

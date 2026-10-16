@@ -44,8 +44,9 @@ class SoftwareMeasurementTests(unittest.TestCase):
             root=Path(directory);(root/'bin').mkdir()
             binary=root/'bin/codex';binary.write_text('#!/bin/sh\nexit 0\n');binary.chmod(0o755)
             (root/'codex-package.json').write_text(json.dumps({'variant':'codex','entrypoint':'bin/codex','version':'0.153.4'}))
-            config=SimpleNamespace(contracts=ROOT/'config/contracts/tools.json',
-                catalog_metadata=ROOT/'config/contracts/catalog-metadata.json',actions=frozenset({'*'}),
+            from codex_agent.catalog import Catalog
+            config=SimpleNamespace(catalog=lambda:Catalog.load(ROOT/'tests/fixtures/dynamic-tools'),
+                compatibility_profile=ROOT/'tests/fixtures/dynamic-tools/runtime-compatibility.json',
                 runtime_dir=root,binary=binary,runtime_version='codex-cli 0.153.4')
             with patch('codex_agent.release.subprocess.check_output') as execute:
                 with self.assertRaises(GateError):

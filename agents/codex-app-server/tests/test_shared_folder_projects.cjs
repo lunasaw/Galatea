@@ -1,0 +1,103 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { chromium } = require('../frontend/node_modules/playwright');
+(async () => {
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_EXECUTABLE, args: ['--no-sandbox'] });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1500, height: 980 } });
+    const errors = [], calls = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => { if (request.method() === 'POST') calls.push({ url: request.url(), body: request.postDataJSON() }); });
+    await page.addInitScript(() => {
+      if (localStorage.getItem('legacy-seeded')) return;
+      localStorage.setItem('legacy-seeded', 'true');
+      localStorage.setItem('codex-agent.projects', JSON.stringify({ projects: [{ path: '/fixture', name: '原项目', section: 'old' }], sections: [{ id: 'old', name: '旧分组' }], collapsed: { '/fixture': true }, threadOrder: ['history'] }));
+      localStorage.setItem('codex-agent.project', '/fixture');
+    });
+    await page.goto(process.env.CONSOLE_TEST_URL || 'http://127.0.0.1:18883');
+    await page.waitForFunction(() => document.body.textContent.includes('fixture-model'));
+    const old = page.locator('[data-project-id="folder:/fixture"]');
+    assert.match(await old.innerText(), /原项目/);
+    assert.equal(await old.locator('.sidebar-project-toggle').getAttribute('aria-expanded'), 'false');
+    assert.equal(await page.locator('[data-project-section="old"]').locator('[data-project-id="folder:/fixture"]').count(), 1);
+    await old.locator('.sidebar-project-toggle').click();
+    await old.locator('.project-thread-row').waitFor();
+    const add = async name => {
+      await page.getByRole('button', { name: '添加项目到项目', exact: true }).click();
+      const dialog = page.getByRole('dialog');
+      await dialog.getByLabel('项目名称', { exact: true }).fill(name);
+      await dialog.getByLabel('项目目录', { exact: true }).fill('/fixture');
+      await dialog.getByRole('button', { name: '添加此项目', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      return page.locator('[data-project-id]').filter({ has: page.getByRole('button', { name: `${name} 项目菜单`, exact: true }) });
+    };
+    const a = await add('项目 A');
+    const b = await add('项目 B');
+    const aId = await a.getAttribute('data-project-id'), bId = await b.getAttribute('data-project-id');
+    assert.notEqual(aId, bId);
+    assert.equal(await page.locator('[data-project-path="/fixture"]').count(), 3);
+    assert.equal(await a.locator('.project-thread-row').count(), 0);
+    assert.equal(await b.locator('.project-thread-row').count(), 0);
+    assert.equal(await old.locator('.project-thread-row').count(), 1);
+    const start = async (project, name, text) => {
+      await project.getByRole('button', { name: `在 ${name} 中新建会话`, exact: true }).click();
+      assert.match(await page.getByRole('button', { name: '选择项目', exact: true }).innerText(), new RegExp(name));
+      await page.locator('#text').fill(text);
+      await page.locator('#send').click();
+      await page.getByText('你好，完整回复。', { exact: true }).waitFor();
+      await page.waitForFunction(() => !document.querySelector('#interrupt'));
+    };
+    await start(a, '项目 A', 'shared-project-a');
+    await start(b, '项目 B', 'shared-project-b');
+    assert.equal(await a.locator('.project-thread-row').count(), 1);
+    assert.equal(await b.locator('.project-thread-row').count(), 1);
+    assert.match(await a.innerText(), /shared-project-a/);
+    assert.doesNotMatch(await a.innerText(), /shared-project-b/);
+    assert.match(await b.innerText(), /shared-project-b/);
+    const creations = calls.filter(c => c.url.endsWith('/api/sessions'));
+    assert.equal(creations.length, 2);
+    assert(creations.every(c => c.body.options.cwd === '/fixture'));
+    // Rename/collapse/order changes affect the identity, not all projects at this path.
+    await a.getByRole('button', { name: '项目 A 项目菜单', exact: true }).click();
+    await page.getByRole('menuitem', { name: '重命名项目', exact: true }).click();
+    await page.getByRole('dialog').getByLabel('名称', { exact: true }).fill('前端');
+    await page.getByRole('dialog').getByRole('button', { name: '保存', exact: true }).click();
+    const renamed = page.locator(`[data-project-id="${aId}"]`);
+    await b.locator('.sidebar-project-toggle').click();
+    assert.equal(await b.locator('.project-thread-row').count(), 0);
+    assert.equal(await renamed.locator('.project-thread-row').count(), 1);
+    await b.locator('.sidebar-project-row').dragTo(page.locator('[data-project-section="old"] .sidebar-section-heading'));
+    await b.locator('.sidebar-project-row').dragTo(old.locator('.sidebar-project-row'));
+    assert.deepEqual(await page.locator('[data-project-section="old"] [data-project-id]').evaluateAll(nodes => nodes.map(n => n.dataset.projectId)), [bId, 'folder:/fixture']);
+    await page.reload();
+    await page.waitForFunction(() => document.body.textContent.includes('fixture-model'));
+    assert.match(await renamed.innerText(), /前端/);
+    assert.equal(await b.locator('.sidebar-project-toggle').getAttribute('aria-expanded'), 'false');
+    assert.equal(await renamed.locator('.project-thread-row').count(), 1);
+    assert.equal(await old.locator('.project-thread-row').count(), 1);
+    assert.match(await page.getByRole('button', { name: '选择项目', exact: true }).innerText(), /项目 B/);
+    await page.getByRole('button', { name: '新建会话', exact: true }).click();
+    await page.reload();
+    await page.waitForFunction(() => document.body.textContent.includes('fixture-model'));
+    assert.match(await page.getByRole('button', { name: '选择项目', exact: true }).innerText(), /项目 B/);
+    // Moving within one directory changes only membership, preserving runtime cwd.
+    const before = calls.filter(c => c.body?.method === 'thread/settings/update').length;
+    await renamed.locator('.project-thread-row').dragTo(b.locator('.sidebar-project-row'));
+    await page.waitForFunction(id => document.querySelector(`[data-project-id="${id}"]`).querySelectorAll('.project-thread-row').length === 2, bId);
+    assert.equal(await renamed.locator('.project-thread-row').count(), 0);
+    assert.equal(calls.filter(c => c.body?.method === 'thread/settings/update').length, before);
+    await page.reload();
+    await page.waitForFunction(id => document.querySelector(`[data-project-id="${id}"]`)?.querySelectorAll('.project-thread-row').length === 2, bId);
+    assert.equal(await renamed.locator('.project-thread-row').count(), 0);
+    assert.equal(await old.locator('.project-thread-row').count(), 1);
+    // Composer selection is by project ID even when cwd does not change.
+    await page.getByRole('button', { name: '选择项目', exact: true }).click();
+    await page.getByRole('menuitem', { name: /^前端/ }).click();
+    assert.match(await page.getByRole('button', { name: '选择项目', exact: true }).innerText(), /前端/);
+    await page.reload();
+    await page.waitForFunction(() => document.body.textContent.includes('fixture-model'));
+    assert.match(await page.getByRole('button', { name: '选择项目', exact: true }).innerText(), /前端/);
+    assert.deepEqual(errors, []);
+    console.log('Shared-folder projects: legacy migration, independent names/IDs, per-project chats, create/select, rename, collapse, grouping/reorder, same-cwd moves, draft and reload passed.');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

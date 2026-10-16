@@ -444,3 +444,34 @@ test("same-folder projects keep separate identities, session membership and draf
   assert.equal(restored.state.projectLayout.collapsed[a.id], undefined);
   assert.equal(restored.state.projectLayout.collapsed[b.id], true);
 });
+
+test("removing a shared-folder project preserves chats without rediscovery or reassignment after reload", () => {
+  const s = make();
+  s.patch({
+    sessions: [
+      { id: "a", status: "ready", cwd: "/shared" },
+      { id: "b", status: "ready", cwd: "/shared" },
+    ],
+  });
+  const old = s.projects[0];
+  const second = s.addProject("/shared", "项目 B");
+  s.saveProjectLayout({ threadProjects: { a: old.id, b: second.id } });
+  s.removeProject(old.id);
+  assert.equal(s.projectForSession("a"), undefined);
+  assert.equal(s.projectForSession("b")?.id, second.id);
+  assert.equal(s.state.sessions.length, 2);
+  const restored = parseProjectLayout(memory.get("codex-agent.projects")!);
+  s.patch({ projectLayout: restored });
+  assert.deepEqual(
+    s.projects.map((p) => p.id),
+    [second.id],
+  );
+  s.removeProject(second.id);
+  s.saveProjectLayout({});
+  assert.deepEqual(s.projects, []);
+  assert.equal(s.projectForSession("a"), undefined);
+  assert.equal(s.projectForSession("b"), undefined);
+  s.addProject("/shared", "重新添加");
+  assert.equal(s.projects.length, 1);
+  assert.equal(s.projectForSession("a"), undefined);
+});

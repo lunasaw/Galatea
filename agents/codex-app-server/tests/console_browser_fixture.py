@@ -1,6 +1,7 @@
 """Local synthetic fixture for browser acceptance; no model or training calls."""
 import asyncio
 import base64
+import copy
 from pathlib import Path
 import sys
 import tempfile
@@ -22,7 +23,31 @@ class FixtureNative(NativeBridge):
         if method == 'skills/list':
             return {'data': [{'skills': [{'name': 'fixture-skill', 'description': 'Synthetic skill', 'path': '/fixture/SKILL.md', 'enabled': True}]}]}
         if method == 'thread/list':
-            return {'data': [{'id': 'history', 'name': 'Native history fixture', 'cwd': '/fixture'}], 'nextCursor': None}
+            return {'data': [{**session, 'name': session.get('name', 'Native history fixture' if session['id'] == 'history' else session['id'])} for session in self.host.sessions.values() if bool(session.get('archived')) == bool(params.get('archived'))], 'nextCursor': None}
+        thread_id = params.get('threadId')
+        if method == 'thread/read':
+            return {'thread': {'id': thread_id, 'historyMode': 'legacy', 'turns': copy.deepcopy(self.host.turns.get(thread_id, []))}}
+        if method in {'thread/archive', 'thread/unarchive'}:
+            self.host.sessions[thread_id]['archived'] = method == 'thread/archive'
+            return {}
+        if method == 'thread/delete':
+            del self.host.sessions[thread_id]
+            self.host.turns.pop(thread_id, None)
+            return {}
+        if method == 'thread/fork':
+            source = self.host.sessions[thread_id]
+            session = await self.host.create_session('fork-' + request_id, options=source.get('settings'))
+            session['cwd'] = source['cwd']
+            turns = copy.deepcopy(self.host.turns.get(thread_id, []))
+            if params.get('lastTurnId'):
+                turns = turns[:next(i for i, t in enumerate(turns) if t['id'] == params['lastTurnId']) + 1]
+            self.host.turns[session['id']] = turns
+            self.host.restore_thread(session['id'])
+            return {'session': session}
+        if method == 'thread/rollback':
+            self.host.turns[thread_id] = self.host.turns.get(thread_id, [])[:-params['numTurns']]
+            self.host.restore_thread(thread_id)
+            return {'thread': {'id': thread_id, 'turns': self.host.turns[thread_id]}}
         if method == 'command/exec':
             return {'stdout': 'fixture-command-output', 'stderr': '', 'exitCode': 0}
         if method == 'fs/readDirectory':
@@ -60,6 +85,10 @@ class BrowserHost(test_console.FakeHost):
         self.workspace_dir = root
         self.configuration_changed = self.changed
         self.native = FixtureNative(self)
+        self.turns = {}
+
+    def restore_thread(self, session_id):
+        self.events.append(session_id, {"kind": "thread_restored", "thread_id": session_id, "public": {"thread": {"id": session_id, "turns": self.turns[session_id]}}})
 
     async def changed(self):
         pass
@@ -148,6 +177,9 @@ class BrowserHost(test_console.FakeHost):
             wire('item/completed', {'item': {'id': 'call', 'type': 'dynamicToolCall', 'tool': 'galatea_observe_job',
                  'arguments': {'job_id': 'synthetic-job'}, 'status': 'completed', 'success': True,
                  'contentItems': [{'type': 'inputText', 'text': '{"job_id":"synthetic-job","status":"completed"}'}]}})
+        self.turns.setdefault(session_id, []).append({'id': turn, 'status': 'completed', 'items': [
+            {'id': 'u-' + turn, 'type': 'userMessage', 'content': [{'type': 'text', 'text': text}]},
+            {'id': 'a-' + turn, 'type': 'agentMessage', 'text': reply, 'phase': 'final_answer'}]})
         wire('turn/completed', {'turn': {'id': turn, 'status': 'completed'}})
         self.sessions[session_id].update(status='ready', active_turn_id=None)
         return {'request_id': request_id, 'turn_id': turn, 'status': 'accepted'}

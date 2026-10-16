@@ -1,6 +1,6 @@
 import { requestThreadAction, type ThreadAction } from "@/thread-actions";
 // Source: assistant-ui/assistant-ui @ 2bdd534a3d8da45e6c7a9ee6553862b83713059d (MIT). See UPSTREAM.md.
-"use client";
+("use client");
 
 import { ProjectSidebar } from "@/project-controls";
 import { Button } from "@/components/ui/button";
@@ -478,8 +478,8 @@ const ThreadListItemRename: FC<{
 };
 
 const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
-  const id = useAuiState(s => s.threadListItem.remoteId);
-  const running = useAuiState(s => s.threadListItem.isRunning);
+  const id = useAuiState((s) => s.threadListItem.remoteId);
+  const running = useAuiState((s) => s.threadListItem.isRunning);
   return (
     <ThreadListItemMorePrimitive.Root sharedFocusGroup>
       <ThreadListItemMorePrimitive.Trigger asChild>
@@ -508,10 +508,24 @@ const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
           <PencilIcon className="size-4" />
           重命名
         </ThreadListItemMorePrimitive.Item>
-        {Object.entries({ fork: "分叉会话", undo: "回退上一轮", rollback: "回退到指定轮次", archive: "归档会话", delete: "删除会话" }).map(([action, label]) => (
-          <ThreadListItemMorePrimitive.Item key={action} disabled={running || !id}
+        {Object.entries({
+          fork: "分叉会话",
+          undo: "回退上一轮",
+          rollback: "回退到指定轮次",
+          archive: "归档会话",
+          delete: "删除会话",
+        }).map(([action, label]) => (
+          <ThreadListItemMorePrimitive.Item
+            key={action}
+            disabled={running || !id}
             className="hover:bg-accent focus:bg-accent flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none data-[disabled]:opacity-50"
-            onSelect={() => requestThreadAction({ action: action as ThreadAction, sessionId: id! })}>
+            onSelect={() =>
+              requestThreadAction({
+                action: action as ThreadAction,
+                sessionId: id!,
+              })
+            }
+          >
             {label}
           </ThreadListItemMorePrimitive.Item>
         ))}

@@ -335,15 +335,20 @@ export class ConsoleStore {
   removeProject(id: string) {
     const project = this.projects.find((p) => p.id === id);
     if (!project) return;
-    const threadProjects = Object.fromEntries(this.state.sessions
-      .filter((s) => this.projectForSession(s.id)?.id === id)
-      .map((s) => [s.id, ""]));
+    const threadProjects = Object.fromEntries(
+      this.state.sessions
+        .filter((s) => this.projectForSession(s.id)?.id === id)
+        .map((s) => [s.id, ""]),
+    );
     this.saveProjectLayout({
       projects: this.projects.filter((p) => p.id !== id),
-      hiddenPaths: [...new Set([...this.state.projectLayout.hiddenPaths, project.path])],
+      hiddenPaths: [
+        ...new Set([...this.state.projectLayout.hiddenPaths, project.path]),
+      ],
       threadProjects,
     });
-    if (this.state.draftProjectId === id) this.setDraftProject({id: "", path: ""});
+    if (this.state.draftProjectId === id)
+      this.setDraftProject({ id: "", path: "" });
   }
   private setDraftProject(project: { id: string; path: string }) {
     localStorage.setItem("codex-agent.project", project.path);

@@ -69,7 +69,8 @@ export function parseProjectLayout(raw: string | null): ProjectLayout {
     return {
       projects,
       hiddenPaths: Array.isArray(data.hiddenPaths)
-        ? data.hiddenPaths.filter((path: unknown) => typeof path === "string") : [],
+        ? data.hiddenPaths.filter((path: unknown) => typeof path === "string")
+        : [],
       sections: data.sections.filter(
         (s: ProjectSection) =>
           s && typeof s.id === "string" && typeof s.name === "string",
@@ -94,7 +95,10 @@ export function parseProjectLayout(raw: string | null): ProjectLayout {
 export function mergeProjects(layout: ProjectLayout, paths: string[]) {
   const projects = [...layout.projects];
   for (const path of paths.filter(Boolean)) {
-    if (!layout.hiddenPaths.includes(path) && !projects.some((p) => p.path === path))
+    if (
+      !layout.hiddenPaths.includes(path) &&
+      !projects.some((p) => p.path === path)
+    )
       projects.push({
         id: legacyProjectId(path),
         path,

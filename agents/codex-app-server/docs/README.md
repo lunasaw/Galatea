@@ -17,3 +17,4 @@
 - [重构验收范围](13-console-acceptance.md)
 - [前端实现](14-assistant-ui-console.md)
 - [原生能力覆盖](15-native-workspace.md)
+- [Skill、MCP 与插件管理](16-integrations.md)

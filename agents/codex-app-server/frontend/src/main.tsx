@@ -1,4 +1,8 @@
-import { requestThreadAction, ThreadActionDialog, type ThreadAction } from "./thread-actions";
+import {
+  requestThreadAction,
+  ThreadActionDialog,
+  type ThreadAction,
+} from "./thread-actions";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -233,7 +237,10 @@ function Workspace() {
   const nativeAction = async (action: string) => {
     if (!session?.thread_id) return;
     if (["fork", "archive", "delete", "undo", "rollback"].includes(action)) {
-      requestThreadAction({ action: action as ThreadAction, sessionId: session.id });
+      requestThreadAction({
+        action: action as ThreadAction,
+        sessionId: session.id,
+      });
       return;
     }
     try {
@@ -490,7 +497,11 @@ function Workspace() {
                 }).map(([action, label]) => (
                   <DropdownMenuItem
                     key={action}
-                    disabled={state.settingsBusy || !!session?.active_turn_id || busyStatuses.has(session?.status || "")}
+                    disabled={
+                      state.settingsBusy ||
+                      !!session?.active_turn_id ||
+                      busyStatuses.has(session?.status || "")
+                    }
                     onSelect={() => void nativeAction(action)}
                   >
                     {label}

@@ -248,6 +248,7 @@ export function PluginsPanel({ state }: { state: ConsoleState }) {
   const [search, setSearch] = useState("");
   const [installedOnly, setInstalledOnly] = useState(false);
   const [selected, setSelected] = useState<{ marketplace: Marketplace; plugin: Plugin }>();
+  const detailRef = useRef<HTMLElement>(null);
   const [authApps, setAuthApps] = useState<PluginApp[]>([]);
   const [warnings, setWarnings] = useState("");
   const selectedId = selected?.plugin.id;
@@ -258,6 +259,7 @@ export function PluginsPanel({ state }: { state: ConsoleState }) {
   [selectedMarketplace, selectedPlugin]);
   const detail = useInventory<PluginDetail | undefined>(detailLoad);
   useEffect(() => { setSelected(undefined); setAuthApps([]); setWarnings(""); }, [cwd]);
+  useEffect(() => { if (selected) detailRef.current?.scrollIntoView({ block: "nearest" }); }, [selected]);
   const change = (marketplace: Marketplace, plugin: Plugin) => void action.run(async () => {
     setAuthApps([]); setWarnings("");
     if (plugin.installed) {
@@ -317,7 +319,7 @@ export function PluginsPanel({ state }: { state: ConsoleState }) {
       </section> : null;
     })}
     {inventory.data && !visible && <p className="integration-empty">{total ? "没有匹配的插件" : "当前没有可用插件市场"}</p>}
-    {selected && <section aria-label="插件详情" className="integration-detail">
+    {selected && <section ref={detailRef} aria-label="插件详情" className="integration-detail">
       <div className="integration-heading"><h3>{detail.data?.summary.interface?.displayName || selectedPlugin?.interface?.displayName || selectedPlugin?.name}</h3>
         <Button variant="ghost" onClick={() => setSelected(undefined)}>关闭详情</Button></div>
       <Feedback loading={detail.loading} error={detail.error} />

@@ -313,6 +313,14 @@ class AgentHost:
         if session and method == 'thread/deleted':
             self.mark_deleted(session)
             return
+        if session and method in {'thread/archived', 'thread/unarchived'}:
+            session['archived'] = method == 'thread/archived'
+            if session['archived']:
+                self._attached.discard(session['id'])
+                if session['status'] != 'closed':
+                    session['status'] = 'recovery_required'
+            self._save(session)
+            return
         if not session or session['id'] not in self._attached:
             return
         turn = params.get('turn', {})

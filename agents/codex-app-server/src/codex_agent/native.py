@@ -224,6 +224,16 @@ class NativeBridge:
                 session.update(archived=method != 'thread/unarchive')
                 if method == 'thread/delete':
                     host.mark_deleted(session)
+                elif method == 'thread/archive':
+                    host._attached.discard(session['id'])
+                    if session['status'] != 'closed':
+                        session['status'] = 'recovery_required'
+                elif method == 'thread/unarchive':
+                    await host.client.resume(thread_id)
+                    thread = (await host.client.read_thread(thread_id))['thread']
+                    host.restore_thread(session['id'], thread)
+                    session.update(status='ready', active_turn_id=None, active_request_id=None)
+                    host._attached.add(session['id'])
             host._save(session)
         if session and method in {'thread/rollback', 'thread/revert'}:
             thread = result.get('thread')

@@ -533,6 +533,10 @@ summary > svg:last-child {
 .integration-apps li {
   margin: 0.6rem 0;
 }
+.integration-apps a {
+  display: inline-block;
+  margin-left: 0.5rem;
+}
 .integration-tool p {
   margin: 0.2rem 0;
 }

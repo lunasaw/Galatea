@@ -442,9 +442,7 @@ function Settings({ state }: { state: ConsoleState }) {
   const currentSettings = store.composerSettings;
   const [model, setModel] = useState(currentSettings.model);
   const [effort, setEffort] = useState(currentSettings.effort);
-  const [cwd, setCwd] = useState(
-    store.cwd,
-  );
+  const [cwd, setCwd] = useState(store.cwd);
   const permission = store.permissionConfiguration;
   const policyType = permission.sandboxPolicy?.type;
   const [sandbox, setSandbox] = useState(
@@ -695,15 +693,26 @@ function Apps() {
   const load = async () => {
     setBusy(true);
     setError("");
-    try { setData(await native("app/list", {})); }
-    catch (error) { setError(String(error)); }
-    finally { setBusy(false); }
+    try {
+      setData(await native("app/list", {}));
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setBusy(false);
+    }
   };
-  useEffect(() => { void load(); }, []);
-  return <div className="native-form">
-    <Button variant="outline" disabled={busy} onClick={() => void load()}>刷新列表</Button>
-    <Json value={data} /><ErrorText error={error} />
-  </div>;
+  useEffect(() => {
+    void load();
+  }, []);
+  return (
+    <div className="native-form">
+      <Button variant="outline" disabled={busy} onClick={() => void load()}>
+        刷新列表
+      </Button>
+      <Json value={data} />
+      <ErrorText error={error} />
+    </div>
+  );
 }
 
 function History({ state }: { state: ConsoleState }) {
@@ -797,9 +806,42 @@ function History({ state }: { state: ConsoleState }) {
             >
               打开会话
             </Button>
-            <Button variant="outline" onClick={() => requestThreadAction({ action: archived ? "unarchive" : "archive", threadId: thread.id, title: thread.name || thread.preview })}>{archived ? "取消归档" : "归档"}</Button>
-            <Button variant="outline" onClick={() => requestThreadAction({ action: "fork", threadId: thread.id, title: thread.name || thread.preview })}>分叉会话</Button>
-            <Button variant="outline" onClick={() => requestThreadAction({ action: "delete", threadId: thread.id, title: thread.name || thread.preview })}>删除会话</Button>
+            <Button
+              variant="outline"
+              onClick={() =>
+                requestThreadAction({
+                  action: archived ? "unarchive" : "archive",
+                  threadId: thread.id,
+                  title: thread.name || thread.preview,
+                })
+              }
+            >
+              {archived ? "取消归档" : "归档"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() =>
+                requestThreadAction({
+                  action: "fork",
+                  threadId: thread.id,
+                  title: thread.name || thread.preview,
+                })
+              }
+            >
+              分叉会话
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() =>
+                requestThreadAction({
+                  action: "delete",
+                  threadId: thread.id,
+                  title: thread.name || thread.preview,
+                })
+              }
+            >
+              删除会话
+            </Button>
           </div>
         </article>
       ))}

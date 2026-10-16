@@ -2,7 +2,7 @@ import { MessageTurnActions } from "@/thread-actions";
 // Source: assistant-ui/assistant-ui @ 2bdd534a3d8da45e6c7a9ee6553862b83713059d (MIT). See UPSTREAM.md.
 // Layout, composer and message presentation adapted from the same commit's
 // apps/docs/components/pages/examples/chatgpt.tsx; runtime/grouping remain Thread.
-"use client";
+("use client");
 
 import {
   ComposerAddAttachment,
@@ -104,11 +104,9 @@ export type ThreadComponents = {
   Welcome?: ComponentType | undefined;
   ToolFallback?: ToolCallMessagePartComponent | undefined;
   ToolGroup?:
-    | ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
-    | undefined;
+    ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>> | undefined;
   ReasoningGroup?:
-    | ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
-    | undefined;
+    ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>> | undefined;
   TaskGroup?: ComponentType<{ group: ThreadGroupPart }> | undefined;
 };
 
@@ -119,10 +117,7 @@ const messageGroupBy = groupPartByType({
 });
 
 type ThreadGroupKey =
-  | "group-chainOfThought"
-  | "group-reasoning"
-  | "group-tool"
-  | "group-task";
+  "group-chainOfThought" | "group-reasoning" | "group-tool" | "group-task";
 
 const TASK_GROUP_PATH: readonly ThreadGroupKey[] = [
   "group-chainOfThought",
@@ -668,8 +663,7 @@ const AssistantMessage: FC = () => {
   const activity = !!meta?.activity;
   const running = useAuiState((s) => s.message.status?.type === "running");
   const turn = meta?.turn as
-    | { status?: string; started_at?: string; completed_at?: string }
-    | undefined;
+    { status?: string; started_at?: string; completed_at?: string } | undefined;
   const [expanded, setExpanded] = useState(running);
   useEffect(() => setExpanded(running), [running]);
   const stateLabel = running

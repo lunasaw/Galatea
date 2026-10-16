@@ -139,6 +139,11 @@ const { chromium } = require('../frontend/node_modules/playwright');
     await page.getByText('没有匹配的插件').waitFor();
     await page.getByLabel('搜索插件', { exact: true }).fill('');
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(() => {
+      const dialog = document.querySelector('.settings-dialog').getBoundingClientRect();
+      const panel = document.querySelector('.integration-panel');
+      return dialog.x >= 0 && dialog.right <= innerWidth && panel.scrollWidth <= panel.clientWidth;
+    });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await screenshot('plugins-mobile');
 

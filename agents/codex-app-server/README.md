@@ -33,6 +33,7 @@ codex-agent --config /absolute/path/agent.json serve --dev
 
 - **Skill**：在 `agent.json` 中设置 `skills.roots`。每个目录包含若干 `<skill>/SKILL.md`，通过原生 `skills/extraRoots/set` 注册；Codex 仍发现工作区和原生 Skill。页面可选择 Skill，Agent 也可根据任务判断使用。
 - **MCP**：在 `codex-home/config.toml` 配置 `[mcp_servers.<name>]`，支持独立 stdio 进程和远程服务。模板见 [mcp.example.toml](config/mcp.example.toml)。Host 不实现上传、训练等业务服务。
+- **插件**：设置中的插件页面按原生市场展示目录、详情、Skills、MCP 和应用，支持安装、卸载、同步及授权提示。Skill、MCP 与插件管理的设计对照和验收见 [扩展管理](docs/16-integrations.md)。正式 Release 的配置修改保持只读。
 - **自定义 Tool**：通过 `tools.catalog_dir` 和 `tools.providers` 加载独立 Python 扩展。示例见 [echo](examples/echo/provider.py)；未配置时无 Host 自定义工具，原生编码工具仍可用。
 
 例如将以下字段加入 `agent.json`，并替换绝对路径：

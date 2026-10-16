@@ -32,6 +32,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '../frontend/node_mo
     await reasoning.getByText('先检查当前可用能力。', {exact:true}).waitFor();
     await shot('thinking');
     await page.locator('[data-slot=aui_message-group]').getByText('你好，完整回复。', {exact: true}).waitFor();
+    await page.locator('.activity-trigger').first().click();
     await page.waitForFunction(() => document.querySelector('[data-slot=reasoning-root]')?.getAttribute('data-state') === 'closed');
     assert.equal(await page.locator('[data-slot=reasoning-root]').count(), 1);
     assert.match(await reasoning.locator('[data-slot=reasoning-trigger]').textContent(), /思考摘要 · \d+ 秒/);
@@ -42,7 +43,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '../frontend/node_mo
     assert.equal(await page.getByText('PRIVATE_REASONING_FIXTURE', {exact:true}).count(), 0);
     await shot('reasoning');
     await reasoning.locator('[data-slot=reasoning-trigger]').click();
-    await page.locator('[data-slot=tool-group-trigger]').click();
+    await page.locator('.activity-trigger').last().click();
     await page.locator('[data-slot=tool-fallback-trigger]').waitFor();
     assert.equal(await page.locator('[data-slot=aui_assistant-message-footer]').count(), 1);
     assert.equal(await page.locator('[data-slot=aui_user-message-root]').count(), 1);
@@ -118,6 +119,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '../frontend/node_mo
     await shot('chat');
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    await page.locator('[data-activity=true]').filter({has: page.locator('[data-slot=reasoning-root]')}).last().locator('.activity-trigger').click();
     await page.locator('[data-slot=reasoning-trigger]').last().click();
     await page.locator('[data-slot=reasoning-root]').last().getByText('已整理结果与下一步建议。',{exact:true}).waitFor();
     await shot('mobile-chat');
@@ -139,7 +141,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '../frontend/node_mo
     await page.getByRole('button',{name:'返回最新回复',exact:true}).waitFor({state:'visible'});
     await page.locator('#older-messages').click();
     await page.locator('[data-slot=aui_message-group]').getByText('history message 50', {exact: true}).waitFor();
-    assert.equal(await page.locator('[data-slot=aui_message-group]').getByText('history message 250', {exact: true}).count(), 0);
+    assert.equal(await page.locator('[data-slot=aui_message-group]').getByText('history message 250', {exact: true}).count(), 1);
     await page.locator('#older-messages').click();
     await page.locator('[data-slot=aui_message-group]').getByText('history message 0', {exact: true}).waitFor();
     assert.equal(await page.locator('#older-messages').isDisabled(), true);

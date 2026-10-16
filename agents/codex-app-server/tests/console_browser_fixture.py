@@ -105,11 +105,19 @@ class BrowserHost(test_console.FakeHost):
         await asyncio.sleep(.8)
         wire('item/completed', {'item': {'id': 'reasoning', 'type': 'reasoning',
              'summary': ['已检查当前可用能力。', '已整理结果与下一步建议。'], 'content': ['PRIVATE_REASONING_FIXTURE']}})
+        if text == 'parity-fixture':
+            wire('item/completed', {'item': {'id': 'progress', 'type': 'agentMessage', 'phase': 'commentary', 'text': '正在检查命令与文件。'}})
+            wire('turn/plan/updated', {'explanation': '验证会话展示', 'plan': [{'step': '读取配置', 'status': 'completed'}, {'step': '检查输出', 'status': 'inProgress'}]})
+            wire('item/completed', {'item': {'id': 'command', 'type': 'commandExecution', 'command': 'printf parity-output', 'cwd': '/fixture', 'status': 'completed', 'exitCode': 0, 'durationMs': 123, 'aggregatedOutput': 'parity-output'}})
+            wire('item/completed', {'item': {'id': 'failed', 'type': 'commandExecution', 'command': 'exit 1', 'cwd': '/fixture', 'status': 'failed', 'exitCode': 1, 'aggregatedOutput': 'parity-error'}})
+            wire('item/completed', {'item': {'id': 'patch', 'type': 'fileChange', 'status': 'completed', 'changes': [{'path': '/fixture/file.py', 'kind': {'type': 'update'}, 'diff': '-old\n+new'}]}})
         reply = '你好，完整回复。' if 'Markdown' not in text else '## 已完成分析\n\n这是 **Markdown** 回复。\n\n| 项目 | 状态 |\n| --- | --- |\n| 能力查询 | 可用 |\n\n```python\nprint(\"hello Galatea\")\n```\n\n<img src=x onerror=\"window.injected=1\">'
+        if text == 'parity-fixture':
+            reply = '验收完成。\n\n[查看报告](/fixture/report.md) · [查看源码](/fixture/file.py:2)'
         wire('item/agentMessage/delta', {'itemId': 'answer', 'delta': reply[:3]})
         await asyncio.sleep(.8)
         wire('item/agentMessage/delta', {'itemId': 'answer', 'delta': reply[3:]})
-        wire('item/completed', {'item': {'id': 'answer', 'type': 'agentMessage', 'text': reply}})
+        wire('item/completed', {'item': {'id': 'answer', 'type': 'agentMessage', 'text': reply, 'phase': 'final_answer'}})
         self.events.observer('runtime_to_host', {'id': 1, 'method': 'item/tool/call', 'params': {'threadId': session_id, 'turnId': turn, 'callId': 'call', 'tool': 'galatea_observe_job', 'arguments': {'job_id': 'synthetic-job'}}}, runtime_instance_id='browser-fixture')
         self.events.observer('host_to_runtime', {'id': 1, 'result': {'success': True, 'contentItems': [{'type': 'inputText', 'text': '{"ok":true,"data":{"job_id":"synthetic-job","status":"completed"}}'}]}}, runtime_instance_id='browser-fixture')
         wire('item/completed', {'item': {'id': 'call', 'type': 'dynamicToolCall', 'tool': 'galatea_observe_job',

@@ -75,6 +75,8 @@ import {
   useContext,
   useLayoutEffect,
   useRef,
+  useState,
+  useEffect,
   type ComponentType,
   type FC,
   type PropsWithChildren,
@@ -153,10 +155,7 @@ const isNewChatView = (s: AssistantState) =>
 
 // A switched thread that is still fetching its history: skeleton, not welcome.
 const isHistoryLoadingView = (s: AssistantState) =>
-  s.thread.messages.length === 0 &&
-  s.thread.isLoading &&
-  !s.thread.isDisabled &&
-  !s.threads.isLoading;
+  s.thread.messages.length === 0 && s.thread.isLoading && !s.threads.isLoading;
 
 const ThreadHistorySkeleton: FC = () => (
   <div
@@ -206,11 +205,12 @@ const ThreadRoot: FC<{
 
   return (
     <ThreadPrimitive.Root
+      data-empty={isEmpty}
       className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
       style={{
-        ["--thread-max-width" as string]: "48rem",
+        ["--thread-max-width" as string]: "52rem",
         ["--composer-bg" as string]: "var(--composer-background)",
-        ["--composer-radius" as string]: "28px",
+        ["--composer-radius" as string]: "20px",
         ["--composer-padding" as string]: "8px",
       }}
     >
@@ -221,8 +221,8 @@ const ThreadRoot: FC<{
       >
         <div
           className={cn(
-            "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-8 md:pt-12",
-            isEmpty && "justify-center pb-[12vh]",
+            "workbench-conversation mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-8",
+            isEmpty && "justify-center pb-[10vh]",
           )}
         >
           <AuiIf condition={isNewChatView}>
@@ -465,6 +465,7 @@ const ThreadScrollToBottom: FC = () => {
 const ThreadWelcome: FC = () => {
   return (
     <div className="aui-thread-welcome-root mb-7 flex flex-col px-2 text-center">
+      <div className="welcome-mark" aria-hidden="true"><span>›_</span></div>
       <p
         role="heading"
         aria-level={1}
@@ -655,15 +656,62 @@ const AssistantMessage: FC = () => {
   const hasText = useAuiState((s) =>
     s.message.content.some((part) => part.type === "text" && part.text.trim()),
   );
+  const meta = useAuiState((s) => s.message.metadata.custom);
+  const activity = !!meta?.activity;
+  const running = useAuiState((s) => s.message.status?.type === "running");
+  const turn = meta?.turn as
+    { status?: string; started_at?: string; completed_at?: string } | undefined;
+  const [expanded, setExpanded] = useState(running);
+  useEffect(() => setExpanded(running), [running]);
+  const stateLabel = running
+    ? "正在处理"
+    : turn?.status === "interrupted"
+      ? "已中断"
+      : turn?.status === "failed"
+        ? "执行失败"
+        : "处理过程";
+  const elapsed =
+    meta?.lastActivity && turn?.started_at && turn.completed_at
+      ? Math.max(
+          0,
+          Math.round(
+            (Date.parse(turn.completed_at) - Date.parse(turn.started_at)) /
+              1000,
+          ),
+        )
+      : null;
 
   return (
     <MessagePrimitive.Root
       data-slot="aui_assistant-message-root"
       data-role="assistant"
+      data-activity={activity || undefined}
+      data-final={!!meta?.final || undefined}
       className="fade-in slide-in-from-bottom-1 animate-in relative min-w-0 duration-150"
     >
+      {activity && (
+        <button
+          type="button"
+          className="activity-trigger"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className={running ? "activity-spinner" : "activity-dot"} />
+          <span>
+            {stateLabel}
+            {elapsed !== null && Number.isFinite(elapsed)
+              ? ` · ${elapsed >= 60 ? `${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒` : `${elapsed} 秒`}`
+              : ""}
+          </span>
+          <span className="activity-count">
+            {String(meta?.itemCount || 0)} 项
+          </span>
+          <ChevronRightIcon className={expanded ? "rotate-90" : ""} />
+        </button>
+      )}
       <div
         data-slot="aui_assistant-message-content"
+        hidden={activity && !expanded}
         className="text-foreground min-w-0 leading-7 [overflow-wrap:anywhere]"
       >
         <MessagePrimitive.GroupedParts groupBy={groupBy}>
@@ -676,6 +724,8 @@ const AssistantMessage: FC = () => {
                   <TaskGroupComponent group={part} />
                 ) : null;
               case "group-tool":
+                if (activity)
+                  return <div className="activity-tools">{children}</div>;
                 if (ToolGroup) {
                   return <ToolGroup group={part}>{children}</ToolGroup>;
                 }
@@ -746,7 +796,7 @@ const AssistantMessage: FC = () => {
         <MessageError />
       </div>
 
-      {hasText && (
+      {hasText && !activity && (
         <div
           data-slot="aui_assistant-message-footer"
           className="-ml-2 flex min-h-9 items-center pt-1"

@@ -68,7 +68,7 @@ const {chromium} = require('../frontend/node_modules/playwright');
   assert.equal(await page.getByLabel('原生方法',{exact:true}).locator('option').filter({hasText:/account\/(login|logout)/}).count(),0);
   await dialog.getByRole('button',{name:'模型与权限',exact:true}).click();
   await shot('settings');
-  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'关闭详情',exact:true}).click();
   await page.getByRole('button',{name:'切换深色主题'}).click(); await shot('dark');
   await page.getByRole('button',{name:'切换浅色主题'}).click();
   await page.getByRole('button',{name:'收起侧栏',exact:true}).click();

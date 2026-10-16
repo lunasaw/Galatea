@@ -58,7 +58,8 @@ import {
 import { native } from "./native";
 import { CodexToolFallback } from "./tool-ui";
 import { consoleStore as store, busyStatuses, statusLabel } from "./store";
-import { toMessages } from "./messages";
+import { toConversationMessages } from "./messages";
+import { WorkspaceFilePreview } from "./workspace-file";
 import "./style.css";
 
 const suggestions = [
@@ -105,7 +106,10 @@ function Workspace() {
     localStorage.getItem("galatea.theme") || "light",
   );
   const session = state.sessions.find((s) => s.id === state.active);
-  const messages = useMemo(() => toMessages(state.snapshot), [state.snapshot]);
+  const messages = useMemo(
+    () => toConversationMessages(state.snapshot),
+    [state.snapshot],
+  );
   const threads = useMemo(
     () =>
       [...state.sessions]
@@ -116,7 +120,7 @@ function Workspace() {
           remoteId: s.id,
           title: store.title(s.id),
           status: "regular" as const,
-          custom: { status: s.status },
+          custom: { status: s.status, cwd: s.cwd || s.settings?.cwd },
         })),
     [state.sessions, state.titles],
   );
@@ -125,10 +129,9 @@ function Workspace() {
     await store.select(id);
   };
   const running =
-    !state.history &&
-    (state.submitting ||
-      (!!session && busyStatuses.has(session.status)) ||
-      state.snapshot?.turns?.at(-1)?.status === "inProgress");
+    state.submitting ||
+    (!!session && busyStatuses.has(session.status)) ||
+    state.snapshot?.turns?.at(-1)?.status === "inProgress";
   const runtime = useExternalStoreRuntime({
     messages,
     convertMessage: (message) => message,
@@ -138,7 +141,6 @@ function Workspace() {
       state.loading ||
       state.creating ||
       state.settingsBusy ||
-      state.history ||
       (!!session && !["ready", ...busyStatuses].includes(session.status)),
     isLoading: state.loading,
     suggestions: messages.length ? [] : suggestions,
@@ -269,6 +271,7 @@ function Workspace() {
       : settingsSections.find((s) => s.id === panel)?.label || "设置";
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <WorkspaceFilePreview />
       <ThreadListSidebar
         navigation={
           <div className="sidebar-navigation">
@@ -323,7 +326,15 @@ function Workspace() {
           {(isMobile || sidebarState === "collapsed") && (
             <SidebarTrigger aria-label="切换侧栏" />
           )}
-          <span className="chat-header-brand">Codex</span>
+          <span
+            className="chat-header-brand"
+            title={session?.cwd || session?.settings?.cwd || ""}
+          >
+            {(session?.cwd || session?.settings?.cwd || "")
+              .split("/")
+              .filter(Boolean)
+              .at(-1) || "Codex"}
+          </span>
           <span
             id="session-title"
             title={state.active || ""}
@@ -335,6 +346,12 @@ function Workspace() {
                 ? store.title(state.active)
                 : ""}
           </span>
+          <TooltipIconButton tooltip="打开文件" onClick={() => openSettings("files")}>
+            <Folder />
+          </TooltipIconButton>
+          <TooltipIconButton tooltip="打开终端" onClick={() => openSettings("terminal")}>
+            <Terminal />
+          </TooltipIconButton>
           {!!otherRequests.length && (
             <Button
               variant="ghost"
@@ -492,11 +509,11 @@ function Workspace() {
                 )}
                 <span>
                   {state.history
-                    ? "正在查看历史消息，返回最新后继续对话"
+                    ? "已加载较早记录 · 实时更新中"
                     : state.snapshot?.coverage.status !== "complete"
                       ? "观察不完整：" +
                         (state.snapshot?.coverage.reason || "未知")
-                      : "当前进程的对话记录"}
+                      : "还有较早的执行记录"}
                 </span>
               </div>
             )}

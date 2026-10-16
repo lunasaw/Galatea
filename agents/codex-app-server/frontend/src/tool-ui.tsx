@@ -2,48 +2,205 @@ import {
   useAuiState,
   type ToolCallMessagePartProps,
 } from "@assistant-ui/react";
+import {
+  Terminal,
+  FileDiff,
+  Wrench,
+  Search,
+  ListChecks,
+  Check,
+  Circle,
+  LoaderCircle,
+  AlertCircle,
+  ChevronRight,
+  Users,
+  Layers,
+} from "lucide-react";
 import { ToolFallback } from "./components/assistant-ui/elements/tool-fallback.aui";
 import { toolState } from "./messages";
 import type { Step } from "./types";
+import { openFile } from "./workspace-file";
 
-// The host can observe a call without its receipt. Preserve that distinction
-// while delegating disclosure, animation, arguments and results to assistant-ui.
+const object = (v: unknown): Record<string, any> =>
+  v && typeof v === "object" ? (v as Record<string, any>) : {};
+const pretty = (v: unknown) =>
+  typeof v === "string" ? v : JSON.stringify(v, null, 2);
+
 export function CodexToolFallback(props: ToolCallMessagePartProps) {
-  const step = useAuiState((s) => s.message.metadata.custom?.step) as
-    | Step
-    | undefined;
+  const meta = useAuiState((s) => s.message.metadata.custom);
+  const step =
+    (meta?.steps as Record<string, Step> | undefined)?.[props.toolCallId] ||
+    (meta?.step as Step | undefined);
   if (!step) return <ToolFallback {...props} />;
+  const d = object(step.detail);
   const state = toolState(step);
-  const status: ToolCallMessagePartProps["status"] =
-    state === "running"
-      ? { type: "running" }
-      : state === "failed"
-        ? { type: "incomplete", reason: "error", error: "工具执行失败" }
-        : { type: "complete" };
+  const pending = state === "running" && props.status.type !== "running";
+  const label =
+    step.type === "warning"
+      ? "提示"
+      : step.type === "turn/plan/updated"
+        ? `${(d.plan || []).filter((item: any) => item.status === "completed").length}/${(d.plan || []).length}`
+        : pending
+          ? "未收到完成回执"
+          : {
+              running: "执行中",
+              complete: "已完成",
+              failed: "失败",
+              unknown: "结果未知",
+            }[state];
+  const Icon =
+    step.type === "commandExecution"
+      ? Terminal
+      : step.type === "fileChange"
+        ? FileDiff
+        : step.type === "webSearch"
+          ? Search
+          : step.type.includes("plan") || step.type === "plan"
+            ? ListChecks
+            : step.type === "collabAgentToolCall"
+              ? Users
+              : step.type === "contextCompaction"
+                ? Layers
+                : Wrench;
+  const title =
+    step.type === "commandExecution"
+      ? d.command || "运行命令"
+      : step.type === "fileChange"
+        ? `修改 ${(d.changes || []).length} 个文件`
+        : step.type === "turn/plan/updated"
+          ? "更新计划"
+          : step.type === "plan"
+            ? "执行计划"
+            : step.type === "webSearch"
+              ? `搜索 ${d.query || "网页"}`
+              : step.type === "contextCompaction"
+                ? "已压缩会话上下文"
+                : step.type === "warning"
+                  ? "运行提示"
+                  : step.type === "error"
+                    ? "执行错误"
+                    : d.tool || step.tool || step.type;
+  const output = d.aggregatedOutput ?? step.text;
   return (
-    <ToolFallback.Root>
-      <ToolFallback.Trigger
-        toolName={props.toolName}
-        status={status}
-        label={state === "unknown" ? "已观察到调用（结果未知）" : undefined}
-      />
-      <ToolFallback.Content>
-        <ToolFallback.Error status={status} />
-        <ToolFallback.Args argsText={props.argsText} />
-        {step.text && <pre className="native-terminal">{step.text}</pre>}
-        <ToolFallback.Result result={props.result} />
-        {step.job && (
-          <p className="text-xs text-muted-foreground">
-            作业 {step.job.job_id} · {step.job.status || "状态未知"}
-            （最近一次观察）
-          </p>
+    <details
+      className="native-activity"
+      data-slot="tool-fallback-root"
+      data-state={state}
+    >
+      <summary data-slot="tool-fallback-trigger">
+        <Icon size={15} aria-hidden />
+        <span className="native-activity-title" title={title}>
+          {title}
+        </span>
+        <span className="native-activity-status">
+          {state === "running" && !pending ? (
+            <LoaderCircle className="animate-spin" size={12} />
+          ) : state === "failed" ? (
+            <AlertCircle size={12} />
+          ) : null}
+          {label}
+        </span>
+        <ChevronRight size={13} className="native-activity-chevron" />
+      </summary>
+      <div className="native-activity-body">
+        {step.type === "commandExecution" ? (
+          <>
+            <div className="native-command-meta">
+              <span>{d.cwd}</span>
+              <span>
+                {typeof d.exitCode === "number" ? `退出码 ${d.exitCode}` : ""}
+                {typeof d.durationMs === "number"
+                  ? ` · ${(d.durationMs / 1000).toFixed(1)} 秒`
+                  : ""}
+              </span>
+            </div>
+            <pre className="native-terminal">
+              $ {d.command}
+              {output ? `\n\n${output}` : ""}
+            </pre>
+          </>
+        ) : step.type === "fileChange" ? (
+          (d.changes || []).map((change: any, i: number) => (
+            <div key={i} className="native-file-change">
+              <button
+                className="workspace-file-link"
+                onClick={() => openFile(change.path)}
+              >
+                {change.path}
+              </button>
+              <pre className="native-diff">
+                {String(change.diff || "")
+                  .split("\n")
+                  .map((line, n) => (
+                    <span
+                      key={n}
+                      data-change={
+                        line.startsWith("+")
+                          ? "add"
+                          : line.startsWith("-")
+                            ? "remove"
+                            : "context"
+                      }
+                    >
+                      {line}
+                      {"\n"}
+                    </span>
+                  ))}
+              </pre>
+            </div>
+          ))
+        ) : step.type === "turn/plan/updated" ? (
+          <>
+            {d.explanation && <p>{d.explanation}</p>}
+            <ol className="native-plan">
+              {(d.plan || []).map((item: any, i: number) => (
+                <li key={i} data-status={item.status}>
+                  {item.status === "completed" ? (
+                    <Check size={14} />
+                  ) : item.status === "inProgress" ? (
+                    <LoaderCircle size={14} className="animate-spin" />
+                  ) : (
+                    <Circle size={14} />
+                  )}
+                  <span>{item.step}</span>
+                </li>
+              ))}
+            </ol>
+          </>
+        ) : step.type === "plan" ? (
+          <pre className="native-plan-text">{d.text || step.text}</pre>
+        ) : step.type === "contextCompaction" ? (
+          <p>较早的上下文已压缩，原始会话记录仍可查看。</p>
+        ) : (
+          <>
+            {step.type === "warning" || step.type === "error" ? (
+              <p role="status">
+                {d.message || object(d.error).message || pretty(d)}
+              </p>
+            ) : (
+              <>
+                <details className="native-arguments">
+                  <summary>调用参数</summary>
+                  <pre className="json">
+                    {pretty(step.arguments ?? d.arguments ?? d)}
+                  </pre>
+                </details>
+                {output && <pre className="native-terminal">{output}</pre>}
+                {(props.result !== undefined ||
+                  d.result !== undefined ||
+                  d.error) && (
+                  <div>
+                    <p className="muted">工具回执</p>
+                    <pre className="json">
+                      {pretty(props.result ?? d.result ?? d.error)}
+                    </pre>
+                  </div>
+                )}
+              </>
+            )}
+          </>
         )}
-        {step.observed_at && (
-          <p className="text-xs text-muted-foreground">
-            最近观察：{step.observed_at}
-          </p>
-        )}
-      </ToolFallback.Content>
-    </ToolFallback.Root>
+      </div>
+    </details>
   );
 }

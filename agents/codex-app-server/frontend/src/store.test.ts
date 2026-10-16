@@ -92,29 +92,32 @@ test("late snapshot of a previously selected session cannot replace the new sess
   assert.equal(s.state.active, "b");
   assert.equal(s.state.snapshot?.messages?.[0].id, "b");
 });
-test("historical pagination uses a fixed watermark and excludes live tool projections", async () => {
+test("history retains all item types and loaded pages at the cursor watermark", async () => {
   const s = make();
-  s.patch({ active: "a", snapshot: snapshot("latest") });
+  s.patch({
+    active: "a",
+    snapshot: { ...snapshot("latest"), next_page: "opaque" },
+  });
   const urls: string[] = [];
   globalThis.fetch = async (path) => {
-    const url = String(path);
-    urls.push(url);
-    return json(
-      url.includes("until=")
-        ? { ...snapshot("latest"), next_page: "opaque" }
-        : {
-            ...snapshot("old"),
-            steps: [{ id: "tool" }],
-            turns: [{ id: "turn" }],
-          },
-    );
+    urls.push(String(path));
+    return json({
+      ...snapshot("old"),
+      steps: [
+        { id: "tool", type: "commandExecution", first_seq: "2", last_seq: "3" },
+      ],
+      turns: [{ id: "turn", status: "completed" }],
+    });
   };
   await s.older();
-  assert.ok(urls[0].includes("until=e%3A10"));
-  assert.ok(urls[1].includes("page=opaque"));
+  assert.ok(urls[0].includes("/snapshot?limit=200&view=all&page=opaque"));
   assert.equal(s.state.history, true);
-  assert.deepEqual(s.state.snapshot?.steps, []);
-  assert.deepEqual(s.state.snapshot?.turns, []);
+  assert.deepEqual(
+    s.state.snapshot?.messages?.map((m) => m.id),
+    ["old", "latest"],
+  );
+  assert.equal(s.state.snapshot?.steps?.[0].id, "tool");
+  assert.equal(s.state.snapshot?.turns?.[0].status, "completed");
   assert.equal(s.state.older, false);
 });
 
@@ -233,4 +236,54 @@ test("new-chat preferences do not override another existing thread", () => {
   s.patch({ active: "existing" });
   assert.equal(s.composerSettings.mode, "default");
   assert.equal(s.composerSettings.model, "");
+});
+
+test("history refresh rebuilds loaded pages at one new watermark and retains input", async () => {
+  const s = make();
+  s.patch({
+    active: "a",
+    snapshot: { ...snapshot("latest"), next_page: "old-page" },
+  });
+  let refreshing = false;
+  let finished!: () => void;
+  const refreshed = new Promise<void>((resolve) => {
+    finished = resolve;
+  });
+  globalThis.fetch = async (path) => {
+    const url = String(path);
+    if (url.endsWith("/sessions")) return json([{ id: "a", status: "ready" }]);
+    if (url.includes("page=old-page"))
+      return json({ ...snapshot("old"), next_page: null });
+    if (url.endsWith("/snapshot")) {
+      refreshing = true;
+      return json({
+        ...snapshot("newest"),
+        watermark: "e:20",
+        next_page: "new-page",
+        steps: [{ id: "new-tool" }],
+      });
+    }
+    if (url.includes("page=new-page")) {
+      queueMicrotask(finished);
+      return json({
+        ...snapshot("old"),
+        watermark: "e:20",
+        steps: [{ id: "old-tool" }],
+      });
+    }
+    throw Error(url);
+  };
+  await s.older();
+  await refreshed;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(refreshing, true);
+  assert.equal(s.state.snapshot?.watermark, "e:20");
+  assert.deepEqual(
+    s.state.snapshot?.messages?.map((m) => m.id),
+    ["old", "newest"],
+  );
+  assert.deepEqual(
+    s.state.snapshot?.steps?.map((m) => m.id),
+    ["old-tool", "new-tool"],
+  );
 });

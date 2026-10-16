@@ -56,6 +56,7 @@ def redact(value, *, method=None):
 class Projector:
     def __init__(self):
         self.user_items = {}
+        self.request_user_items = {}
 
     def changes(self, event):
         output = []
@@ -83,10 +84,12 @@ class Projector:
                 change(view, '__reset__', {'reset_view': True})
             for native_turn in public.get('thread', {}).get('turns', []):
                 tid = native_turn['id']
-                change('turns', tid, {**common, 'turn_id': tid, 'status': native_turn.get('status')})
+                change('turns', tid, {**common, 'turn_id': tid, 'status': native_turn.get('status'),
+                       'detail': {k: v for k, v in native_turn.items() if k != 'items'}})
                 for native_item in native_turn.get('items', []):
                     restored = {**event, 'kind': 'notification', 'method': 'item/completed', 'turn_id': tid,
                                 'host_request_id': None, 'item_id': native_item['id'],
+                                'history_replay': True,
                                 'payload': {'params': {'item': native_item}}}
                     output.extend(self.changes(restored))
             return output
@@ -95,36 +98,50 @@ class Projector:
                                                      'content': public.get('content'), 'request_id': request})
         if method == 'turn/start' and kind == 'response' and turn and request:
             change('messages', 'request:' + request, {**common, 'request_id': request})
-            for key in self.user_items.pop((thread, turn), []):
+            # Only the initial native input aliases the Host's turn/start.
+            # Steered inputs share the turn but each has its own item identity.
+            for key, native_id in self.user_items.pop((thread, turn), [])[:1]:
+                self.request_user_items[(thread, request)] = native_id
+                change('messages', 'request:' + request, {'item_id': native_id})
                 change('messages', key, remove=True)
         if method == 'item/agentMessage/delta' and item_id:
             change('messages', message_key, {**common, 'role': 'assistant', 'item_id': item_id}, {'text': params.get('delta', '')})
         if method in {'item/started', 'item/completed'} and item_id:
             item_type = item.get('type')
             if item_type == 'agentMessage':
-                change('messages', message_key, {**common, 'role': 'assistant', 'item_id': item_id, 'text': item.get('text', '')})
+                change('messages', message_key, {**common, 'role': 'assistant', 'item_id': item_id,
+                       'text': item.get('text', ''), 'phase': item.get('phase'),
+                       'status': 'completed' if method == 'item/completed' else 'inProgress'})
             elif item_type == 'userMessage':
-                key = 'request:' + request if request else message_key
+                initial = request and self.request_user_items.setdefault((thread, request), item_id) == item_id
+                key = 'request:' + request if initial else message_key
                 text = '\n'.join(c.get('text', '') for c in item.get('content', []) if isinstance(c, dict) and c.get('type') == 'text')
                 change('messages', key, {**common, 'role': 'user', 'item_id': item_id, 'text': text, 'content': item.get('content')})
                 if not request:
-                    self.user_items.setdefault((thread, turn), []).append(key)
+                    pending = self.user_items.setdefault((thread, turn), [])
+                    if (key, item_id) not in pending:
+                        pending.append((key, item_id))
             elif item_type == 'reasoning':
                 values = {**common, 'type': 'reasoning', 'item_id': item_id, 'detail': item,
                           'status': 'completed' if method == 'item/completed' else 'inProgress'}
-                values['completed_at' if method == 'item/completed' else 'started_at'] = event['observed_at']
+                if not event.get('history_replay'):
+                    values['completed_at' if method == 'item/completed' else 'started_at'] = event['observed_at']
                 change('steps', f'item:{thread}:{turn}:{item_id}', values)
             elif item_type != 'dynamicToolCall':
                 change('steps', f'item:{thread}:{turn}:{item_id}', {**common, 'type': item_type, 'detail': item,
                        'status': item.get('status', 'completed' if method == 'item/completed' else 'inProgress')})
         if (method == 'item/tool/call' or item.get('type') == 'dynamicToolCall' or kind in {'tool_call', 'tool_result'}):
-            call = call or public.get('call_id')
+            call = call or public.get('call_id') or (item_id if item.get('type') == 'dynamicToolCall' else None)
             if call:
                 values = {**common, 'type': 'tool', 'call_id': call, 'observed_at': event['observed_at']}
                 detail = item or params or public
                 for key in ('tool', 'arguments', 'status', 'success', 'operation_id'):
                     if key in detail:
                         values[key] = detail[key]
+                if item:
+                    values['detail'] = item
+                    if item.get('contentItems') is not None:
+                        values['result'] = {'contentItems': item['contentItems'], 'success': item.get('success')}
                 result = payload.get('result')
                 if isinstance(result, dict):
                     values['result'] = result
@@ -141,7 +158,8 @@ class Projector:
                                 values['job'] = data.get('job', data)
                 change('steps', f'tool:{thread}:{turn}:{call}', values)
         if method in {'turn/started', 'turn/completed'} and turn:
-            change('turns', turn, {**common, 'status': params.get('turn', {}).get('status', 'unknown'), 'detail': params.get('turn')})
+            change('turns', turn, {**common, 'status': params.get('turn', {}).get('status', 'unknown'), 'detail': params.get('turn'),
+                   'started_at' if method == 'turn/started' else 'completed_at': event['observed_at']})
         if method == 'thread/tokenUsage/updated':
             change('turns', turn or 'thread:' + str(thread), {**common, 'usage': params.get('tokenUsage')})
         if method == 'item/reasoning/summaryTextDelta' and item_id:
@@ -154,7 +172,10 @@ class Projector:
                 change('steps', f'item:{thread}:{turn}:{item_id}',
                        {**common, 'type': 'reasoning', 'item_id': item_id},
                        {f'summary_{index}': delta})
-        if method in {'turn/plan/updated', 'item/plan/delta', 'warning', 'error'}:
+        if method == 'item/plan/delta' and item_id:
+            change('steps', f'item:{thread}:{turn}:{item_id}', {**common, 'type': 'plan'},
+                   {'text': params['delta']} if isinstance(params.get('delta'), str) else None)
+        if method in {'turn/plan/updated', 'warning', 'error'}:
             key = f'{method}:{turn}:{item_id}'
             values = {**common, 'type': method, 'detail': params}
             change('steps', key, values, {'text': params['delta']} if isinstance(params.get('delta'), str) else None)

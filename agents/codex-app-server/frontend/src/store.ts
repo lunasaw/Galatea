@@ -122,6 +122,9 @@ export class ConsoleStore {
     options?: Record<string, unknown>;
   };
   private historyPage: string | null = null;
+  private historyDepth = 0;
+  private paging = false;
+  private titleSequences = new Map<string, bigint>();
   private filter = { method: "", direction: "", kind: "" };
   private filterVersion = 0;
   state: ConsoleState = {
@@ -296,7 +299,14 @@ export class ConsoleStore {
     const first = snapshot.messages?.find(
       (m) => m.role === "user" && m.text.trim(),
     );
-    if (first && !this.state.titles[id]) {
+    const session = this.state.sessions.find((s) => s.id === id);
+    if (
+      first &&
+      !session?.name &&
+      BigInt(first.first_seq) <=
+        (this.titleSequences.get(id) ?? BigInt(first.first_seq))
+    ) {
+      this.titleSequences.set(id, BigInt(first.first_seq));
       const titles = {
         ...this.state.titles,
         [id]: first.text.trim().slice(0, 48),
@@ -343,6 +353,8 @@ export class ConsoleStore {
     const controller = new AbortController();
     this.controller = controller;
     this.historyPage = null;
+    this.historyDepth = 0;
+    this.paging = false;
     this.filterVersion++;
     this.filter = { method: "", direction: "", kind: "" };
     this.patch({
@@ -602,13 +614,30 @@ export class ConsoleStore {
           api<Session[]>("/api/sessions"),
         ]);
         if (version !== this.generation) return;
-        this.patch({
-          sessions,
-          ...(!this.state.history
-            ? { snapshot, older: !!snapshot.next_page }
-            : {}),
-        });
-        this.remember(snapshot, id);
+        let current = snapshot;
+        // Rebuild every loaded page at the NEW watermark as a single snapshot.
+        // This keeps live streaming and composing while browsing older items,
+        // without mixing old tool results with new messages or resurrecting a rollback.
+        for (
+          let page = 0;
+          page < this.historyDepth && current.next_page;
+          page++
+        ) {
+          const older = await api<Snapshot>(
+            `/api/sessions/${encodeURIComponent(id)}/snapshot?limit=200&view=all&page=${encodeURIComponent(current.next_page)}`,
+          );
+          current = mergeSnapshots(older, current);
+        }
+        if (version !== this.generation) return;
+        if (!this.paging) {
+          this.historyPage = current.next_page;
+          this.patch({
+            sessions,
+            snapshot: current,
+            older: !!current.next_page,
+          });
+        } else this.patch({ sessions });
+        this.remember(current, id);
       } catch (error) {
         if (version === this.generation) this.fail(error);
       } finally {
@@ -696,16 +725,11 @@ export class ConsoleStore {
     const id = this.state.active,
       version = this.generation,
       snapshot = this.state.snapshot;
-    if (!id || !snapshot) return;
+    if (!id || !snapshot || this.paging) return;
+    this.paging = true;
     try {
-      let page = this.historyPage;
-      const path = `/api/sessions/${encodeURIComponent(id)}/messages?limit=200&view=messages`;
-      if (!this.state.history) {
-        const latest = await api<Snapshot>(
-          path + "&until=" + encodeURIComponent(snapshot.watermark),
-        );
-        page = latest.next_page;
-      }
+      const page = this.state.history ? this.historyPage : snapshot.next_page;
+      const path = `/api/sessions/${encodeURIComponent(id)}/snapshot?limit=200&view=all`;
       if (!page) {
         if (version === this.generation) this.patch({ older: false });
         return;
@@ -715,14 +739,22 @@ export class ConsoleStore {
       );
       if (version !== this.generation) return;
       this.historyPage = data.next_page;
-      // Historical messages must never be mixed with live tool steps or turns.
+      this.historyDepth++;
+      // All pages share the server cursor's fixed watermark. Retain every
+      // item type and already-visible page; never splice in a live projection.
       this.patch({
-        snapshot: { ...data, steps: [], turns: [] },
+        snapshot: mergeSnapshots(data, snapshot),
         history: true,
         older: !!data.next_page,
       });
+      this.remember(this.state.snapshot!, id);
     } catch (error) {
       if (version === this.generation) this.fail(error);
+    } finally {
+      if (version === this.generation) {
+        this.paging = false;
+        this.schedule();
+      }
     }
   }
   async latest() {
@@ -764,5 +796,21 @@ export class ConsoleStore {
     this.controller?.abort();
     clearTimeout(this.timer);
   }
+}
+export function mergeSnapshots(older: Snapshot, current: Snapshot): Snapshot {
+  if (older.watermark !== current.watermark || older.epoch !== current.epoch)
+    throw new Error("会话记录已更新，请重新加载历史记录");
+  const merge = <T extends { id: string }>(
+    previous: T[] = [],
+    latest: T[] = [],
+  ) => [
+    ...new Map([...previous, ...latest].map((row) => [row.id, row])).values(),
+  ];
+  return {
+    ...older,
+    messages: merge(older.messages, current.messages),
+    steps: merge(older.steps, current.steps),
+    turns: merge(older.turns, current.turns),
+  };
 }
 export const consoleStore = new ConsoleStore();

@@ -124,3 +124,40 @@ Markdown 复制与导出、能力开关、手机侧栏、焦点与滚动锁、CS
 当前 18880 页面另完成真实 Codex 回复、只读能力工具成功回执、工具展开、刷新恢复
 与能力面板检查，未触发训练。记录保存在
 `/var/lib/galatea-agent/debug-evidence/assistant-ui-components-20261015/`。
+
+## 会话完整性与展示
+
+
+会话 UI 使用原生 `turn` / `item` 标识和 `agentMessage.phase`。`commentary`、公开思考摘要、
+命令、文件修改和工具调用按连续执行段归入可展开的处理过程；`final_answer` 保持独立，
+仅最终文本回复提供复制/导出操作。执行中的补充输入独立成行，不以相同 `turn_id` 或
+Host 请求 ID 覆盖初始输入。没有 phase 的旧记录只在轮次成功完成后推断最后一条文本为最终回复。
+
+命令展示命令行、工作目录、输出、退出码和原生耗时；文件修改展示 diff；计划通知展示
+步骤状态。失败和未收到回执分开处理。只展示原生公开思考摘要，不展示私有推理正文；
+历史恢复不把恢复时间误当成思考完成时间。
+
+侧栏按工作目录分组，顶部提供文件与终端入口。Markdown 中的绝对路径通过原生
+`fs/readFile` 打开只读预览，支持文本和 PNG/JPEG/WebP/GIF；`:行号` / `#L行号` 从请求路径
+剥离并显示在预览标题。远程 Markdown 图片不自动加载，HTML 不执行。
+
+历史分页读取 `snapshot?view=all`，累计消息、步骤和轮次。每次实时刷新均从同一 watermark
+重建已加载页，避免混用历史与实时状态；浏览历史不禁用输入框。SQLite 的原始审计批次
+保持不变，启动时按当前投影规则重新生成派生视图，因此既有会话也能恢复补充输入和 phase。
+
+## 验证与兼容范围
+
+验证包括 `frontend` 下的 `npm test` / `npm run build`、Python 会话投影测试和浏览器脚本：
+
+- `tests/test_console_browser.cjs`：历史分页、流式摘要、Markdown、复制、主题、移动端。
+- `tests/test_chat_interaction.cjs`：模型/计划设置、审批隔离、补充输入和快捷命令。
+- `tests/test_native_browser.cjs`：原生审批、MCP 表单、文件、终端及图片输入。
+- `tests/test_conversation_parity.cjs`：过程折叠、命令失败、计划、diff、文件预览和刷新回放。
+
+浏览器脚本使用 `console_browser_fixture.py` 的合成服务，不触发模型或训练。设置
+`CONSOLE_TEST_URL` 和 `CHROMIUM_EXECUTABLE` 后运行；`CONSOLE_SCREENSHOTS` 可保存截图。
+
+这是基于 Codex 0.154.0 原生协议的 Web 会话实现，不是桌面应用 UI 源码的复制。
+已覆盖上述会话流程；桌面窗口面板、交互式终端仿真、富文档/视频/音频/Artifact
+渲染、完整子 Agent 导航和异步问题消息仍不等同于桌面功能。文件当前以文本/图片预览，
+Markdown 文件不会成为可编辑的富文档。尚未进行与指定桌面版本截图逐像素比对。

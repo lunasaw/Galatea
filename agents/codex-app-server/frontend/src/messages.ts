@@ -27,11 +27,19 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
       ...(row.role === "assistant"
         ? {
             status:
+              row.status !== "completed" &&
               turns.get(row.turn_id || "") === "inProgress"
                 ? { type: "running" as const }
                 : { type: "complete" as const, reason: "stop" as const },
           }
         : {}),
+      metadata: {
+        custom: {
+          turnId: row.turn_id,
+          phase: row.phase,
+          itemStatus: row.status,
+        },
+      },
     },
   }));
   for (const step of snapshot.steps || []) {
@@ -45,6 +53,10 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
         "collabAgentToolCall",
         "imageGeneration",
         "plan",
+        "turn/plan/updated",
+        "contextCompaction",
+        "warning",
+        "error",
       ].includes(step.type)
     )
       continue;
@@ -68,7 +80,7 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
               : step.status === "completed"
                 ? { result: step.detail }
                 : {}),
-            isError: step.success === false,
+            isError: toolState(step) === "failed",
           },
         ],
         status:
@@ -76,7 +88,7 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
           turns.get(step.turn_id || "") === "inProgress"
             ? { type: "running" }
             : { type: "complete", reason: "stop" },
-        metadata: { custom: { step } },
+        metadata: { custom: { step, turnId: step.turn_id } },
       },
     });
   }
@@ -163,6 +175,7 @@ function reasoningMessages(snapshot: Snapshot) {
         : complete
           ? { type: "complete", reason: "stop" }
           : { type: "incomplete", reason: "cancelled" },
+      metadata: { custom: { turnId: step.turn_id } },
     };
     const seq =
       delta && BigInt(delta.first_seq) < BigInt(step.first_seq)
@@ -180,9 +193,151 @@ function object(value: unknown): Record<string, unknown> {
 export function toolState(
   step: Step,
 ): "running" | "complete" | "failed" | "unknown" {
-  if (step.success === false || step.status === "failed") return "failed";
+  const detail = object(step.detail);
+  if (step.type === "error") return "failed";
+  if (step.type === "turn/plan/updated" && Array.isArray(detail.plan))
+    return detail.plan.every((item) => object(item).status === "completed")
+      ? "complete"
+      : "unknown";
+  if (
+    step.success === false ||
+    ["failed", "declined", "cancelled", "interrupted"].includes(
+      step.status || "",
+    ) ||
+    detail.error ||
+    (typeof detail.exitCode === "number" && detail.exitCode !== 0)
+  )
+    return "failed";
   if (step.success === true || step.status === "completed") return "complete";
   if (step.status === "inProgress" || step.status === "executing")
     return "running";
   return "unknown";
+}
+
+// Preserve native item identities inside a turn's expandable activity. Legacy
+// projections lack phase: only infer a final answer after a completed turn.
+export function toConversationMessages(
+  snapshot: Snapshot | null,
+): ThreadMessageLike[] {
+  const rows = toMessages(snapshot);
+  const rawTurns = snapshot?.turns?.map((turn) => {
+    const detail = object(turn.detail);
+    return {
+      ...turn,
+      started_at:
+        turn.started_at ||
+        (typeof detail.startedAt === "number"
+          ? new Date(detail.startedAt * 1000).toISOString()
+          : undefined),
+      completed_at:
+        turn.completed_at ||
+        (typeof detail.completedAt === "number"
+          ? new Date(detail.completedAt * 1000).toISOString()
+          : undefined),
+    };
+  });
+  const turns = new Map(rawTurns?.map((turn) => [turn.id, turn]));
+  const lastText = new Map<string, string>();
+  for (const row of rows) {
+    const meta = row.metadata?.custom;
+    if (
+      row.role === "assistant" &&
+      !meta?.step &&
+      Array.isArray(row.content) &&
+      row.content.some((p) => p.type === "text") &&
+      meta?.turnId
+    )
+      lastText.set(String(meta.turnId), row.id!);
+  }
+  const result: ThreadMessageLike[] = [];
+  for (const row of rows) {
+    const meta = row.metadata?.custom || {};
+    const turnId = String(meta.turnId || "");
+    const turn = turns.get(turnId);
+    const isText =
+      Array.isArray(row.content) &&
+      row.content.some((p) => p.type === "text") &&
+      !meta.step;
+    const final =
+      meta.phase === "final_answer" ||
+      (!meta.phase &&
+        isText &&
+        turn?.status === "completed" &&
+        lastText.get(turnId) === row.id);
+    if (row.role !== "assistant" || final || !turnId) {
+      result.push({ ...row, metadata: { custom: { ...meta, final, turn } } });
+      continue;
+    }
+    const previous = result.at(-1);
+    const step = meta.step as Step | undefined;
+    const toolId = step?.call_id || step?.id;
+    const stepMap = step && toolId ? { [toolId]: step } : {};
+    if (
+      previous?.metadata?.custom?.activity &&
+      previous.metadata.custom.turnId === turnId
+    ) {
+      result[result.length - 1] = {
+        ...previous,
+        content: [
+          ...(previous.content as Exclude<
+            ThreadMessageLike["content"],
+            string
+          >),
+          ...(row.content as Exclude<ThreadMessageLike["content"], string>),
+        ],
+        metadata: {
+          custom: {
+            ...previous.metadata.custom,
+            steps: {
+              ...(previous.metadata.custom.steps as Record<string, Step>),
+              ...stepMap,
+            },
+            itemCount: Number(previous.metadata.custom.itemCount) + 1,
+          },
+        },
+      };
+    } else {
+      result.push({
+        ...row,
+        id: `activity:${row.id}`,
+        metadata: {
+          custom: {
+            activity: true,
+            turnId,
+            turn,
+            steps: stepMap,
+            itemCount: 1,
+          },
+        },
+        status:
+          turn?.status === "inProgress"
+            ? { type: "running" }
+            : { type: "complete", reason: "stop" },
+      });
+    }
+  }
+  const lastActivity = new Map<string, number>();
+  const lastItem = new Map<string, number>();
+  result.forEach((row, index) => {
+    const meta = row.metadata?.custom;
+    if (meta?.turnId) lastItem.set(String(meta.turnId), index);
+    if (meta?.activity) lastActivity.set(String(meta.turnId), index);
+  });
+  return result.map((row, index) => {
+    const meta = row.metadata?.custom;
+    if (!meta?.activity) return row;
+    const turnId = String(meta.turnId);
+    const active =
+      turns.get(turnId)?.status === "inProgress" &&
+      lastItem.get(turnId) === index;
+    return {
+      ...row,
+      status: active
+        ? { type: "running" as const }
+        : { type: "complete" as const, reason: "stop" as const },
+      metadata: {
+        custom: { ...meta, lastActivity: lastActivity.get(turnId) === index },
+      },
+    };
+  });
 }

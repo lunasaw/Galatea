@@ -37,6 +37,7 @@ class ConsoleObservationService:
     async def start(self):
         if self.worker is None:
             await self.store.open(self.epoch)
+            self.projector = getattr(self.store, 'projector', self.projector)
             self.epoch = self.store.epoch
             self._seq = int((await self.store.stats())['watermark'].split(':')[1])
             self.observer.loop = asyncio.get_running_loop()

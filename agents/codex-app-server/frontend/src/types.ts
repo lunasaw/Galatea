@@ -17,6 +17,8 @@ export type Message = {
   last_seq: string;
   replay_order?: number;
   content?: Array<{ type: string; url?: string; path?: string; name?: string }>;
+  phase?: "commentary" | "final_answer" | null;
+  status?: string;
 };
 export type Step = {
   id: string;
@@ -41,7 +43,14 @@ export type Step = {
   [key: `summary_${number}`]: string | undefined;
   job?: { job_id?: string; status?: string };
 };
-export type Turn = { id: string; status?: string; usage?: unknown };
+export type Turn = {
+  id: string;
+  status?: string;
+  usage?: unknown;
+  started_at?: string;
+  completed_at?: string;
+  detail?: unknown;
+};
 export type Snapshot = {
   epoch: string;
   watermark: string;

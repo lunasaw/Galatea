@@ -6,6 +6,7 @@ import sqlite3
 from .memory import MemoryConsoleObservationStore, encoded
 from ..models import ObservationBatch
 from ..ports import CommitConflict
+from ..projection import Projector
 
 
 class SqliteConsoleObservationStore(MemoryConsoleObservationStore):
@@ -28,10 +29,22 @@ class SqliteConsoleObservationStore(MemoryConsoleObservationStore):
         epoch = self.db.execute("SELECT value FROM metadata WHERE key='epoch'").fetchone()[0]
         await super().open(epoch)
         self._replaying = True
+        self.projector = Projector()
+        projected = []
         try:
             for (raw,) in self.db.execute('SELECT payload FROM batches ORDER BY position'):
                 data = json.loads(raw)
                 await super().commit(ObservationBatch(data['batch_id'], epoch, tuple(data['events']), tuple(data['changes'])))
+                # The audit batches remain immutable. Rebuild their derived
+                # view with current projection rules, including old phase and
+                # steered-message records; retain synthetic adapter fixtures.
+                if all(row.get('schema_version') in {'galatea.console.event/v1', 'codex-agent.console.event/v1'} for row in data['events']):
+                    for row in data['events']:
+                        projected.extend(self.projector.changes(row))
+                    projected.extend(c for c in data['changes'] if c.get('type') == 'binding')
+                else:
+                    projected.extend(data['changes'])
+            self._changes = projected
         finally:
             self._replaying = False
         return await self.stats()

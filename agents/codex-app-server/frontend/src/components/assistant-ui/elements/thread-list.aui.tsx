@@ -18,9 +18,11 @@ import {
   Loader2Icon,
   MoreHorizontalIcon,
   PencilIcon,
-  SquarePenIcon,
+  PlusIcon,
   SearchIcon,
   TrashIcon,
+  FolderIcon,
+  ChevronRightIcon,
 } from "lucide-react";
 import {
   forwardRef,
@@ -43,13 +45,11 @@ export const ThreadList: FC<{ navigation?: React.ReactNode }> = ({
   return (
     <ThreadListRoot>
       <ThreadListNew />
-      {hasThreads && (
-        <ThreadListSearch value={search} onValueChange={setSearch} />
-      )}
+      <ThreadListSearch value={search} onValueChange={setSearch} />
       {navigation}
       {hasThreads && (
         <p className="px-2.5 pb-1 pt-5 text-xs text-muted-foreground">
-          你的会话
+          项目会话
         </p>
       )}
       <ThreadListItems searchQuery={hasThreads ? search : ""} />
@@ -190,6 +190,24 @@ export const useThreadListGroups = (searchQuery = "") => {
           (itemsById.get(id)?.title || "新会话").toLowerCase().includes(query),
       )
       .map(({ index }) => index);
+    const projects = new Map<string, number[]>();
+    if (
+      filteredIndices.some(
+        (index) => itemsById.get(threadIds[index])?.custom?.cwd,
+      )
+    ) {
+      for (const index of filteredIndices) {
+        const cwd = String(
+          itemsById.get(threadIds[index])?.custom?.cwd || "其他会话",
+        );
+        projects.set(cwd, [...(projects.get(cwd) || []), index]);
+      }
+      return {
+        threadIds,
+        filteredIndices,
+        groups: [...projects].map(([label, indices]) => ({ label, indices })),
+      };
+    }
     if (
       startOfToday === undefined ||
       !filteredIndices.some((index) => dates[index])
@@ -228,6 +246,7 @@ const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
   const { threadIds, filteredIndices, groups } =
     useThreadListGroups(searchQuery);
   const query = searchQuery.trim();
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   if (query && filteredIndices.length === 0) {
     return (
@@ -252,13 +271,20 @@ const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
 
   return groups.map((group) => (
     <Fragment key={group.label}>
-      <div
+      <button
+        type="button"
         data-slot="aui_thread-list-group-label"
-        className="text-muted-foreground px-2.5 pt-3 pb-1 text-xs font-medium"
+        className="sidebar-project-toggle text-muted-foreground px-2.5 pt-3 pb-1 text-xs font-medium"
+        aria-expanded={!!query || !collapsed[group.label]}
+        onClick={() => setCollapsed(previous => ({ ...previous, [group.label]: !previous[group.label] }))}
       >
-        {group.label}
-      </div>
-      {group.indices.map((index) => (
+        <span className="sidebar-group-name" title={group.label}>
+          <FolderIcon size={13} />
+          {group.label.split("/").filter(Boolean).at(-1)}
+        </span>
+        <ChevronRightIcon className="sidebar-project-chevron" size={12} />
+      </button>
+      {(query || !collapsed[group.label]) && group.indices.map((index) => (
         <ThreadListPrimitive.ItemByIndex
           key={threadIds[index]}
           index={index}
@@ -287,7 +313,7 @@ export const ThreadListNew = forwardRef<
       >
         {children ?? (
           <>
-            <SquarePenIcon
+            <PlusIcon
               data-slot="aui_thread-list-new-icon"
               className="size-4 shrink-0"
             />

@@ -190,14 +190,176 @@ test("never presents private reasoning or empty summaries as reasoning panels", 
 });
 
 test("native history hydration preserves interleaved user, reasoning, tools and answers", () => {
-  const result = toMessages({ epoch: 'e', watermark: 'e:100', next_page: null, coverage: {status:'complete'},
+  const result = toMessages({
+    epoch: "e",
+    watermark: "e:100",
+    next_page: null,
+    coverage: { status: "complete" },
     messages: [
-      {id:'user',role:'user',text:'question',turn_id:'t',first_seq:'100',last_seq:'100',replay_order:1},
-      {id:'answer',role:'assistant',text:'answer',turn_id:'t',first_seq:'100',last_seq:'100',replay_order:4},
+      {
+        id: "user",
+        role: "user",
+        text: "question",
+        turn_id: "t",
+        first_seq: "100",
+        last_seq: "100",
+        replay_order: 1,
+      },
+      {
+        id: "answer",
+        role: "assistant",
+        text: "answer",
+        turn_id: "t",
+        first_seq: "100",
+        last_seq: "100",
+        replay_order: 4,
+      },
     ],
     steps: [
-      {id:'reasoning',type:'reasoning',turn_id:'t',first_seq:'100',last_seq:'100',replay_order:2,status:'completed',detail:{summary:['public summary']}},
-      {id:'tool',type:'commandExecution',turn_id:'t',first_seq:'100',last_seq:'100',replay_order:3,status:'completed',detail:{command:'pwd'}},
-    ], turns: [{id:'t',status:'completed'}] });
-  assert.deepEqual(result.map(m => m.id), ['user','reasoning','tool','answer']);
+      {
+        id: "reasoning",
+        type: "reasoning",
+        turn_id: "t",
+        first_seq: "100",
+        last_seq: "100",
+        replay_order: 2,
+        status: "completed",
+        detail: { summary: ["public summary"] },
+      },
+      {
+        id: "tool",
+        type: "commandExecution",
+        turn_id: "t",
+        first_seq: "100",
+        last_seq: "100",
+        replay_order: 3,
+        status: "completed",
+        detail: { command: "pwd" },
+      },
+    ],
+    turns: [{ id: "t", status: "completed" }],
+  });
+  assert.deepEqual(
+    result.map((m) => m.id),
+    ["user", "reasoning", "tool", "answer"],
+  );
+});
+
+test("groups process items per turn around steered input and keeps only final answer actions", async () => {
+  const { toConversationMessages } = await import("./messages.ts");
+  const snapshot: Snapshot = {
+    epoch: "e",
+    watermark: "e:20",
+    next_page: null,
+    coverage: { status: "complete" },
+    messages: [
+      {
+        id: "u",
+        role: "user",
+        text: "task",
+        turn_id: "t",
+        first_seq: "1",
+        last_seq: "1",
+      },
+      {
+        id: "c",
+        role: "assistant",
+        phase: "commentary",
+        status: "completed",
+        text: "checking",
+        turn_id: "t",
+        first_seq: "2",
+        last_seq: "2",
+      },
+      {
+        id: "s",
+        role: "user",
+        text: "steer",
+        turn_id: "t",
+        first_seq: "5",
+        last_seq: "5",
+      },
+      {
+        id: "f",
+        role: "assistant",
+        phase: "final_answer",
+        text: "done",
+        turn_id: "t",
+        first_seq: "8",
+        last_seq: "9",
+      },
+    ],
+    steps: [
+      step({
+        id: "cmd",
+        type: "commandExecution",
+        turn_id: "t",
+        first_seq: "3",
+        last_seq: "4",
+        status: "completed",
+      }),
+      step({
+        id: "plan",
+        type: "turn/plan/updated",
+        turn_id: "t",
+        first_seq: "6",
+        last_seq: "7",
+        detail: { plan: [] },
+      }),
+    ],
+    turns: [{ id: "t", status: "completed" }],
+  };
+  const rows = toConversationMessages(snapshot);
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    ["u", "activity:c", "s", "activity:plan", "f"],
+  );
+  assert.equal(rows[1].metadata?.custom?.itemCount, 2);
+  assert.equal(rows[1].content.length, 2);
+  assert.equal(rows[4].metadata?.custom?.final, true);
+  assert.deepEqual(
+    toConversationMessages(JSON.parse(JSON.stringify(snapshot))),
+    rows,
+  );
+  snapshot.turns![0].status = "inProgress";
+  assert.deepEqual(toMessages(snapshot).find((r) => r.id === "c")?.status, {
+    type: "complete",
+    reason: "stop",
+  });
+});
+
+test("legacy final inference never turns interrupted commentary into success", async () => {
+  const { toConversationMessages } = await import("./messages.ts");
+  const snapshot: Snapshot = {
+    epoch: "e",
+    watermark: "e:3",
+    next_page: null,
+    coverage: { status: "complete" },
+    messages: [
+      {
+        id: "m",
+        role: "assistant",
+        text: "working",
+        turn_id: "t",
+        first_seq: "1",
+        last_seq: "2",
+      },
+    ],
+    turns: [{ id: "t", status: "interrupted" }],
+  };
+  assert.equal(
+    toConversationMessages(snapshot)[0].metadata?.custom?.activity,
+    true,
+  );
+  assert.equal(
+    toolState(
+      step({
+        type: "commandExecution",
+        status: "completed",
+        detail: { exitCode: 1 },
+      }),
+    ),
+    "failed",
+  );
+  assert.equal(toolState(step({ status: "declined" })), "failed");
 });

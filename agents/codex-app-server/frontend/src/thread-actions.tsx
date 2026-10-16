@@ -199,7 +199,7 @@ export function ThreadActionDialog() {
       window.dispatchEvent(new Event("codex-threads-changed"));
       setTarget(null);
     } catch (e) {
-      if (e instanceof ApiError && [409, 422].includes(e.status))
+      if (e instanceof ApiError && e.status === 422)
         prepared.current = null;
       setError(
         String(e).includes("forked history still references")

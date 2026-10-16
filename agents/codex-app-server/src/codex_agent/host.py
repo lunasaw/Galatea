@@ -317,6 +317,7 @@ class AgentHost:
             session['archived'] = method == 'thread/archived'
             if session['archived']:
                 self._attached.discard(session['id'])
+                self._active_turns = sum(bool(self._sessions[s].get('active_turn_id')) for s in self._attached)
                 if session['status'] != 'closed':
                     session['status'] = 'recovery_required'
             self._save(session)

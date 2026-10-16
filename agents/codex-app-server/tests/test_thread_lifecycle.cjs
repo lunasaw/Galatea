@@ -36,7 +36,9 @@ const { chromium } = require('../frontend/node_modules/playwright');
   const select=page.getByRole('dialog').getByLabel('回退轮次');
   const options=await select.locator('option').evaluateAll(nodes=>nodes.map(n=>({value:n.value,text:n.textContent})));
   assert.equal(options.length,3);
-  await select.selectOption(options[1].value); await confirm('回退到指定轮次');
+  await select.selectOption(options[1].value);
+  await page.screenshot({path:'/tmp/codex-thread-rollback.png'});
+  await confirm('回退到指定轮次');
   assert.equal(await page.evaluate(()=>localStorage.getItem('codex-agent.active')),fork);
   assert(calls.some(c=>c.method==='thread/rollback' && c.params.threadId===original && c.params.numTurns===2));
   await row(original).getByRole('button',{name:'lifecycle-one',exact:true}).click();
@@ -52,7 +54,8 @@ const { chromium } = require('../frontend/node_modules/playwright');
   await card.getByRole('button',{name:'取消归档',exact:true}).click(); await confirm('取消归档');
   await row(original).waitFor();
   // Close history before interacting with sidebar.
-  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'关闭详情',exact:true}).click();
+  await page.locator('.settings-dialog').waitFor({state:'hidden'});
   await menu(fork,'删除会话'); await confirm('删除会话');
   await row(fork).waitFor({state:'hidden'});
   // Removal keeps chats visible under other conversations, including after refresh.

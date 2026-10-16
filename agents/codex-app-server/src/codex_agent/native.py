@@ -191,7 +191,9 @@ class NativeBridge:
             raise
         if changes_config:
             await host.configuration_changed()
-        if method in {'thread/resume', 'thread/fork'}:
+        if method == 'thread/unarchive':
+            result = await host.client.resume(thread_id)
+        if method in {'thread/resume', 'thread/fork', 'thread/unarchive'}:
             if host.configuration_changed:
                 await host.configuration_changed()
             source_settings = dict(session.get('settings', {})) if session else {}
@@ -226,14 +228,9 @@ class NativeBridge:
                     host.mark_deleted(session)
                 elif method == 'thread/archive':
                     host._attached.discard(session['id'])
+                    host._active_turns = sum(bool(host._sessions[s].get('active_turn_id')) for s in host._attached)
                     if session['status'] != 'closed':
                         session['status'] = 'recovery_required'
-                elif method == 'thread/unarchive':
-                    await host.client.resume(thread_id)
-                    thread = (await host.client.read_thread(thread_id))['thread']
-                    host.restore_thread(session['id'], thread)
-                    session.update(status='ready', active_turn_id=None, active_request_id=None)
-                    host._attached.add(session['id'])
             host._save(session)
         if session and method in {'thread/rollback', 'thread/revert'}:
             thread = result.get('thread')

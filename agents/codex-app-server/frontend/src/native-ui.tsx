@@ -1,3 +1,4 @@
+import { requestThreadAction } from "./thread-actions";
 import {
   useEffect,
   useState,
@@ -744,6 +745,11 @@ function History({ state }: { state: ConsoleState }) {
   useEffect(() => {
     void load();
   }, [archived, agents]);
+  useEffect(() => {
+    const listener = () => void load();
+    window.addEventListener("codex-threads-changed", listener);
+    return () => window.removeEventListener("codex-threads-changed", listener);
+  }, [archived, agents, term]);
   return (
     <div className="native-form">
       <form
@@ -791,23 +797,9 @@ function History({ state }: { state: ConsoleState }) {
             >
               打开会话
             </Button>
-            <Button
-              variant="outline"
-              onClick={async () => {
-                try {
-                  await native(
-                    archived ? "thread/unarchive" : "thread/archive",
-                    { threadId: thread.id },
-                  );
-                  await load();
-                  await store.refreshSessions();
-                } catch (e) {
-                  setError(String(e));
-                }
-              }}
-            >
-              {archived ? "取消归档" : "归档"}
-            </Button>
+            <Button variant="outline" onClick={() => requestThreadAction({ action: archived ? "unarchive" : "archive", threadId: thread.id, title: thread.name || thread.preview })}>{archived ? "取消归档" : "归档"}</Button>
+            <Button variant="outline" onClick={() => requestThreadAction({ action: "fork", threadId: thread.id, title: thread.name || thread.preview })}>分叉会话</Button>
+            <Button variant="outline" onClick={() => requestThreadAction({ action: "delete", threadId: thread.id, title: thread.name || thread.preview })}>删除会话</Button>
           </div>
         </article>
       ))}

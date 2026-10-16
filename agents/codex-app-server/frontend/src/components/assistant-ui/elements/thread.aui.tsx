@@ -1,3 +1,4 @@
+import { MessageTurnActions } from "@/thread-actions";
 // Source: assistant-ui/assistant-ui @ 2bdd534a3d8da45e6c7a9ee6553862b83713059d (MIT). See UPSTREAM.md.
 // Layout, composer and message presentation adapted from the same commit's
 // apps/docs/components/pages/examples/chatgpt.tsx; runtime/grouping remain Thread.
@@ -858,6 +859,7 @@ const AssistantActionBar: FC = () => {
           </TooltipIconButton>
         </ActionBarPrimitive.Reload>
       </AuiIf>
+      <MessageTurnActions />
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton
@@ -957,6 +959,7 @@ const UserActionBar: FC = () => {
           </AuiIf>
         </TooltipIconButton>
       </ActionBarPrimitive.Copy>
+      <MessageTurnActions />
       <AuiIf condition={(s) => s.thread.capabilities.edit}>
         <ActionBarPrimitive.Edit asChild>
           <TooltipIconButton tooltip="Edit" className="aui-user-action-edit">

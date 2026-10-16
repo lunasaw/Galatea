@@ -145,6 +145,14 @@ class AgentHost:
     def _session_for_thread(self, thread_id):
         return next((s for s in self._sessions.values() if s['thread_id'] == thread_id), None)
 
+    def mark_deleted(self, session):
+        session.update(deleted=True, archived=True, status='closed', active_turn_id=None, active_request_id=None)
+        self.native.cancel(session['thread_id'])
+        self._attached.discard(session['id'])
+        self._active_turns = sum(bool(self._sessions[s].get('active_turn_id')) for s in self._attached)
+        self._save(session)
+        self.events.append(session['id'], {'kind': 'session', 'public': {'status': 'deleted'}})
+
     async def _check_admission(self):
         self.assert_ready()
         if self.admission_check:
@@ -302,6 +310,9 @@ class AgentHost:
                     future.cancel()
             return
         session = self._session_for_thread(params.get('threadId'))
+        if session and method == 'thread/deleted':
+            self.mark_deleted(session)
+            return
         if not session or session['id'] not in self._attached:
             return
         turn = params.get('turn', {})
@@ -406,7 +417,7 @@ class AgentHost:
 
     def get_session(self, session_id):
         session = self._session(session_id)
-        return dict(session) if session else None
+        return dict(session) if session and not session.get('deleted') else None
 
     async def close_session(self, session_id):
         async with self._admission:
@@ -432,7 +443,9 @@ class AgentHost:
         result = []
         for path in sorted((self.store.root / 'sessions').glob('*.json')):
             try:
-                result.append(dict(self._session(path.stem)))
+                session = self._session(path.stem)
+                if not session.get('deleted'):
+                    result.append(dict(session))
             except KeyError:
                 continue
         return result

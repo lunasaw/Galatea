@@ -1,3 +1,4 @@
+import { requestThreadAction, ThreadActionDialog, type ThreadAction } from "./thread-actions";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -231,14 +232,15 @@ function Workspace() {
   }, [runtime]);
   const nativeAction = async (action: string) => {
     if (!session?.thread_id) return;
+    if (["fork", "archive", "delete", "undo", "rollback"].includes(action)) {
+      requestThreadAction({ action: action as ThreadAction, sessionId: session.id });
+      return;
+    }
     try {
       const method = (
         {
           compact: "thread/compact/start",
-          fork: "thread/fork",
           review: "review/start",
-          undo: "thread/rollback",
-          archive: "thread/archive",
         } as Record<string, string>
       )[action];
       const result = await native(method, {
@@ -246,11 +248,9 @@ function Workspace() {
         ...(action === "review"
           ? { target: { type: "uncommittedChanges" }, delivery: "inline" }
           : {}),
-        ...(action === "undo" ? { numTurns: 1 } : {}),
       });
       await store.refreshSessions();
       if (result.session) await store.select(result.session.id);
-      else if (action === "archive") await store.select(null);
       else store.schedule();
     } catch (error) {
       store.fail(error);
@@ -318,6 +318,7 @@ function Workspace() {
       : settingsSections.find((s) => s.id === panel)?.label || "设置";
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <ThreadActionDialog />
       <ThreadListSidebar
         navigation={
           <div className="sidebar-navigation">
@@ -483,11 +484,13 @@ function Workspace() {
                   compact: "压缩上下文",
                   review: "审查未提交修改",
                   undo: "回退上一轮",
+                  rollback: "回退到指定轮次",
+                  delete: "删除会话",
                   archive: "归档会话",
                 }).map(([action, label]) => (
                   <DropdownMenuItem
                     key={action}
-                    disabled={session?.status !== "ready"}
+                    disabled={state.settingsBusy || !!session?.active_turn_id || busyStatuses.has(session?.status || "")}
                     onSelect={() => void nativeAction(action)}
                   >
                     {label}

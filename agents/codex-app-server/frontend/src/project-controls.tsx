@@ -362,6 +362,7 @@ export function ProjectSidebar({
     name: string;
   } | null>(null);
   const [notice, setNotice] = useState("");
+  const [removing, setRemoving] = useState<{id: string; name: string} | null>(null);
   const query = search.trim().toLowerCase();
   const toggle = (key: string) =>
     store.saveProjectLayout({
@@ -532,6 +533,8 @@ export function ProjectSidebar({
                 <ArrowDown />
                 下移
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setRemoving(p)}>移除项目</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>移动到分组</DropdownMenuLabel>
               {sections.map((s) => (
@@ -721,6 +724,16 @@ export function ProjectSidebar({
         onOpenChange={(open) => !open && setAdding(null)}
         section={adding || ""}
       />
+      <Dialog open={!!removing} onOpenChange={open => !open && setRemoving(null)}>
+        <DialogContent>
+          <DialogTitle>移除项目</DialogTitle>
+          <DialogDescription>将“{removing?.name}”从项目列表移除。文件夹和文件保留，已有会话移至“其他会话”。使用同一文件夹的其他项目不受影响。</DialogDescription>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRemoving(null)}>取消</Button>
+            <Button onClick={() => { if (removing) store.removeProject(removing.id); setRemoving(null); }}>确认移除项目</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!edit} onOpenChange={(open) => !open && setEdit(null)}>
         <DialogContent aria-describedby={undefined}>
           <DialogTitle>

@@ -121,6 +121,12 @@ class NativeBridge:
                 future.set_result({'error': {'code': -32000, 'message': 'Request cancelled'}})
 
     async def call(self, method, params, request_id):
+        if method in {'thread/fork', 'thread/archive', 'thread/unarchive', 'thread/delete', 'thread/rollback', 'thread/revert'}:
+            async with self.host._admission:
+                return await self._call(method, params, request_id)
+        return await self._call(method, params, request_id)
+
+    async def _call(self, method, params, request_id):
         host = self.host
         if method == 'initialize' or method not in PROTOCOL.methods:
             raise ValueError('method is managed by Host or unknown')
@@ -157,7 +163,7 @@ class NativeBridge:
                 raise ValueError('resume a Host session by its thread identity')
             options = {k: v for k, v in params.items() if k != 'threadId'}
             return {'session': await host.resume(session['id'], options=options)}
-        if session and session.get('active_turn_id') and method in {
+        if session and (session.get('active_turn_id') or session['status'] in {'starting', 'running', 'interrupting', 'closing'}) and method in {
                 'thread/resume', 'thread/fork', 'thread/archive', 'thread/delete', 'thread/rollback', 'thread/revert', 'review/start'}:
             raise ValueError('stop the active turn first')
         context = {'thread_id': thread_id, 'session_id': session['id'] if session else None,
@@ -188,7 +194,10 @@ class NativeBridge:
         if method in {'thread/resume', 'thread/fork'}:
             if host.configuration_changed:
                 await host.configuration_changed()
+            source_settings = dict(session.get('settings', {})) if session else {}
             thread = result['thread']
+            if thread.get('historyMode') == 'paginated':
+                thread = (await host.client.read_thread(thread['id']))['thread']
             session = host._session_for_thread(thread['id'])
             if not session:
                 session = {'id': 'session-' + request_id, 'thread_id': thread['id'], 'principal_id': host.principal_id,
@@ -197,6 +206,11 @@ class NativeBridge:
             session.update(status='running' if active else 'ready', archived=False,
                            active_turn_id=active['id'] if active else None, active_request_id=None,
                            cwd=result.get('cwd', thread.get('cwd', str(host.workspace_dir))))
+            session['settings'] = {**source_settings, **session.get('settings', {}),
+                **{key: result[key] for key in ('model', 'modelProvider', 'approvalPolicy', 'approvalsReviewer',
+                   'sandboxPolicy', 'permissions', 'cwd') if key in result}}
+            if 'reasoningEffort' in result:
+                session['settings']['effort'] = result['reasoningEffort']
             host._save(session)
             host._attached.add(session['id'])
             host._active_turns = sum(bool(host._sessions[s].get('active_turn_id')) for s in host._attached)
@@ -209,10 +223,12 @@ class NativeBridge:
             else:
                 session.update(archived=method != 'thread/unarchive')
                 if method == 'thread/delete':
-                    session['status'] = 'closed'
+                    host.mark_deleted(session)
             host._save(session)
         if session and method in {'thread/rollback', 'thread/revert'}:
-            thread = result.get('thread') or (await host.client.read_thread(thread_id))['thread']
+            thread = result.get('thread')
+            if method == 'thread/revert' or not thread:
+                thread = (await host.client.read_thread(thread_id))['thread']
             host.restore_thread(session['id'], thread)
         if session and method in {'thread/settings/update', 'turn/settings/update'}:
             session['settings'] = {**session.get('settings', {}), **{k: v for k, v in params.items() if k != 'threadId'}}

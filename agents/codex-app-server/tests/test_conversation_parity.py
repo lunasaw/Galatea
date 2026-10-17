@@ -10,6 +10,46 @@ from codex_agent.console.service import ConsoleObservationService
 
 
 class ConversationParityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_async_questions_memory_hooks_and_guardian_survive_durable_replay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'console.sqlite3'
+            service = ConsoleObservationService(SqliteConsoleObservationStore(path), epoch='extras')
+            await service.start()
+            service.bind('s', 't')
+            def wire(method, **params):
+                service.observer('runtime_to_host', {'method': method, 'params': {
+                    'threadId': 't', 'turnId': 'u', **params}}, runtime_instance_id='r')
+            question = {'id': 'question', 'type': 'agentMessage', 'text': '请选择目标',
+                        'delivery': 'async', 'questions': [{'title': '目标放在哪里？', 'options': ['当前会话', '新会话']}],
+                        'memoryCitation': {'entries': [{'path': '/work/MEMORY.md', 'lineStart': 2,
+                            'lineEnd': 5, 'note': '来源'}], 'threadIds': ['source']}}
+            wire('item/completed', item=question)
+            wire('hook/started', run={'id': 'hook-a', 'status': 'inProgress', 'eventName': 'PreToolUse'})
+            wire('hook/completed', run={'id': 'hook-a', 'status': 'completed', 'eventName': 'PreToolUse'})
+            wire('item/autoApprovalReview/started', reviewId='review-a', targetItemId='tool-a',
+                 review={'status': 'inProgress'}, action={'type': 'exec', 'command': ['echo', 'hello']})
+            wire('item/autoApprovalReview/completed', reviewId='review-a', targetItemId='tool-a',
+                 review={'status': 'denied', 'rationale': 'needs user authorization'},
+                 action={'type': 'exec', 'command': ['echo', 'hello']})
+            await service.flush()
+            before = await service.snapshot(SnapshotQuery('s'))
+            message = before['messages'][0]
+            for key in ('delivery', 'questions', 'memoryCitation'):
+                self.assertEqual(message[key], question[key])
+            hooks = [step for step in before['steps'] if step['type'] == 'hook']
+            guardians = [step for step in before['steps'] if step['type'] == 'guardian']
+            self.assertEqual(len(hooks), 1)
+            self.assertEqual(hooks[0]['status'], 'completed')
+            self.assertEqual(len(guardians), 1)
+            self.assertEqual(guardians[0]['detail']['review']['status'], 'denied')
+            await service.close()
+            restored = ConsoleObservationService(SqliteConsoleObservationStore(path))
+            await restored.start()
+            self.addAsyncCleanup(restored.close)
+            after = await restored.snapshot(SnapshotQuery('s'))
+            self.assertEqual(after['messages'], before['messages'])
+            self.assertEqual(after['steps'], before['steps'])
+
     async def test_steering_keeps_each_native_input_and_replay_preserves_phase_and_results(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'console.sqlite3'

@@ -1,3 +1,5 @@
+import { deferred } from "./deferred";
+const Subagents = deferred(() => import("./subagents").then(m => ({ default: m.Subagents })));
 import {
   useCallback,
   useEffect,
@@ -20,6 +22,7 @@ import {
   WrapText,
   X,
   ArrowUp,
+  Pencil,
 } from "lucide-react";
 import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button";
 import {
@@ -29,7 +32,11 @@ import {
   DialogDescription,
 } from "./components/ui/dialog";
 import { NativeControl } from "./native-ui";
+
+import { ReviewSettings } from "./review-capabilities";
+import { BackgroundTerminals } from "./thread-capabilities";
 import { native } from "./native";
+import { useFileWatch, FileCapabilities } from "./file-capabilities";
 import { openFile, WorkspaceFileView, type FileTarget } from "./workspace-file";
 import { statusLabel, type ConsoleState } from "./store";
 import { reviewFiles, reviewTurns } from "./workbench-data";
@@ -39,12 +46,18 @@ export type WorkbenchTab =
   | "review"
   | "files"
   | "summary"
+  | "background"
+  | "codeReview"
+  | "agents"
   | "preview";
 const titles = {
   launcher: "新标签页",
   review: "更改",
   files: "文件",
   summary: "摘要",
+  background: "后台终端",
+  codeReview: "代码审查与审批记录",
+  agents: "子 Agent",
   preview: "文件预览",
 };
 const object = (value: unknown): Record<string, any> =>
@@ -165,12 +178,15 @@ function Review({ state }: { state: ConsoleState }) {
 
 function Files({ cwd }: { cwd: string }) {
   const [path, setPath] = useState(cwd);
+  const [managePath, setManagePath] = useState("");
   const [revision, setRevision] = useState(0);
   const [entries, setEntries] = useState<
     Array<{ fileName: string; isDirectory: boolean; isFile: boolean }>
   >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [watch, setWatch] = useState(false);
+  const watcher = useFileWatch(path, watch, () => setRevision((old) => old + 1));
   useEffect(() => {
     if (!path) return;
     let current = true;
@@ -226,6 +242,9 @@ function Files({ cwd }: { cwd: string }) {
           <RefreshCw />
         </TooltipIconButton>
       </div>
+      <label className="native-checkbox file-watch-toggle"><input type="checkbox" checked={watch} onChange={(e) => setWatch(e.target.checked)} />自动刷新目录</label>
+      <button type="button" className="file-manage-directory" onClick={() => setManagePath(path)}>管理当前目录</button>
+      {watcher.error && <p role="alert">{watcher.error}</p>}
       {error && (
         <p role="alert" className="workbench-note">
           {error}
@@ -239,8 +258,7 @@ function Files({ cwd }: { cwd: string }) {
       ) : (
         <div className="file-browser-list">
           {entries.map((entry) => (
-            <button
-              key={entry.fileName}
+            <div className="file-browser-row" key={entry.fileName}><button
               disabled={!entry.isDirectory && !entry.isFile}
               onClick={() => {
                 const next = `${path.replace(/\/+$/, "")}/${entry.fileName}`;
@@ -251,7 +269,7 @@ function Files({ cwd }: { cwd: string }) {
               {entry.isDirectory ? <Folder /> : <File />}
               <span>{entry.fileName}</span>
               {entry.isDirectory && <ChevronRight />}
-            </button>
+            </button><TooltipIconButton tooltip={`管理 ${entry.fileName}`} onClick={() => setManagePath(`${path.replace(/\/+$/, "")}/${entry.fileName}`)}><Pencil size={14} /></TooltipIconButton></div>
           ))}
           {!entries.length && !error && (
             <p className="workbench-note">
@@ -260,6 +278,7 @@ function Files({ cwd }: { cwd: string }) {
           )}
         </div>
       )}
+      {managePath && <div className="conversation-tool-panel"><FileCapabilities key={managePath} initialPath={managePath} /></div>}
     </>
   );
 }
@@ -367,6 +386,7 @@ export function WorkbenchPanel({
     () => window.matchMedia("(max-width: 1100px)").matches,
   );
   const [activeFile, setActiveFile] = useState("");
+  const [selectedAgent, setSelectedAgent] = useState("");
   const [visited, setVisited] = useState<Set<WorkbenchTab>>(new Set());
   const [width, setWidth] = useState(480);
   const resize = useRef<{ x: number; width: number } | null>(null);
@@ -387,6 +407,7 @@ export function WorkbenchPanel({
     previousSession.current = state.active;
     setFiles([]);
     setActiveFile("");
+    setSelectedAgent("");
     setVisited(new Set());
     if (tab === "preview") onClose();
   }, [state.active, tab, onClose]);
@@ -396,6 +417,16 @@ export function WorkbenchPanel({
         value.has(tab) ? value : new Set([...value, tab]),
       );
   }, [tab]);
+  useEffect(() => {
+    const open = (event: Event) => {
+      const id = (event as CustomEvent).detail?.threadId;
+      if (typeof id !== "string" || !id) return;
+      setSelectedAgent(id);
+      onTab("agents");
+    };
+    window.addEventListener("codex-agent", open);
+    return () => window.removeEventListener("codex-agent", open);
+  }, [onTab]);
   useEffect(() => {
     const open = (event: Event) => {
       const target = (event as CustomEvent<FileTarget>).detail;
@@ -472,7 +503,7 @@ export function WorkbenchPanel({
             tabs[index]?.click();
           }}
         >
-          {(["launcher", "review", "files", "summary"] as const).map((item) => (
+          {(["launcher", "review", "files", "summary", "background", "codeReview", "agents"] as const).map((item) => (
             <button
               role="tab"
               key={item}
@@ -566,6 +597,11 @@ export function WorkbenchPanel({
           </div>
         )}
         {tab === "summary" && <Summary state={state} />}
+        {(visited.has("codeReview") || tab === "codeReview") && <div hidden={tab !== "codeReview"} className="conversation-tool-panel"><ReviewSettings key={state.active || "new"} state={state} /></div>}
+        {tab === "agents" && <Subagents key={state.active || "new"} state={state} selectedId={selectedAgent} onSelect={setSelectedAgent} />}
+        {tab === "background" && <div className="conversation-tool-panel">{state.sessions.find((s) => s.id === state.active)?.thread_id
+          ? <BackgroundTerminals key={state.active} threadId={state.sessions.find((s) => s.id === state.active)!.thread_id!} />
+          : <p>先打开一个聊天。</p>}</div>}
         {files.map((file) => (
           <div
             className="workspace-file-page"

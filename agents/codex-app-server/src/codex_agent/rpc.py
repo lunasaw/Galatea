@@ -188,7 +188,9 @@ class AppServerClient:
 
     async def initialize(self, *, experimental_api=True):
         result = await self.peer.request("initialize", {"clientInfo": {"name": "codex-agent", "version": "0.1.0"},
-                                                         "capabilities": {"experimentalApi": experimental_api}})
+                                                         "capabilities": {"experimentalApi": experimental_api,
+                                                            "extensions": {"io.modelcontextprotocol/ui": {
+                                                                "mimeTypes": ["text/html;profile=mcp-app"]}}}})
         await self.peer.send({"method": "initialized", "params": {}})
         self.initialized = True
         return result

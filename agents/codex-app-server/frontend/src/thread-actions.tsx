@@ -26,6 +26,7 @@ type Target = {
   threadId?: string;
   turnId?: string;
   title?: string;
+  chooseTurn?: boolean;
 };
 export function requestThreadAction(target: Target) {
   window.dispatchEvent(
@@ -102,6 +103,7 @@ export function ThreadActionDialog() {
   );
   const threadId = target?.threadId || session?.thread_id;
   const rollback = target?.action === "undo" || target?.action === "rollback";
+  const chooseTurn = rollback || !!target?.chooseTurn;
   useEffect(() => {
     const listener = (event: Event) => {
       if (store.state.settingsBusy) return;
@@ -117,7 +119,7 @@ export function ThreadActionDialog() {
     return () => window.removeEventListener("codex-thread-action", listener);
   }, []);
   useEffect(() => {
-    if (!target || !threadId || !rollback) return;
+    if (!target || !threadId || !chooseTurn) return;
     let cancelled = false;
     setLoading(true);
     readTurns(store, threadId)
@@ -135,7 +137,7 @@ export function ThreadActionDialog() {
     return () => {
       cancelled = true;
     };
-  }, [target, threadId, rollback]);
+  }, [target, threadId, chooseTurn]);
   const apply = async () => {
     if (!target || !threadId || busy || state.settingsBusy) return;
     if (
@@ -167,7 +169,7 @@ export function ThreadActionDialog() {
                 ...(target.action === "fork"
                   ? {
                       deferGoalContinuation: true,
-                      ...(target.turnId ? { lastTurnId: target.turnId } : {}),
+                      ...(target.turnId || target.chooseTurn ? { lastTurnId: target.turnId || selected } : {}),
                     }
                   : {}),
               },
@@ -220,6 +222,7 @@ export function ThreadActionDialog() {
       }}
     >
       <DialogContent
+        className="thread-action-dialog"
         onEscapeKeyDown={(event) => {
           if (busy) event.preventDefault();
         }}
@@ -244,12 +247,12 @@ export function ThreadActionDialog() {
         <p className="truncate text-sm">
           {target?.title || (session ? store.title(session.id) : threadId)}
         </p>
-        {rollback && (
-          <label className="grid gap-2 text-sm">
-            从哪一轮开始移除
+        {chooseTurn && (
+          <label className="grid min-w-0 gap-2 text-sm">
+            {rollback ? "从哪一轮开始移除" : "保留到哪一轮"}
             <select
-              aria-label="回退轮次"
-              className="rounded-md border bg-background p-2"
+              aria-label={rollback ? "回退轮次" : "分支轮次"}
+              className="min-w-0 w-full rounded-md border bg-background p-2"
               value={selected}
               disabled={busy || loading || !!prepared.current}
               onChange={(event) => setSelected(event.target.value)}
@@ -264,8 +267,8 @@ export function ThreadActionDialog() {
               {loading
                 ? "正在读取完整会话…"
                 : index >= 0
-                  ? `将移除 ${turns.length - index} 轮，保留前 ${index} 轮。`
-                  : "没有可回退的轮次。"}
+                  ? rollback ? `将移除 ${turns.length - index} 轮，保留前 ${index} 轮。` : `分支将包含前 ${index + 1} 轮。`
+                  : "没有可选的轮次。"}
             </span>
           </label>
         )}
@@ -288,7 +291,7 @@ export function ThreadActionDialog() {
                 ? "destructive"
                 : "default"
             }
-            disabled={busy || loading || !threadId || (rollback && index < 0)}
+            disabled={busy || loading || !threadId || (chooseTurn && index < 0)}
             onClick={() => void apply()}
           >
             {busy

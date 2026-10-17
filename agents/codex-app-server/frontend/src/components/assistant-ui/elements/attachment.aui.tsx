@@ -121,6 +121,7 @@ const AttachmentUI: FC = () => {
   const src = useAttachmentSrc();
 
   const isImage = useAuiState((s) => s.attachment.type === "image");
+  const isReference = useAuiState((s) => s.attachment.contentType === "text/x-codex-native-reference");
   const name = useAuiState((s) => s.attachment.name);
   const typeLabel = useAuiState((s) => {
     const type = s.attachment.type;
@@ -157,6 +158,11 @@ const AttachmentUI: FC = () => {
       ? (s.attachment.status.message ?? "Upload failed")
       : undefined,
   );
+
+  if (isReference) return <AttachmentPrimitive.Root className="composer-reference-chip">
+    <FileText size={14} aria-hidden="true" /><AttachmentPrimitive.Name />
+    {isComposer && <AttachmentPrimitive.Remove asChild><button type="button" aria-label={`移除引用 ${name}`}><XIcon size={13} /></button></AttachmentPrimitive.Remove>}
+  </AttachmentPrimitive.Root>;
 
   return (
     <TooltipProvider>

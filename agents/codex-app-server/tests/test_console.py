@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import gzip
 import json
 import sys
 import tempfile
@@ -91,6 +92,62 @@ class ConsoleTests(unittest.IsolatedAsyncioTestCase):
         sent = await call(self.app, 'POST', '/api/sessions', {}, headers={'origin': 'http://localhost', 'idempotency-key': 'r'})
         self.assertEqual(sent[0]['status'], 200)
 
+    async def test_local_math_fonts_are_served_with_a_restricted_path(self):
+        sent = await call(self.app, 'GET', '/math-fonts/KaTeX_Main-Regular.woff2')
+        self.assertEqual(sent[0]['status'], 200)
+        self.assertIn((b'content-type', b'font/woff2'), sent[0]['headers'])
+        self.assertTrue(b''.join(part.get('body', b'') for part in sent).startswith(b'wOF2'))
+        for path in ('/math-fonts/KaTeX_missing.woff2', '/math-fonts/../server.py',
+                     '/math-fonts/KaTeX_../../server.py.woff2', '/math-fonts/app.js'):
+            self.assertEqual((await call(self.app, 'GET', path))[0]['status'], 404, path)
+
+    async def test_static_gzip_negotiation_and_private_api_cache_policy(self):
+        original = b''.join(m.get('body', b'') for m in await call(self.app, 'GET', '/style.css'))
+        sent = await call(self.app, 'GET', '/style.css', headers={'accept-encoding': 'br, gzip'})
+        headers = dict(sent[0]['headers'])
+        compressed = b''.join(m.get('body', b'') for m in sent)
+        self.assertEqual(headers[b'content-encoding'], b'gzip')
+        self.assertEqual(headers[b'vary'], b'Accept-Encoding')
+        self.assertEqual(gzip.decompress(compressed), original)
+        self.assertLess(len(compressed), len(original) / 2)
+        rejected = await call(self.app, 'GET', '/style.css', headers={'accept-encoding': 'gzip;q=0, *;q=1'})
+        self.assertNotIn(b'content-encoding', dict(rejected[0]['headers']))
+        private = await call(self.app, 'GET', '/api/sessions', headers={'accept-encoding': 'gzip'})
+        self.assertIn((b'cache-control', b'no-store'), private[0]['headers'])
+
+    async def test_static_revalidation_handles_updates_and_head(self):
+        directory = Path(self.tmp.name) / 'public'
+        directory.mkdir()
+        file = directory / 'index.html'
+        file.write_bytes(b'old build')
+        app = ConsoleApp(self.host, self.host.events, static_dir=directory)
+        first = await call(app, 'GET', '/')
+        headers = dict(first[0]['headers'])
+        self.assertEqual(headers[b'cache-control'], b'no-cache')
+        cached = await call(app, 'GET', '/', headers={'if-none-match': 'W/' + headers[b'etag'].decode()})
+        self.assertEqual(cached[0]['status'], 304)
+        self.assertEqual(b''.join(m.get('body', b'') for m in cached), b'')
+        file.write_bytes(b'new and different build')
+        changed = await call(app, 'GET', '/', headers={'if-none-match': headers[b'etag'].decode()})
+        self.assertEqual(changed[0]['status'], 200)
+        self.assertNotEqual(dict(changed[0]['headers'])[b'etag'], headers[b'etag'])
+        head = await call(app, 'HEAD', '/')
+        self.assertEqual(dict(head[0]['headers'])[b'content-length'], str(file.stat().st_size).encode())
+        self.assertEqual(b''.join(m.get('body', b'') for m in head), b'')
+
+    async def test_only_versioned_public_build_assets_receive_immutable_cache(self):
+        directory = Path(self.tmp.name) / 'public'
+        (directory / 'assets').mkdir(parents=True)
+        (directory / 'assets/chunk-12345678.js').write_text('export const value = 1;')
+        (directory / 'secret.json').write_text('{"private":true}')
+        app = ConsoleApp(self.host, self.host.events, static_dir=directory)
+        sent = await call(app, 'GET', '/assets/chunk-12345678.js')
+        self.assertEqual(sent[0]['status'], 200)
+        self.assertIn((b'cache-control', b'public, max-age=31536000, immutable'), sent[0]['headers'])
+        for path in ('/secret.json', '/assets/../secret.json', '/assets/chunk-12345678.js/../../secret.json',
+                     '/assets/%2e%2e/secret.json', '/assets/chunk-unversioned.json'):
+            self.assertEqual((await call(app, 'GET', path))[0]['status'], 404, path)
+
     async def test_cursor_errors_and_explicit_last_event_id_conflict(self):
         for cursor, code, status in [('1','INVALID_CURSOR',400), ('old:0','EPOCH_MISMATCH',409), ('epoch:999','CURSOR_AHEAD',409)]:
             sent = await call(self.app, 'GET', '/api/events/history?after=' + cursor)
@@ -111,6 +168,14 @@ class ConsoleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot['messages'][0]['text'], 'hello')
         self.assertEqual(snapshot['watermark'], 'epoch:1')
         self.assertEqual(payload(await call(self.app, 'GET', '/api/sessions/s/history?method=absent'))['next_cursor'], 'epoch:1')
+
+    async def test_native_protocol_reports_host_platform(self):
+        self.host.workspace_dir = self.tmp.name
+        self.host.skill_roots = []
+        self.host.configuration_changed = False
+        protocol = payload(await call(self.app, 'GET', '/api/native/protocol'))
+        self.assertEqual(protocol['platform'], sys.platform)
+        self.assertIn('methods', protocol)
 
     async def test_sse_replays_epoch_cursor_and_redacts_credentials(self):
         self.host.events.append('s', {'kind': 'tool_call', 'public': {'tool': 'x', 'token': 'secret'}})

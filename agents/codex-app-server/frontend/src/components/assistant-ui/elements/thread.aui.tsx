@@ -1,4 +1,6 @@
 import { MessageTurnActions } from "@/thread-actions";
+import { BrandIcon } from "@/brand";
+import { NativeMessageExtras, NativeUserInputs } from "@/native-message-extras";
 // Source: assistant-ui/assistant-ui @ 2bdd534a3d8da45e6c7a9ee6553862b83713059d (MIT). See UPSTREAM.md.
 // Layout, composer and message presentation adapted from the same commit's
 // apps/docs/components/pages/examples/chatgpt.tsx; runtime/grouping remain Thread.
@@ -29,9 +31,12 @@ import {
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { VoiceButtons } from "@/voice-controls";
 import { cn } from "@/lib/utils";
 import {
   ComposerOptions,
+  ComposerAddMenu,
+  ComposerConversationCards,
   WorkspaceContext,
   useComposerCommands,
 } from "@/chat-controls";
@@ -255,8 +260,8 @@ const ThreadRoot: FC<{
           >
             <ThreadScrollToBottom />
             <ThreadFollowupSuggestions />
+            <ComposerConversationCards />
             <Composer autoFocus={autoFocus} />
-            <WorkspaceContext />
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
@@ -467,7 +472,7 @@ const ThreadWelcome: FC = () => {
   return (
     <div className="aui-thread-welcome-root mb-7 flex flex-col px-2 text-center">
       <div className="welcome-mark" aria-hidden="true">
-        <span>›_</span>
+        <BrandIcon />
       </div>
       <p
         role="heading"
@@ -514,15 +519,19 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
     <ComposerPrimitive.Root
       className="aui-composer-root relative flex w-full flex-col"
       onKeyDownCapture={commands.onKeyDownCapture}
+      onSubmitCapture={commands.onSubmitCapture}
+      onClickCapture={commands.onClickCapture}
     >
       {commands.menu}
-      <ComposerPrimitive.AttachmentDropzone asChild>
+      <ComposerPrimitive.AttachmentDropzone asChild disabled={commands.goalMode}>
         <div
           data-slot="aui_composer-shell"
           className="flex w-full flex-col rounded-(--composer-radius) border bg-(--composer-bg) p-3 transition-[border-color] data-[dragging=true]:border-dashed"
         >
           <ComposerAttachments />
           <ComposerPrimitive.Input
+            {...commands.inputProps}
+            addAttachmentOnPaste={!commands.goalMode}
             placeholder={commands.placeholder}
             className="aui-composer-input caret-primary placeholder:text-muted-foreground max-h-52 min-h-14 min-w-0 w-full resize-none bg-transparent px-2 py-1.5 text-base leading-6 outline-none"
             rows={2}
@@ -532,13 +541,13 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
             id="text"
           />
           <div className="composer-toolbar">
-            <AuiIf condition={(s) => s.thread.capabilities.attachments}>
-              <ComposerAddAttachment />
-            </AuiIf>
+            <ComposerAddMenu />
+            <WorkspaceContext />
             <ComposerOptions />
+            <VoiceButtons />
             <div className="composer-submit">
               {commands.steerButton}
-              <ComposerAction />
+              {commands.goalButton || <ComposerAction />}
             </div>
           </div>
         </div>
@@ -592,7 +601,7 @@ const ComposerAction: FC = () => {
         </AuiIf>
         <AuiIf
           condition={(s) =>
-            !s.composer.canCancel ||
+            (!s.composer.isEmpty && !s.composer.canCancel) ||
             (s.thread.voice !== undefined &&
               s.composer.submission === undefined)
           }
@@ -688,6 +697,7 @@ const AssistantMessage: FC = () => {
     <MessagePrimitive.Root
       data-slot="aui_assistant-message-root"
       data-role="assistant"
+      data-item-ids={JSON.stringify(meta?.itemIds || [meta?.itemId])}
       data-activity={activity || undefined}
       data-final={!!meta?.final || undefined}
       className="fade-in slide-in-from-bottom-1 animate-in relative min-w-0 duration-150"
@@ -797,6 +807,7 @@ const AssistantMessage: FC = () => {
           }}
         </MessagePrimitive.GroupedParts>
         <MessageError />
+        <NativeMessageExtras />
       </div>
 
       {hasText && !activity && (
@@ -882,6 +893,10 @@ const AssistantActionBar: FC = () => {
 };
 
 const MessageFile: FileMessagePartComponent = (part) => {
+  if (part.mimeType.toLowerCase().startsWith("audio/")) {
+    const src = getFileHref(part.data, part.mimeType, part.sourceType);
+    return src ? <audio controls preload="none" src={src} aria-label={part.filename || "语音消息"} /> : <File {...part} />;
+  }
   const image = part.mimeType.toLowerCase().startsWith("image/")
     ? getFileHref(part.data, part.mimeType, part.sourceType)
     : null;
@@ -909,11 +924,13 @@ const UserImagePart: ImageMessagePartComponent = (part) => (
 );
 
 const UserMessage: FC = () => {
+  const meta = useAuiState((s) => s.message.metadata.custom);
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
       className="fade-in slide-in-from-bottom-1 animate-in relative flex min-w-0 flex-col items-end gap-1 duration-150"
       data-role="user"
+      data-item-ids={JSON.stringify([meta?.itemId])}
     >
       <UserMessageAttachments />
 
@@ -922,6 +939,7 @@ const UserMessage: FC = () => {
           <MessagePrimitive.Parts
             components={{ File: UserFilePart, Image: UserImagePart }}
           />
+          <NativeUserInputs />
         </div>
         <div className="aui-user-action-bar-wrapper absolute right-0 top-full pt-1 peer-empty:hidden">
           <UserActionBar />

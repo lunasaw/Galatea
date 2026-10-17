@@ -1,10 +1,14 @@
+import { allPages } from "./capability-controls";
+import { MarketplaceSettings, PluginShares, PluginSkill } from "./plugin-management";
+import { SkillRoots } from "./skill-roots";
+import { McpCapabilities } from "./mcp-capabilities";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui/button";
 import { native } from "./native";
 import { consoleStore as store, type ConsoleState } from "./store";
 import {
   IntegrationsClient, canInstall, httpUrl,
-  type Marketplace, type McpServer, type Plugin, type PluginApp, type PluginDetail,
+  type PluginsResponse, type Marketplace, type McpServer, type Plugin, type PluginApp, type PluginDetail,
 } from "./integrations-data";
 
 const client = new IntegrationsClient(native);
@@ -125,6 +129,7 @@ export function SkillsPanel({ state }: { state: ConsoleState }) {
         })}>{skill.enabled ? "停用" : "启用"}</Button>
       </div>
     </article>)}
+    <SkillRoots state={state} />
     {inventory.data && !filtered.length && <p className="integration-empty">{skills.length ? "没有匹配的 Skills" : "当前目录没有可用 Skills"}</p>}
   </div>;
 }
@@ -178,12 +183,7 @@ function McpRow({ server, threadId, run, busy, refresh }: {
       }}>复制授权链接</Button><span role="status">{copyStatus}</span>
     </div>}
     <details><summary>工具与资源</summary>
-      {Object.entries(server.tools || {}).map(([name, tool]) => <div className="integration-tool" key={name}>
-        <strong>{tool.name || name}</strong><p>{tool.description}</p>
-      </div>)}
-      {server.resources?.map((resource) => <p key={resource.uri}>{resource.name}<code>{resource.uri}</code></p>)}
-      {server.resourceTemplates?.map((resource) => <p key={resource.uriTemplate}>{resource.name}<code>{resource.uriTemplate}</code></p>)}
-      {!Object.keys(server.tools || {}).length && !server.resources?.length && !server.resourceTemplates?.length && <p>暂无工具或资源</p>}
+      <McpCapabilities key={`${server.name}:${threadId || "global"}`} server={server} threadId={threadId} />
     </details>
   </article>;
 }
@@ -240,13 +240,15 @@ function AppLinks({ apps }: { apps: PluginApp[] }) {
 }
 
 export function PluginsPanel({ state }: { state: ConsoleState }) {
+  const [installedOnly, setInstalledOnly] = useState(false);
+  const [searchRows, setSearchRows] = useState<Marketplace[] | null>(null);
+  const [sharing, setSharing] = useState(false);
   const cwd = store.cwd;
-  const load = useCallback((fresh: boolean) => client.plugins(cwd, fresh), [cwd]);
+  const load = useCallback((fresh: boolean) => installedOnly ? native<PluginsResponse>("plugin/installed", { cwds: cwd ? [cwd] : [] }) : client.plugins(cwd, fresh), [cwd, installedOnly]);
   const inventory = useInventory(load);
   const action = useAction();
   const editable = !!state.nativeProtocol?.configuration_editable;
   const [search, setSearch] = useState("");
-  const [installedOnly, setInstalledOnly] = useState(false);
   const [selected, setSelected] = useState<{ marketplace: Marketplace; plugin: Plugin }>();
   const detailRef = useRef<HTMLElement>(null);
   const [authApps, setAuthApps] = useState<PluginApp[]>([]);
@@ -282,7 +284,13 @@ export function PluginsPanel({ state }: { state: ConsoleState }) {
   return <div className="native-form integration-panel">
     <p className="integration-muted">插件可同时提供 Skills、MCP 服务和应用。安装后相关能力列表会自动刷新。</p>
     <div className="integration-toolbar">
-      <Search label="搜索插件" value={search} onChange={setSearch} />
+      <Search label="搜索插件" value={search} onChange={(value) => { setSearch(value); setSearchRows(null); }} />
+      <Button variant="outline" disabled={action.busy || !search.trim()} onClick={() => void action.run(async () => {
+        const results = await allPages("plugin/search", { searchTerm: search, cwds: cwd ? [cwd] : [] });
+        const markets = new Map<string, Marketplace>();
+        for (const r of results) { const key = r.marketplacePath || r.marketplaceName; if (!markets.has(key)) markets.set(key, { name: r.marketplaceName, path: r.marketplacePath, plugins: [] }); markets.get(key)!.plugins.push(r.plugin); }
+        setSearchRows([...markets.values()]); action.setStatus(`找到 ${results.length} 个插件`);
+      })}>搜索市场</Button>
       <Button variant="outline" disabled={inventory.loading || action.busy} onClick={() => void inventory.refresh(true)}>刷新市场</Button>
       <Button variant="outline" disabled={!editable || action.busy} onClick={() => void action.run(async () => {
         setWarnings("");
@@ -299,9 +307,9 @@ export function PluginsPanel({ state }: { state: ConsoleState }) {
     <Alert message={warnings} /><Alert message={inventory.data?.remoteSyncError || ""} />
     {(inventory.data?.marketplaceLoadErrors || []).map((error, index) => <Alert key={`${error.marketplacePath}:${index}`} message={`${error.marketplacePath}: ${error.message}`} />)}
     {authApps.length > 0 && <AppLinks apps={authApps} />}
-    {(inventory.data?.marketplaces || []).map((marketplace) => {
+    {(searchRows || inventory.data?.marketplaces || []).map((marketplace: Marketplace) => {
       const plugins = marketplace.plugins.filter((plugin) => (!installedOnly || plugin.installed) &&
-        `${plugin.name} ${plugin.interface?.displayName || ""} ${plugin.interface?.shortDescription || ""}`.toLowerCase().includes(search.toLowerCase()));
+        (searchRows !== null || `${plugin.name} ${plugin.interface?.displayName || ""} ${plugin.interface?.shortDescription || ""}`.toLowerCase().includes(search.toLowerCase())));
       visible += plugins.length;
       return plugins.length ? <section key={marketplace.path || marketplace.name} className="integration-marketplace">
         <h3>{marketplace.interface?.displayName || marketplace.name} <small>({plugins.length})</small></h3>
@@ -319,6 +327,9 @@ export function PluginsPanel({ state }: { state: ConsoleState }) {
       </section> : null;
     })}
     {inventory.data && !visible && <p className="integration-empty">{total ? "没有匹配的插件" : "当前没有可用插件市场"}</p>}
+    <MarketplaceSettings markets={inventory.data?.marketplaces || []} editable={editable} />
+    <Button variant="outline" onClick={() => setSharing(!sharing)}>{sharing ? "收起共享管理" : "管理共享插件"}</Button>
+    {sharing && <PluginShares />}
     {selected && <section ref={detailRef} aria-label="插件详情" className="integration-detail">
       <div className="integration-heading"><h3>{detail.data?.summary.interface?.displayName || selectedPlugin?.interface?.displayName || selectedPlugin?.name}</h3>
         <Button variant="ghost" onClick={() => setSelected(undefined)}>关闭详情</Button></div>
@@ -329,6 +340,7 @@ export function PluginsPanel({ state }: { state: ConsoleState }) {
         {!!detail.data.summary.interface?.capabilities?.length && <p>能力：{detail.data.summary.interface.capabilities.join("、")}</p>}
         {!!detail.data.skills.length && <><h4>Skills</h4>{detail.data.skills.map((skill) => <div className="integration-tool" key={skill.path}>
           <strong>{skill.name}</strong><span> · {skill.enabled ? "已启用" : "已停用"}</span><p>{skill.description}</p>
+          {!selected.marketplace.path && <PluginSkill marketplace={selected.marketplace.name} pluginId={(detail.data!.summary as any).shareContext?.remotePluginId || selected.plugin.id} name={skill.name} />}
         </div>)}</>}
         {!!detail.data.mcpServers.length && <><h4>MCP 服务</h4><p>{detail.data.mcpServers.join("、")}</p></>}
         {!!detail.data.apps.length && <><h4>应用</h4><AppLinks apps={detail.data.apps} /></>}

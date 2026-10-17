@@ -19,6 +19,36 @@ class NativeWorkspaceTests(unittest.IsolatedAsyncioTestCase):
     asyncSetUp = test_host_core.HostTests.asyncSetUp
     asyncTearDown = test_host_core.HostTests.asyncTearDown
 
+    async def test_verification_preserves_public_identity_and_challenge_proof(self):
+        self.client.peer = type('Peer', (), {'healthy': True})()
+        self.client.peer.request = AsyncMock(return_value={'credentialId': None, 'unavailableReason': None})
+        status = await self.host.native.call('userVerification/status', {}, 'verification-status')
+        self.assertIsNone(status['credentialId'])
+        self.client.peer.request.return_value = {'proof': {'credentialId': 'public-key-id', 'signature': 'challenge-signature'}}
+        result = await self.host.native.call('userVerification/verify', {'challenge': 'YWJj', 'title': 'Test', 'description': ''}, 'verification-proof')
+        self.assertEqual(result['proof'], {'credentialId': 'public-key-id', 'signature': 'challenge-signature'})
+
+    async def test_switching_permission_profiles_does_not_keep_an_obsolete_sandbox(self):
+        await self.host.create_session('settings-chat')
+        session = self.host._sessions['settings-chat']
+        self.client.peer = type('Peer', (), {'healthy': True})()
+        self.client.peer.request = AsyncMock(return_value={})
+        policy = {'type': 'workspaceWrite', 'writableRoots': ['/fixture/output'], 'networkAccess': False,
+                  'excludeTmpdirEnvVar': True, 'excludeSlashTmp': True}
+        await self.host.native.call('thread/settings/update', {'threadId': session['thread_id'], 'sandboxPolicy': policy}, 'sandbox')
+        await self.host.native.call('thread/settings/update', {'threadId': session['thread_id'], 'permissions': 'read-only'}, 'profile')
+        self.assertNotIn('sandboxPolicy', session['settings'])
+        self.assertEqual(session['settings']['permissions'], 'read-only')
+        await self.host.native.call('thread/settings/update', {'threadId': session['thread_id'], 'sandboxPolicy': policy}, 'sandbox-again')
+        self.assertNotIn('permissions', session['settings'])
+        self.assertEqual(session['settings']['sandboxPolicy'], policy)
+
+    async def test_client_integrations_do_not_queue_human_credential_requests(self):
+        for method in ('attestation/generate', 'account/chatgptAuthTokens/refresh'):
+            response = await self.host.native.request({'id': 'client-integration', 'method': method, 'params': {}})
+            self.assertEqual(response['error']['code'], -32601)
+            self.assertEqual(self.host.native.list_pending(), [])
+
     async def test_approval_round_trip_validation_duplicate_and_stale_response(self):
         await self.host.create_session('approval-chat')
         task = asyncio.create_task(self.host.handle_tool_call({'id': 'native-1', 'method': 'item/commandExecution/requestApproval',
@@ -187,3 +217,72 @@ class DurableConsoleTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len((await second.read_events(EventQuery(after=before['watermark'])))['events']), 1)
             self.assertEqual((await second.status())['storage']['backend'], 'sqlite')
             await second.close()
+
+
+class NativeCapabilityLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    asyncSetUp = test_host_core.HostTests.asyncSetUp
+    asyncTearDown = test_host_core.HostTests.asyncTearDown
+
+    async def prepare(self):
+        session = await self.host.create_session('capability')
+        self.client.peer = type('Peer', (), {'healthy': True})()
+        self.client.peer.request = AsyncMock(return_value={})
+        return self.host._session_for_thread(session['thread_id'])
+
+    async def test_current_turn_settings_never_change_future_defaults_or_following_turn(self):
+        session = await self.prepare()
+        session.update(status='running', active_turn_id='current', settings={'model': 'default'})
+        await self.host.native.call('turn/settings/update', {'threadId': 'thread-1', 'turnId': 'current', 'model': 'live'}, 'live-settings')
+        self.assertEqual(session['settings'], {'model': 'default'})
+        self.assertEqual(session['turn_settings'], {'model': 'live'})
+        await self.host.handle_notification({'method': 'turn/completed', 'params': {'threadId': 'thread-1', 'turn': {'id': 'current', 'status': 'completed'}}})
+        self.assertNotIn('turn_settings', session)
+        with self.assertRaisesRegex(ValueError, 'turn identity'):
+            await self.host.native.call('turn/settings/update', {'threadId': 'thread-1', 'turnId': 'current', 'model': 'stale'}, 'stale-settings')
+        self.assertEqual(self.client.peer.request.await_count, 1)
+
+    async def test_queue_start_reserves_once_and_handles_notification_before_response(self):
+        session = await self.prepare()
+        async def start(method, params, **kwargs):
+            self.assertEqual(session['status'], 'starting')
+            self.assertEqual(self.host._active_turns, 1)
+            for method, status in [('turn/started', 'inProgress'), ('turn/completed', 'completed')]:
+                await self.host.handle_notification({'method': method, 'params': {'threadId': 'thread-1', 'turn': {'id': 'queued', 'status': status}}})
+            return {'turn': {'id': 'queued'}}
+        self.client.peer.request.side_effect = start
+        await self.host.native.call('thread/queue/start', {'threadId': 'thread-1', 'queuedSubmissionId': 'q'}, 'queue-start')
+        self.assertEqual(session['status'], 'ready')
+        self.assertEqual(self.host._active_turns, 0)
+        self.assertIsNone(session['active_turn_id'])
+
+    async def test_queue_rejection_releases_reservation_and_limit_prevents_dispatch(self):
+        session = await self.prepare()
+        self.client.peer.request.side_effect = RpcError({'code': -32602, 'message': 'queue item missing'})
+        with self.assertRaises(RpcError):
+            await self.host.native.call('thread/queue/start', {'threadId': 'thread-1', 'queuedSubmissionId': 'gone'}, 'queue-missing')
+        self.assertEqual(session['status'], 'ready')
+        self.assertEqual(self.host._active_turns, 0)
+        self.host._active_turns = self.host.max_active_turns
+        with self.assertRaisesRegex(ValueError, 'active turn limit'):
+            await self.host.native.call('thread/queue/start', {'threadId': 'thread-1', 'queuedSubmissionId': 'next'}, 'queue-limit')
+        self.assertEqual(self.client.peer.request.await_count, 1)
+
+    async def test_import_history_is_readable_on_immutable_host(self):
+        await self.prepare()
+        self.host.configuration_changed = None
+        await self.host.native.call('externalAgentConfig/import/readHistories', None, 'read-history')
+        self.client.peer.request.assert_awaited_once()
+
+    async def test_project_groups_are_shared_revisioned_and_retry_safe(self):
+        app = ConsoleApp(self.host, self.events)
+        initial = payload(await call(app, 'GET', '/api/sidebar-groups'))
+        self.assertEqual(initial, {'sections': [], 'revision': 0})
+        body = {'sections': [{'id': 'group', 'name': '项目分组'}], 'revision': 0}
+        result = await call(app, 'POST', '/api/sidebar-groups', body, {'idempotency-key': 'groups'})
+        self.assertEqual(result[0]['status'], 200)
+        again = await call(app, 'POST', '/api/sidebar-groups', body, {'idempotency-key': 'groups'})
+        self.assertEqual(payload(again), payload(result))
+        other = ConsoleApp(self.host, self.events)
+        self.assertEqual(payload(await call(other, 'GET', '/api/sidebar-groups')), {'sections': body['sections'], 'revision': 1})
+        stale = await call(other, 'POST', '/api/sidebar-groups', {'sections': [], 'revision': 0}, {'idempotency-key': 'stale-groups'})
+        self.assertEqual(stale[0]['status'], 409)

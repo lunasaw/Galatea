@@ -12,6 +12,21 @@ from codex_agent.console.projection import redact
 
 
 class RedactionTests(unittest.TestCase):
+    def test_tool_schema_role_properties_are_not_message_roles(self):
+        schema = {'type': 'object', 'properties': {
+            'role': {'type': 'string', 'enum': ['system', 'user']},
+            'content': {'type': 'string'},
+        }}
+        source = {'inputSchema': schema, 'custom': {'role': ['user'], 'text': 'public'},
+                  'messages': [{'role': 'developer', 'content': 'hidden'},
+                               {'role': 'user', 'content': 'visible'}]}
+        value, marks = redact(source)
+        self.assertEqual(value['inputSchema'], schema)
+        self.assertEqual(value['custom']['text'], 'public')
+        self.assertEqual(value['messages'][1]['content'], 'visible')
+        self.assertNotIn('hidden', json.dumps(value))
+        self.assertEqual(marks, [{'path': '/messages/0/content', 'reason': 'private_instructions'}])
+
     def test_private_collections_and_named_tokens_are_redacted(self):
         source = {'test_samples': ['sample-value'], 'testLabels': ['label-value'],
                   'raw_logs': ['log-value'], 'artifactContents': ['artifact-value'],

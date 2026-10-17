@@ -3,6 +3,8 @@ export type Project = {
   path: string;
   name: string;
   section: string;
+  roots?: Array<{ path: string }>;
+  metadata?: Record<string, string>;
 };
 export type ProjectSection = { id: string; name: string };
 export type ProjectLayout = {

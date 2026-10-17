@@ -1,0 +1,50 @@
+.subagents-panel { padding: 20px; }
+.subagents-list-header, .subagent-conversation-header { display: flex; align-items: center; gap: 12px; }
+.subagents-list-header { margin-bottom: 16px; }
+.subagents-list-header > div { flex: 1; }
+.subagents-list-header h3, .subagent-conversation-header h3 { font-size: 14px; font-weight: 600; margin: 0; }
+.subagents-list-header p, .subagent-conversation-header span { color: var(--muted-foreground); font-size: 12px; margin-top: 4px; }
+.subagents-empty { color: var(--muted-foreground); padding: 24px 4px; font-size: 13px; line-height: 1.7; }
+.subagent-row { display: flex; align-items: flex-start; gap: 12px; text-align: left; width: 100%; padding: 15px 8px; border-bottom: 1px solid var(--border); border-radius: 8px; }
+.subagent-row:hover { background: var(--accent); }
+.subagent-row:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.subagent-row > svg { margin-top: 10px; flex-shrink: 0; color: var(--muted-foreground); }
+.subagent-row-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.subagent-row-body strong { font-size: 14px; overflow-wrap: anywhere; }
+.subagent-row-body small { font-size: 12px; color: var(--muted-foreground); }
+.subagent-task-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; line-height: 1.6; color: var(--muted-foreground); }
+.subagent-avatar { display: inline-flex; justify-content: center; align-items: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; }
+.subagent-avatar[data-color="0"] { background: #a674b01c; color: #9e68aa; }
+.subagent-avatar[data-color="1"] { background: #a579501c; color: #a57950; }
+.subagent-avatar[data-color="2"] { background: #498f7c1c; color: #498f7c; }
+.subagent-avatar[data-color="3"] { background: #668cc21c; color: #668cc2; }
+.subagent-status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted-foreground); }
+.subagent-status[data-running="true"] { color: var(--foreground); }
+.subagent-conversation { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.subagent-conversation-header { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.subagent-conversation-header > div { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.subagent-conversation-header > button { flex-shrink: 0; }
+.subagent-conversation-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted-foreground); font-size: 12px; padding: 16px 22px; border-bottom: 1px solid var(--border); }
+.subagent-transcript { flex: 1; min-height: 0; overflow: auto; padding: 18px 22px 32px; scrollbar-width: thin; }
+.subagent-turn + .subagent-turn { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 20px; }
+.subagent-message { margin: 12px 0 20px; font-size: 14px; line-height: 1.75; overflow-wrap: anywhere; }
+.subagent-message[data-phase="commentary"] { color: var(--muted-foreground); }
+.subagent-task, .subagent-reasoning { font-size: 12px; color: var(--muted-foreground); margin: 10px 0 20px; }
+.subagent-task > summary, .subagent-reasoning > summary { cursor: pointer; margin-bottom: 8px; }
+.subagents-note { font-size: 12px; color: var(--muted-foreground); margin: 12px 0; }
+.subagents-error { font-size: 12px; color: var(--destructive); padding: 12px 0; overflow-wrap: anywhere; }
+.subagent-transcript .native-activity { margin: 8px 0; }
+.subagent-transcript .native-activity-title { min-width: 0; overflow-wrap: anywhere; }
+.subagent-transcript .native-activity-status { white-space: nowrap; flex-shrink: 0; margin-left: auto; }
+.subagent-transcript .native-activity-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.subagent-transcript .native-activity-body { padding-left: 10px; margin-left: 6px; }
+.native-agent-activity { margin: 8px 0; font-size: 13px; }
+.native-agent-activity > ul { list-style: none; padding: 0; margin: 6px 0; }
+.native-agent-activity li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.native-agent-activity li > span, .native-agent-activity small { font-size: 12px; color: var(--muted-foreground); }
+.native-agent-activity li > p { flex-basis: 100%; white-space: pre-wrap; }
+.workbench-panel-content:has(> .subagent-conversation) { display: flex; flex-direction: column; overflow: hidden; }
+@media (max-width: 600px) {
+  .subagent-transcript { padding: 16px; }
+  .subagent-conversation-header { gap: 8px; }
+}

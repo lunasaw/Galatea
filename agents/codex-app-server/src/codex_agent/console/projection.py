@@ -27,7 +27,7 @@ def redact(value, *, method=None):
                     reason = 'user_input'
                 elif normalized in PRIVATE or normalized.rstrip('s') in PRIVATE:
                     reason = 'private_content'
-                elif item.get('role') in {'system', 'developer'} and key in {'content', 'text'}:
+                elif item.get('role') in ('system', 'developer') and key in {'content', 'text'}:
                     reason = 'private_instructions'
                 elif item.get('type') == 'reasoning' and key not in {'id', 'type', 'summary'}:
                     reason = 'private_reasoning'
@@ -111,6 +111,7 @@ class Projector:
             if item_type == 'agentMessage':
                 change('messages', message_key, {**common, 'role': 'assistant', 'item_id': item_id,
                        'text': item.get('text', ''), 'phase': item.get('phase'),
+                       **{key: item[key] for key in ('delivery', 'questions', 'memoryCitation') if key in item},
                        'status': 'completed' if method == 'item/completed' else 'inProgress'})
             elif item_type == 'userMessage':
                 initial = request and self.request_user_items.setdefault((thread, request), item_id) == item_id
@@ -169,6 +170,15 @@ class Projector:
             key = f'{method}:{turn}:{item_id}'
             values = {**common, 'type': method, 'detail': params}
             change('steps', key, values, {'text': params['delta']} if isinstance(params.get('delta'), str) else None)
+        if method in {'hook/started', 'hook/completed'}:
+            run = params.get('run', {})
+            change('steps', f"hook:{thread}:{run.get('id', event['event_id'])}",
+                   {**common, 'type': 'hook', 'detail': run,
+                    'status': run.get('status', 'completed' if method == 'hook/completed' else 'inProgress')})
+        if method in {'item/autoApprovalReview/started', 'item/autoApprovalReview/completed'}:
+            change('steps', f"guardian:{thread}:{params['reviewId']}",
+                   {**common, 'type': 'guardian', 'detail': params,
+                    'status': params.get('review', {}).get('status', 'unknown')})
         if method in {'item/commandExecution/outputDelta', 'item/fileChange/outputDelta'} and item_id:
             change('steps', f'item:{thread}:{turn}:{item_id}', {**common}, {'text': params.get('delta', '')})
         if kind == 'request' and method != 'item/tool/call':

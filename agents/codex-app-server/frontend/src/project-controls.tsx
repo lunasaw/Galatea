@@ -16,6 +16,7 @@ import {
   FolderPlus,
   MoreHorizontal,
   Plus,
+  X,
 } from "lucide-react";
 import { consoleStore as store } from "./store";
 import { native } from "./native";
@@ -46,11 +47,13 @@ export function ProjectDialog({
   onOpenChange,
   section,
   select = false,
+  initialPath,
 }: {
   open: boolean;
   onOpenChange: (value: boolean) => void;
   section?: string;
   select?: boolean;
+  initialPath?: string;
 }) {
   const [path, setPath] = useState("");
   const [browsed, setBrowsed] = useState("");
@@ -97,8 +100,8 @@ export function ProjectDialog({
       setName("");
       setLabel("");
       addedProject.current = null;
-      setPath(store.cwd);
-      void browse(store.cwd);
+      setPath(initialPath || store.cwd);
+      void browse(initialPath || store.cwd);
     }
     return () => {
       request.current++;
@@ -130,7 +133,7 @@ export function ProjectDialog({
         addedProject.current.name ===
           (label.trim() || addedProject.current.name)
           ? addedProject.current
-          : store.addProject(resolved, label, section);
+          : await store.addProjectPersistent(resolved, label, section);
       addedProject.current = project;
       if (select && !(await store.chooseProject(project.id))) {
         setError(store.state.error || "未能切换项目，请重试");
@@ -357,9 +360,10 @@ export function ProjectSidebar({
   const layout = state.projectLayout;
   const [adding, setAdding] = useState<string | null>(null);
   const [edit, setEdit] = useState<{
-    kind: "section" | "project";
+    kind: "section" | "project" | "threadSection";
     id: string;
     name: string;
+    roots?: Array<{ path: string }>;
   } | null>(null);
   const [notice, setNotice] = useState("");
   const [removing, setRemoving] = useState<{ id: string; name: string } | null>(
@@ -370,16 +374,16 @@ export function ProjectSidebar({
     store.saveProjectLayout({
       collapsed: { ...layout.collapsed, [key]: !layout.collapsed[key] },
     });
-  const placeProject = (
+  const placeProject = async (
     projectId: string,
     section: string,
     before?: string,
   ) => {
-    store.saveProjectLayout({
+    const accepted = await store.saveProjectLayout({
       projects: moveProject(projects, projectId, section, before),
       collapsed: { ...layout.collapsed, ["section:" + section]: false },
     });
-    setNotice("项目位置已保存");
+    setNotice(accepted ? "项目位置已保存" : "项目移动失败，请查看错误信息");
   };
   const placeThread = async (
     id: string,
@@ -387,6 +391,13 @@ export function ProjectSidebar({
     before?: string,
   ) => {
     if (!(await store.moveSessionToProject(id, projectId))) return;
+    try {
+      if (await store.orderThread(id, before)) {
+        setNotice("会话位置已保存"); return;
+      }
+    } catch (error) {
+      store.fail(error); setNotice("会话排序失败，请重试"); return;
+    }
     store.saveProjectLayout({
       threadOrder: moveThread(
         [...new Set([...store.state.projectLayout.threadOrder, ...threadIds])],
@@ -421,7 +432,10 @@ export function ProjectSidebar({
       onDragLeave={clearTarget}
       onDrop={(event) => {
         const item = readDrop(event);
-        if (item?.kind === "thread") void placeThread(item.id, projectId, id);
+        if (item?.kind === "thread") {
+          if (!projectId) void store.moveToThreadSection(item.id, state.sessions.find((s) => s.id === id)?.section_id || null, id).catch(store.fail);
+          else void placeThread(item.id, projectId, id);
+        }
       }}
     >
       <ThreadListPrimitive.ItemByIndex
@@ -512,10 +526,10 @@ export function ProjectSidebar({
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() =>
-                  setEdit({ kind: "project", id: p.id, name: p.name })
+                  setEdit({ kind: "project", id: p.id, name: p.name, roots: p.roots?.length ? p.roots.map((r) => ({ ...r })) : [{ path: p.path }] })
                 }
               >
-                重命名项目
+                编辑项目
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={position === 0}
@@ -572,7 +586,7 @@ export function ProjectSidebar({
     );
   };
   return (
-    <div className="project-sidebar">
+    <div className="project-sidebar" inert={state.projectBusy || undefined}>
       {query &&
         !projects.some(
           (p) =>
@@ -715,19 +729,17 @@ export function ProjectSidebar({
               .map(renderProject)}
         </section>
       ))}
-      {threadIds.some((id) => !items.get(id)?.custom?.projectId) && (
-        <div className="px-2.5 pt-4 pb-1 text-xs text-muted-foreground">
-          其他会话
+      <div className="sidebar-section-heading"><span>会话分组</span><button aria-label="创建会话分组" onClick={() => setEdit({ kind: "threadSection", id: "", name: "" })}><Plus size={14} /></button></div>
+      {[...state.threadSections, { id: "", name: "其他会话" }].map((group) => <section key={group.id}>
+        <div className="sidebar-section-heading"><span>{group.name}</span>{group.id && <DropdownMenu><DropdownMenuTrigger asChild><button aria-label={`${group.name}会话分组菜单`}><MoreHorizontal size={14} /></button></DropdownMenuTrigger>
+          <DropdownMenuContent><DropdownMenuItem onSelect={() => setEdit({ kind: "threadSection", ...group })}>重命名会话分组</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void native("threadSection/delete", { sectionId: group.id }).then(() => store.refreshProjects()).catch(store.fail)}>删除分组，保留会话</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}
         </div>
-      )}
-      {threadIds
-        .filter(
-          (id) =>
-            !items.get(id)?.custom?.projectId &&
-            (!query ||
-              (items.get(id)?.title || "").toLowerCase().includes(query)),
-        )
-        .map((id) => renderThread(id, ""))}
+        {[...new Set([...layout.threadOrder, ...threadIds])].filter((id) => indexById.has(id) && !items.get(id)?.custom?.projectId && (state.sessions.find((s) => s.id === id)?.section_id || "") === group.id && (!query || (items.get(id)?.title || "").toLowerCase().includes(query)))
+          .map((id) => <div className="unassigned-thread" key={id}>{renderThread(id, "")}<DropdownMenu><DropdownMenuTrigger asChild><button aria-label={`${store.title(id)}移动到会话分组`}><MoreHorizontal size={12} /></button></DropdownMenuTrigger><DropdownMenuContent>
+            {[...state.threadSections, { id: "", name: "其他会话" }].map((target) => <DropdownMenuItem key={target.id} onSelect={() => void store.moveToThreadSection(id, target.id || null).catch(store.fail)}>{target.name}</DropdownMenuItem>)}
+          </DropdownMenuContent></DropdownMenu></div>)}
+      </section>)}
       <ProjectDialog
         open={adding !== null}
         onOpenChange={(open) => !open && setAdding(null)}
@@ -748,9 +760,9 @@ export function ProjectSidebar({
               取消
             </Button>
             <Button
-              onClick={() => {
-                if (removing) store.removeProject(removing.id);
-                setRemoving(null);
+              disabled={state.projectBusy}
+              onClick={async () => {
+                if (removing && await store.removeProject(removing.id)) setRemoving(null);
               }}
             >
               确认移除项目
@@ -762,25 +774,36 @@ export function ProjectSidebar({
         <DialogContent aria-describedby={undefined}>
           <DialogTitle>
             {edit?.kind === "project"
-              ? "重命名项目"
+              ? "编辑项目"
               : edit?.id
                 ? "重命名分组"
                 : "创建分组"}
           </DialogTitle>
           <form
             className="project-edit-form"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
               event.stopPropagation();
               if (!edit?.name.trim()) return;
-              if (edit.kind === "project")
-                store.saveProjectLayout({
+              if (edit.kind === "threadSection") {
+                try { await native(edit.id ? "threadSection/update" : "threadSection/create", { ...(edit.id ? { sectionId: edit.id } : {}), name: edit.name.trim() }); await store.refreshProjects(); setEdit(null); }
+                catch (error) { store.fail(error); }
+                return;
+              }
+              let accepted;
+              if (edit.kind === "project") {
+                let roots: Array<{ path: string }>;
+                try {
+                  roots = (edit.roots || []).map((r) => ({ path: normalizeProjectPath(r.path) }));
+                  if (!roots.length || new Set(roots.map((r) => r.path)).size !== roots.length) throw new Error("项目至少需要一个目录，目录不能重复");
+                } catch (error) { store.fail(error); return; }
+                accepted = await store.saveProjectLayout({
                   projects: projects.map((p) =>
-                    p.id === edit.id ? { ...p, name: edit.name.trim() } : p,
+                    p.id === edit.id ? { ...p, name: edit.name.trim(), path: roots[0].path, roots } : p,
                   ),
                 });
-              else
-                store.saveProjectLayout({
+              } else
+                accepted = await store.saveProjectLayout({
                   sections: edit.id
                     ? layout.sections.map((s) =>
                         s.id === edit.id ? { ...s, name: edit.name.trim() } : s,
@@ -790,7 +813,7 @@ export function ProjectSidebar({
                         { id: crypto.randomUUID(), name: edit.name.trim() },
                       ],
                 });
-              setEdit(null);
+              if (accepted) setEdit(null);
             }}
           >
             <input
@@ -803,7 +826,13 @@ export function ProjectSidebar({
                 )
               }
             />
-            <Button type="submit" disabled={!edit?.name.trim()}>
+            {edit?.kind === "project" && <fieldset className="project-roots"><legend>工作目录</legend><p>第一个目录用于新聊天。</p>
+              {edit.roots?.map((root, index) => <div key={index}><input aria-label={`工作目录 ${index + 1}`} value={root.path} required onChange={(e) => setEdit({ ...edit, roots: edit.roots!.map((r, i) => i === index ? { path: e.target.value } : r) })} />
+                <Button type="button" size="icon" variant="ghost" aria-label={`上移目录 ${index + 1}`} disabled={index === 0 || state.projectBusy} onClick={() => { const roots = [...edit.roots!]; [roots[index - 1], roots[index]] = [roots[index], roots[index - 1]]; setEdit({ ...edit, roots }); }}><ArrowUp size={14} /></Button>
+                <Button type="button" size="icon" variant="ghost" aria-label={`删除目录 ${index + 1}`} disabled={edit.roots!.length < 2 || state.projectBusy} onClick={() => setEdit({ ...edit, roots: edit.roots!.filter((_, i) => i !== index) })}><X size={14} /></Button></div>)}
+              <Button type="button" variant="outline" disabled={state.projectBusy} onClick={() => setEdit({ ...edit, roots: [...edit.roots!, { path: "" }] })}>添加工作目录</Button>
+            </fieldset>}
+            <Button type="submit" disabled={state.projectBusy || !edit?.name.trim()}>
               保存
             </Button>
           </form>

@@ -16,12 +16,29 @@ npx playwright install chromium
 export CONSOLE_TEST_URL=http://127.0.0.1:18881
 npm run test:browser
 node ../tests/test_native_browser.cjs
+node ../tests/test_subagents_browser.cjs
+node --test src/markdown-math.browser.cjs
 node ../tests/test_chat_interaction.cjs
 node ../tests/test_conversation_parity.cjs
 node ../tests/test_workbench_browser.cjs
+node ../tests/test_conversation_panels.cjs
+node ../tests/test_composer_capabilities.cjs
+node ../tests/test_composer_ime.cjs
+node ../tests/test_skill_mentions_browser.cjs
+node ../tests/test_slash_commands_browser.cjs
+node ../tests/test_project_roots_browser.cjs
+node ../tests/test_file_editor_browser.cjs
+node ../tests/test_terminal_recovery.cjs
+node ../tests/test_voice_browser.cjs
+node ../tests/test_mcp_app_browser.cjs
 ```
 
 已有 Chromium 时可设置 `CHROMIUM_EXECUTABLE=/absolute/path/chrome`。测试仅操作模拟会话，不连接运行中的 Agent 服务。
+
+`test_console.py` 覆盖静态 gzip 协商、ETag/304 更新、HEAD、摘要资源长期缓存与路径限制；
+`store.test.ts` 覆盖项目目录读取受阻时模型默认值仍可加载，以及启动目录结果复用。
+首次加载性能使用浏览器新建上下文，在相同带宽和延迟下比较 FCP 与 JS 传输字节，
+再用同一上下文重开验证版本缓存。拆包后应回归终端、文件预览、公式及 MCP 交互视图。
 
 `test_workbench_browser.cjs` 覆盖任务面板开关、草稿保留、Diff 轮次隔离、计划、目录浏览、
 文件预览、底部命令执行与面板状态保留，以及深色和手机布局。
@@ -39,6 +56,11 @@ CODEX_TEST_RUNTIME_PACKAGE=/absolute/path/runtime \
 历史协议用例同时校验包文件摘要和执行位；版本相同而文件内容或执行位不一致也会拒绝，不能据此绕过兼容性检查。
 
 原生测试以本地模拟模型和 stdio MCP echo 验证：外置 Skill 发现与加载、Agent 工具调用和结果消费、Shell 审批、用户提问、Dynamic Tools 成功/失败与跨进程恢复。不访问付费模型或训练平台。
+
+`test_capability_runtime.py` 另以真实二进制验证原生项目、多目录、分组、暂停目标、队列管理、文件监听和 PTY。
+队列会自动消费已加载的空闲聊天；该用例先卸载测试聊天，再编辑队列，确保不触发模型。
+浏览器 fixture 验证每条原生请求的固定版本 Schema；依赖外部服务和平台的验收边界见
+[Web 能力对齐](17-web-capability-parity.md)。
 
 独立协议探针也必须显式选择扩展契约与只读工具。以下为已冻结兼容性描述的历史协议样本；`examples/echo` 尚未生成正式兼容性描述，使用上面的源码集成测试验证：
 

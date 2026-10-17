@@ -32,6 +32,136 @@ const make = () => {
   stores.push(s);
   return s;
 };
+test("startup loads model defaults while projects are pending and reuses the initial catalog", async () => {
+  const s = make();
+  let releaseProjects!: () => void;
+  const pendingProjects = new Promise<void>(resolve => { releaseProjects = resolve; });
+  const calls: string[] = [];
+  globalThis.fetch = async (path, init) => {
+    const url = String(path);
+    if (url === "/api/console/status") return json({});
+    if (url === "/api/sessions" || url === "/api/native/requests") return json([]);
+    if (url === "/api/capabilities") return json({});
+    if (url === "/api/native/protocol") return json({ methods: ["project/list"], cwd: "/startup" });
+    if (url === "/api/sidebar-groups") return json({ sections: [], revision: 0 });
+    const { method } = JSON.parse(init!.body as string);
+    calls.push(method);
+    if (method === "project/list") await pendingProjects;
+    if (method === "model/list") return json({ data: [{ model: "fixture" }] });
+    if (method === "config/read") return json({ config: { model: "fixture" } });
+    return json({ data: [], nextCursor: null });
+  };
+  const initialized = s.init();
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(s.state.models[0]?.model, "fixture");
+    assert.equal(s.state.preferences.model, "fixture");
+  } finally {
+    releaseProjects();
+    await initialized;
+  }
+  assert.equal(calls.filter(method => method === "project/list").length, 1);
+  assert.equal(calls.filter(method => method === "threadSection/list").length, 1);
+  assert.equal(s.state.error, "");
+});
+test("sidebar reads native order in each section including unsectioned threads", async () => {
+  const s = make();
+  s.patch({ sessions: [
+    { id: "a", thread_id: "native-a", status: "ready" },
+    { id: "b", thread_id: "native-b", status: "ready" },
+    { id: "c", thread_id: "native-c", status: "ready" },
+  ] });
+  const sectionRequests: unknown[] = [];
+  globalThis.fetch = async (path, init) => {
+    if (String(path) === "/api/sidebar-groups") return json({ sections: [], revision: 0 });
+    const { method, params } = JSON.parse(init!.body as string);
+    if (method === "project/list") return json({ data: [], nextCursor: null });
+    if (method === "threadSection/list") return json({ data: [{ id: "group", name: "Group" }], nextCursor: null });
+    assert.equal(method, "thread/list");
+    assert.ok(Object.hasOwn(params, "sectionId"));
+    assert.equal(params.sortKey, params.sectionId === null ? "updated_at" : "section_position");
+    sectionRequests.push(params.sectionId);
+    if (params.sectionId === null) return json({ data: [{ id: "native-a" }], nextCursor: null });
+    return json({ data: [{ id: params.cursor ? "native-b" : "native-c", section: { id: "group" } }],
+      nextCursor: params.cursor ? null : "next" });
+  };
+  await s.refreshProjects();
+  assert.deepEqual(sectionRequests, [null, "group", "group"]);
+  assert.deepEqual(s.state.projectLayout.threadOrder, ["a", "c", "b"]);
+  assert.deepEqual(s.state.sessions.map((session) => session.section_id), [undefined, "group", "group"]);
+});
+test("switching permission profiles removes obsolete sandbox settings from the visible session", async () => {
+  const s = make();
+  s.patch({ sessions: [{ id: "a", thread_id: "native-a", status: "ready", settings: {
+    sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" }, model: "fixture",
+  } }] });
+  globalThis.fetch = async () => json({});
+  assert.equal(await s.updateSessionSettings("a", { permissions: "locked" }), true);
+  assert.deepEqual(s.state.sessions[0].settings, { permissions: "locked", model: "fixture" });
+  assert.equal(await s.updateSessionSettings("a", { sandboxPolicy: { type: "readOnly" } }), true);
+  assert.deepEqual(s.state.sessions[0].settings, { sandboxPolicy: { type: "readOnly" }, model: "fixture" });
+});
+test("goal and plan inputs are exclusive only after native acceptance and belong to their chat", async () => {
+  const s = make();
+  s.patch({ active: "a", sessions: [{ id: "a", thread_id: "native-a", status: "ready", settings: {
+    collaborationMode: { mode: "plan", settings: { model: "fixture", reasoning_effort: "high" } },
+  } }] });
+  globalThis.fetch = async () => new Response('{"error":"rejected"}', { status: 400 });
+  assert.equal(await s.chooseGoalMode(true), false);
+  assert.equal(s.goalInputMode, false);
+  assert.equal(s.composerSettings.mode, "plan");
+  globalThis.fetch = async () => json({});
+  assert.equal(await s.chooseGoalMode(true), true);
+  assert.equal(s.composerSettings.mode, "default");
+  s.patch({ active: "b" });
+  assert.equal(s.goalInputMode, false);
+  s.patch({ active: "a" });
+  assert.equal(s.goalInputMode, true);
+  assert.equal(await s.updateComposerSettings({ mode: "plan" }), true);
+  assert.equal(s.goalInputMode, false);
+});
+
+test("goal sends use only the native goal method and retry an uncertain response with the same identity", async () => {
+  const s = make();
+  s.patch({ active: "a", sessions: [{ id: "a", thread_id: "native-a", status: "ready" }] });
+  await s.chooseGoalMode(true);
+  const calls: RequestInit[] = [];
+  globalThis.fetch = async (path, init) => {
+    if (String(path) === "/api/native/call") {
+      calls.push(init!);
+      if (calls.length === 1) throw new Error("lost response");
+      return json({ goal: { objective: "目标", status: "active" } });
+    }
+    assert.equal(String(path), "/api/sessions");
+    return json(s.state.sessions);
+  };
+  assert.equal(await s.sendGoal("目标"), false);
+  assert.equal(s.goalInputMode, true);
+  assert.equal(await s.sendGoal("目标"), true);
+  assert.deepEqual(calls[0], calls[1]);
+  assert.deepEqual(JSON.parse(calls[0].body as string), { method: "thread/goal/set", params: { threadId: "native-a", objective: "目标" } });
+  assert.equal(s.goalInputMode, false);
+  assert.equal(s.state.goalRevision, 1);
+});
+
+test("a new goal retries in the already created chat without creating a second one", async () => {
+  const s = make(); let creations = 0;
+  s.create = async (activate) => {
+    assert.equal(activate, false); creations++;
+    s.patch({ sessions: [{ id: "new-goal", thread_id: "native-goal", status: "ready" }] });
+    return "new-goal";
+  };
+  s.select = async (id) => { s.patch({ active: id }); };
+  s.refreshSessions = async () => {};
+  await s.chooseGoalMode(true);
+  globalThis.fetch = async () => { throw new Error("unavailable"); };
+  assert.equal(await s.sendGoal("原目标"), false);
+  assert.equal(s.state.active, null);
+  globalThis.fetch = async () => json({});
+  assert.equal(await s.sendGoal("修订目标"), true);
+  assert.equal(creations, 1);
+  assert.equal(s.state.active, "new-goal");
+});
 afterEach(() => {
   stores.forEach((s) => s.dispose());
   stores.length = 0;
@@ -62,6 +192,36 @@ test("lost send response retries with identical request body and idempotency key
     body.request_id,
     (calls[0].headers as Record<string, string>)["Idempotency-Key"],
   );
+});
+test("slash commands reject missing capabilities and running mutations before model submission", async () => {
+  const s = make();
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; throw new Error("unexpected request"); };
+  await s.send("/aside");
+  assert.match(s.state.error, /临时侧边聊天/);
+  await s.send("/share");
+  assert.match(s.state.error, /快照分享/);
+  await s.send("/archive");
+  assert.match(s.state.error, /先开始聊天/);
+  s.patch({ active: "a", sessions: [{ id: "a", thread_id: "native-a", status: "running", active_turn_id: "turn-a" }] });
+  for (const command of ["/init", "/compact", "/fork", "/archive"]) {
+    await s.send(command);
+    assert.match(s.state.error, /先停止当前回复/);
+  }
+  assert.equal(requests, 0);
+});
+test("init sends a repository guide task through the normal native message path", async () => {
+  const s = make();
+  s.patch({ active: "a", sessions: [{ id: "a", thread_id: "native-a", status: "ready" }] });
+  const messages: { text: string }[] = [];
+  globalThis.fetch = async (path, init) => {
+    if (String(path).endsWith("/messages")) { messages.push(JSON.parse(init!.body as string)); return json({ status: "accepted" }); }
+    return json([{ id: "a", thread_id: "native-a", status: "ready" }]);
+  };
+  await s.send("/init");
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].text, /先检查.*AGENTS\.md.*若已存在，不覆盖、不修改/);
+  assert.ok(!messages[0].text.startsWith("/"));
 });
 test("late snapshot of a previously selected session cannot replace the new session", async () => {
   const s = make();

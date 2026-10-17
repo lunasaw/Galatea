@@ -1,5 +1,6 @@
 import type { ThreadMessageLike } from "@assistant-ui/react";
 import type { Snapshot, Step } from "./types";
+import { visibleUserText } from "./conversation-capabilities";
 
 export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
   if (!snapshot) return [];
@@ -13,7 +14,7 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
       id: row.id,
       role: row.role,
       content: [
-        { type: "text", text: row.text || "" },
+        { type: "text", text: row.role === "user" ? visibleUserText(row.text || "") : row.text || "" },
         ...(row.content || []).flatMap((part) =>
           part.type === "image" &&
           part.url &&
@@ -23,6 +24,10 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
             ? [{ type: "image" as const, image: part.url }]
             : [],
         ),
+        ...(row.content || []).flatMap((part) => {
+          if (part.type !== "audio" || typeof part.url !== "string" || !/^(data:audio\/|https?:\/\/)/i.test(part.url)) return [];
+          return [{ type: "file" as const, filename: "语音", mimeType: "audio/wav", data: part.url, sourceType: "url" as const }];
+        }),
       ],
       ...(row.role === "assistant"
         ? {
@@ -38,6 +43,11 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
           turnId: row.turn_id,
           phase: row.phase,
           itemStatus: row.status,
+          itemId: row.item_id,
+          nativeContent: row.content,
+          delivery: row.delivery,
+          questions: row.questions,
+          memoryCitation: row.memoryCitation,
         },
       },
     },
@@ -52,6 +62,10 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
         "webSearch",
         "collabAgentToolCall",
         "imageGeneration",
+        "imageView",
+        "subAgentActivity",
+        "hook",
+        "guardian",
         "plan",
         "turn/plan/updated",
         "contextCompaction",
@@ -201,7 +215,7 @@ export function toolState(
       : "unknown";
   if (
     step.success === false ||
-    ["failed", "declined", "cancelled", "interrupted"].includes(
+    ["failed", "declined", "cancelled", "interrupted", "blocked", "stopped"].includes(
       step.status || "",
     ) ||
     detail.error ||
@@ -209,7 +223,7 @@ export function toolState(
   )
     return "failed";
   if (step.success === true || step.status === "completed") return "complete";
-  if (step.status === "inProgress" || step.status === "executing")
+  if (step.status === "inProgress" || step.status === "executing" || step.status === "running")
     return "running";
   return "unknown";
 }
@@ -264,7 +278,7 @@ export function toConversationMessages(
         isText &&
         turn?.status === "completed" &&
         lastText.get(turnId) === row.id);
-    if (row.role !== "assistant" || final || !turnId) {
+    if (row.role !== "assistant" || final || !turnId || meta.delivery === "async" || meta.questions || meta.memoryCitation || (meta.step as Step)?.type === "guardian") {
       result.push({ ...row, metadata: { custom: { ...meta, final, turn } } });
       continue;
     }
@@ -288,6 +302,7 @@ export function toConversationMessages(
         metadata: {
           custom: {
             ...previous.metadata.custom,
+            itemIds: [...(previous.metadata.custom.itemIds as string[] || []), String(meta.itemId || "")],
             steps: {
               ...(previous.metadata.custom.steps as Record<string, Step>),
               ...stepMap,
@@ -303,6 +318,7 @@ export function toConversationMessages(
         metadata: {
           custom: {
             activity: true,
+            itemIds: [String(meta.itemId || "")],
             turnId,
             turn,
             steps: stepMap,

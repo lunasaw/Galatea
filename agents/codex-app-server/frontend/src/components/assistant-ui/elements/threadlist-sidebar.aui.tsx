@@ -1,6 +1,6 @@
 // Source: assistant-ui/assistant-ui @ 2bdd534a3d8da45e6c7a9ee6553862b83713059d (MIT). See UPSTREAM.md.
 import type * as React from "react";
-import { SquareTerminal } from "lucide-react";
+import { BRAND_NAME, BrandIcon } from "@/brand";
 import {
   Sidebar,
   SidebarContent,
@@ -17,10 +17,12 @@ import { ThreadList } from "@/components/assistant-ui/elements/thread-list.aui";
 export function ThreadListSidebar({
   footer,
   navigation,
+  headerActions,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   footer?: React.ReactNode;
   navigation?: React.ReactNode;
+  headerActions?: React.ReactNode;
 }) {
   return (
     <Sidebar className="workbench-sidebar" {...props}>
@@ -29,20 +31,20 @@ export function ThreadListSidebar({
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild>
-                <a href="/">
+                <a href="/" aria-label={`${BRAND_NAME} 首页`}>
                   <div className="aui-sidebar-header-icon-wrapper flex aspect-square size-8 items-center justify-center">
-                    <SquareTerminal className="aui-sidebar-header-icon size-6" />
+                    <BrandIcon />
                   </div>
                   <div className="aui-sidebar-header-heading me-6 flex flex-col gap-0.5 leading-none">
                     <span className="aui-sidebar-header-title font-semibold">
-                      Codex
+                      {BRAND_NAME}
                     </span>
                   </div>
                 </a>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
-          <SidebarTrigger aria-label="收起侧栏" />
+          {headerActions}<SidebarTrigger aria-label="收起侧栏" />
         </div>
       </SidebarHeader>
       <SidebarContent className="aui-sidebar-content px-2">

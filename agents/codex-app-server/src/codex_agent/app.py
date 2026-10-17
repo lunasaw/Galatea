@@ -44,6 +44,10 @@ def build_host(config, *, development=False):
         manifest = accepted
         client = await process.start(server_request=host.handle_tool_call,
             notification=host.handle_notification, on_failure=host.runtime_failed)
+        saved_roots = store.read('console/skill-roots.json') if development else None
+        if saved_roots is not None:
+            await client.peer.request('skills/extraRoots/set', {'extraRoots': saved_roots['roots']})
+            host.skill_roots = saved_roots['roots']
         observed = await client.read_config(str(config.workspace_dir))
         if development:
             manifest['effective_config_sha256'] = digest(observed)
@@ -77,4 +81,5 @@ def build_host(config, *, development=False):
                      max_active_turns=config.max_active_turns, workspace_dir=config.workspace_dir,
                      client_stop=process.stop, extensions_close=providers.close, admission_check=check_admission, startup_check=startup_check,
                      configuration_changed=configuration_changed if development else None)
+    host.skill_roots = [str(root) for root in config.skill_roots]
     return host, ConsoleApp(host, events)

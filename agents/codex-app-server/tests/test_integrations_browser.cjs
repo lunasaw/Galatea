@@ -66,8 +66,8 @@ const { chromium } = require('../frontend/node_modules/playwright');
       return route.fulfill({ json: result });
     });
     const open = async (tab) => {
-      if (!(await page.getByRole('dialog').count())) await page.getByRole('button', { name: '设置', exact: true }).click();
-      await page.getByRole('dialog').getByRole('button', { name: tab, exact: true }).click();
+      if (!(await page.locator('.settings-page').count())) await page.getByRole('button', { name: '设置', exact: true }).click();
+      await page.getByRole('navigation', { name: '设置分类', exact: true }).getByRole('button', { name: tab, exact: true }).click();
     };
     const screenshot = async (name) => {
       const dir = process.env.CONSOLE_SCREENSHOTS;
@@ -90,13 +90,14 @@ const { chromium } = require('../frontend/node_modules/playwright');
     const skillRequest = page.waitForRequest((request) => request.url().endsWith('/messages') && request.method() === 'POST');
     await skill.getByRole('button', { name: '在对话中使用' }).click();
     assert.ok((await skillRequest).postDataJSON().input_items.some((item) => item.type === 'skill' && item.path === '/fixture/disabled/SKILL.md'));
-    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    await page.locator('.settings-page').waitFor({ state: 'hidden' });
 
     await open('MCP');
     await page.locator('[data-mcp=unknown-service]').getByText('状态未知', { exact: true }).waitFor();
     await page.locator('[data-mcp=failed-service]').getByRole('alert').getByText('Connection refused').waitFor();
     await page.getByText('1/4 个服务已连接').waitFor();
-    await page.locator('[data-mcp=connected-service] summary').click();
+    await page.locator('[data-mcp=connected-service]').getByText('工具与资源', { exact: true }).click();
+    await page.locator('[data-mcp=connected-service]').getByText('echo', { exact: true }).click();
     await page.getByText('Echo text', { exact: true }).waitFor();
     await page.getByRole('button', { name: '登录 oauth-service' }).click();
     const auth = page.getByRole('link', { name: '打开授权页面', exact: true });
@@ -140,7 +141,7 @@ const { chromium } = require('../frontend/node_modules/playwright');
     await page.getByLabel('搜索插件', { exact: true }).fill('');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForFunction(() => {
-      const dialog = document.querySelector('.settings-dialog').getBoundingClientRect();
+      const dialog = document.querySelector('.settings-page').getBoundingClientRect();
       const panel = document.querySelector('.integration-panel');
       return dialog.x >= 0 && dialog.right <= innerWidth && panel.scrollWidth <= panel.clientWidth;
     });

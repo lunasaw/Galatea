@@ -41,14 +41,12 @@ import {
 export const ThreadList: FC<{ navigation?: React.ReactNode }> = ({
   navigation,
 }) => {
-  const [search, setSearch] = useState("");
 
   return (
     <ThreadListRoot>
       <ThreadListNew />
-      <ThreadListSearch value={search} onValueChange={setSearch} />
       {navigation}
-      <ProjectSidebar search={search} ThreadItem={ThreadListItem} />
+      <ProjectSidebar search="" ThreadItem={ThreadListItem} />
     </ThreadListRoot>
   );
 };

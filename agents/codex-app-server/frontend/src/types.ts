@@ -7,9 +7,12 @@ export type Session = {
   name?: string;
   archived?: boolean;
   settings?: Record<string, any>;
+  turn_settings?: Record<string, any>;
+  section_id?: string | null;
 };
 export type Message = {
   id: string;
+  item_id?: string;
   role: "user" | "assistant";
   text: string;
   turn_id?: string;
@@ -18,6 +21,12 @@ export type Message = {
   replay_order?: number;
   content?: Array<{ type: string; url?: string; path?: string; name?: string }>;
   phase?: "commentary" | "final_answer" | null;
+  delivery?: "async" | null;
+  questions?: Array<{ title: string; options?: string[] | null }> | null;
+  memoryCitation?: {
+    entries: Array<{ path: string; lineStart: number; lineEnd: number; note: string }>;
+    threadIds: string[];
+  } | null;
   status?: string;
 };
 export type Step = {
@@ -96,6 +105,8 @@ export type NativeRequest = {
   created_at: number;
 };
 export type NativeProtocol = {
+  skill_roots?: string[];
+  platform?: string;
   version: string;
   methods: string[];
   params: Record<string, unknown>;

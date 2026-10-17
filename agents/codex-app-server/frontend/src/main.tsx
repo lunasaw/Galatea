@@ -1,3 +1,8 @@
+import { deferred } from "./deferred";
+const RuntimeSettings = deferred(() => import("./runtime-settings").then(m => ({ default: m.RuntimeSettings })));
+const VoiceSettings = deferred(() => import("./voice-settings").then(m => ({ default: m.VoiceSettings })));
+const AccountUsage = deferred(() => import("./account-usage").then(m => ({ default: m.AccountUsage })));
+import "./csp-config";
 import {
   requestThreadAction,
   ThreadActionDialog,
@@ -5,6 +10,7 @@ import {
 } from "./thread-actions";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
+import { BRAND_NAME } from "./brand";
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
@@ -32,6 +38,12 @@ import {
   PanelRight,
   Info,
   FileDiff,
+  Home,
+  Search,
+  Target,
+  ListOrdered,
+  ArrowLeft,
+  AudioLines,
 } from "lucide-react";
 import {
   Dialog,
@@ -42,6 +54,8 @@ import {
   DialogClose,
 } from "./components/ui/dialog";
 import { openSettings } from "./chat-controls";
+import { ChatSearch } from "./chat-search";
+import { attachments, nativeParts } from "./composer-input";
 import { Thread } from "./components/assistant-ui/elements/thread.aui";
 import { ThreadListSidebar } from "./components/assistant-ui/elements/threadlist-sidebar.aui";
 import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button";
@@ -64,9 +78,14 @@ import { Capabilities, Execution, NativeEvents } from "./inspector";
 import {
   NativeControl,
   NativeRequests,
+  ConversationHistory,
   useNativeRequestPolling,
 } from "./native-ui";
 import { native } from "./native";
+
+
+
+import { slashCommands } from "./slash-commands";
 import { CodexToolFallback } from "./tool-ui";
 import { consoleStore as store, busyStatuses, statusLabel } from "./store";
 import { toConversationMessages } from "./messages";
@@ -74,6 +93,7 @@ import { WorkspaceFileScope } from "./workspace-file";
 import { BottomPanel, WorkbenchPanel, type WorkbenchTab } from "./workbench";
 import "./style.css";
 import "./workbench.css";
+import "./desktop.css";
 
 const suggestions = [
   {
@@ -94,13 +114,20 @@ const suggestions = [
 ];
 const settingsSections = [
   { id: "settings", label: "模型与权限", icon: Settings2 },
-  { id: "history", label: "会话与 Agent", icon: History },
+  { id: "usage", label: "使用情况和计费", icon: Info },
   { id: "skills", label: "Skills", icon: BookOpen },
   { id: "mcp", label: "MCP", icon: Wrench },
   { id: "apps", label: "Apps", icon: Puzzle },
   { id: "plugins", label: "插件", icon: Puzzle },
+  { id: "memory", label: "Memory", icon: BookOpen },
+  { id: "voice", label: "语音", icon: AudioLines },
+  { id: "hooks", label: "Hooks", icon: Workflow },
+  { id: "remote", label: "远程控制", icon: Terminal },
+  { id: "environments", label: "执行环境", icon: Folder },
+  { id: "import", label: "导入外部配置", icon: Folder },
+  { id: "windows", label: "Windows sandbox", icon: Settings2 },
+  { id: "diagnostics", label: "诊断与反馈", icon: Info },
   { id: "terminal", label: "终端", icon: Terminal },
-  { id: "files", label: "文件", icon: Folder },
   { id: "help", label: "快捷命令", icon: CircleHelp },
   { id: "capabilities", label: "能力", icon: Wrench },
   { id: "loop", label: "执行流程", icon: Workflow },
@@ -108,18 +135,13 @@ const settingsSections = [
   { id: "protocol", label: "开发者工具", icon: Code2 },
 ];
 const threadComponents = { ToolFallback: CodexToolFallback };
-const textAttachments = new SimpleTextAttachmentAdapter();
-textAttachments.accept =
-  "text/*,.md,.txt,.json,.csv,.yaml,.yml,.toml,.py,.js,.ts,.tsx,.jsx,.html,.css,.sh,.sql,.xml,.log";
-const attachments = new CompositeAttachmentAdapter([
-  new SimpleImageAttachmentAdapter(),
-  textAttachments,
-]);
 
 function Workspace() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { isMobile, setOpenMobile, state: sidebarState } = useSidebar();
   const [panel, setPanel] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsSearch, setSettingsSearch] = useState("");
   const [sidePanel, setSidePanel] = useState<WorkbenchTab | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
@@ -128,6 +150,22 @@ function Workspace() {
     if (open) setTerminalMounted(true);
   };
   useNativeRequestPolling();
+  useEffect(() => {
+    const locate = (event: Event) => {
+      const { itemId } = (event as CustomEvent).detail;
+      setPanel("");
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const target = [...document.querySelectorAll<HTMLElement>("[data-item-ids]")]
+          .find((node) => JSON.parse(node.dataset.itemIds || "[]").includes(itemId));
+        if (!target) { store.fail(new Error("消息尚未渲染，请重新定位")); return; }
+        const expand = target.querySelector<HTMLButtonElement>('.activity-trigger[aria-expanded="false"]');
+        expand?.click(); target.scrollIntoView({ block: "center", behavior: "smooth" });
+        target.animate([{ background: "#dcecff" }, { background: "transparent" }], { duration: 2500 });
+      }));
+    };
+    window.addEventListener("codex-locate-message", locate);
+    return () => window.removeEventListener("codex-locate-message", locate);
+  }, []);
   const [theme, setTheme] = useState(
     localStorage.getItem("codex-agent.theme") || "light",
   );
@@ -183,12 +221,10 @@ function Workspace() {
           .filter((p) => p.type === "text")
           .map((p) => p.text)
           .join("\n"),
-        [
+        nativeParts([
           ...message.content,
           ...(message.attachments || []).flatMap((a) => a.content),
-        ].flatMap((p) =>
-          p.type === "image" ? [{ type: "image", url: p.image }] : [],
-        ),
+        ]).filter((part) => part.type !== "text"),
       );
     },
     onCancel: async () => {
@@ -236,6 +272,7 @@ function Workspace() {
   }, [runtime]);
   const nativeAction = async (action: string) => {
     if (!session?.thread_id) return;
+    if (action === "review") { setPanel(""); setSidePanel("codeReview"); return; }
     if (["fork", "archive", "delete", "undo", "rollback"].includes(action)) {
       requestThreadAction({
         action: action as ThreadAction,
@@ -266,8 +303,17 @@ function Workspace() {
   useEffect(() => {
     const panel = (event: Event) => {
       const name = (event as CustomEvent).detail;
+      if (name === "search") { setPanel(""); setSearchOpen(true); return; }
+      if (name === "model" || name === "reasoning") {
+        setPanel(""); window.dispatchEvent(new Event("codex-model")); return;
+      }
       if (name === "permissions") {
         window.dispatchEvent(new Event("codex-permissions"));
+        return;
+      }
+      if (name === "goal" || name === "queue") {
+        setPanel("");
+        window.dispatchEvent(new CustomEvent("codex-composer-panel", { detail: name }));
         return;
       }
       if (name === "files") {
@@ -275,6 +321,9 @@ function Workspace() {
         if (isMobile) setOpenMobile(false);
         return;
       }
+      if (name === "background") { setPanel(""); setSidePanel("background"); return; }
+      if (name === "review") { setPanel(""); setSidePanel("codeReview"); return; }
+      if (name === "agents") { setPanel(""); setSidePanel("agents"); return; }
       if (name === "terminal") {
         showTerminal(true);
         if (isMobile) setOpenMobile(false);
@@ -288,6 +337,7 @@ function Workspace() {
             plan: "settings",
             status: "loop",
             resume: "history",
+            feedback: "diagnostics",
           } as Record<string, string>
         )[name] || name,
       );
@@ -305,7 +355,7 @@ function Workspace() {
   useEffect(() => {
     if (!state.nativeRequests.length) return;
     const title = document.title;
-    document.title = `(${state.nativeRequests.length}) 需要回应 · Codex`;
+    document.title = `(${state.nativeRequests.length}) 需要回应 · ${BRAND_NAME}`;
     return () => {
       document.title = title;
     };
@@ -326,7 +376,17 @@ function Workspace() {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadActionDialog />
+      <nav className="desktop-rail" aria-label="主导航">
+        <TooltipIconButton tooltip="新聊天" data-active={!panel} onClick={() => { setPanel(""); void choose(null); }}><Home /></TooltipIconButton>
+        <TooltipIconButton tooltip="会话历史" onClick={() => openSettings("history")}><History /></TooltipIconButton>
+        <TooltipIconButton tooltip="Skill 库" onClick={() => openSettings("skills")}><BookOpen /></TooltipIconButton>
+        <TooltipIconButton tooltip="扩展管理" onClick={() => openSettings("plugins")}><Puzzle /></TooltipIconButton>
+        <div className="desktop-rail-spacer" />
+        <TooltipIconButton tooltip="打开设置" onClick={() => openSettings()}><Settings2 /></TooltipIconButton>
+      </nav>
+      <div className="chat-surface" hidden={!!panel}>
       <ThreadListSidebar
+        headerActions={<TooltipIconButton tooltip="搜索聊天" onClick={() => openSettings("search")}><Search /></TooltipIconButton>}
         navigation={
           <div className="sidebar-navigation">
             <Button variant="ghost" onClick={() => openSettings("history")}>
@@ -456,6 +516,11 @@ function Workspace() {
                 </TooltipIconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => openSettings("queue")}><ListOrdered />输入队列</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => openSettings("background")}><Terminal />Agent 后台终端</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => openSettings("review")}><FileDiff />代码审查与审批记录</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => openSettings("agents")}><Workflow />子 Agent</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => window.dispatchEvent(new CustomEvent("codex-voice", { detail: "history" }))}><History />语音记录</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setPanel("loop")}>
                   <Workflow />
                   执行流程
@@ -489,7 +554,6 @@ function Workspace() {
                 {Object.entries({
                   fork: "分叉会话",
                   compact: "压缩上下文",
-                  review: "审查未提交修改",
                   undo: "回退上一轮",
                   rollback: "回退到指定轮次",
                   delete: "删除会话",
@@ -636,7 +700,7 @@ function Workspace() {
             )}
           </div>
           <WorkbenchPanel
-            tab={sidePanel}
+            tab={panel ? null : sidePanel}
             state={state}
             mobile={isMobile}
             onTab={setSidePanel}
@@ -644,42 +708,29 @@ function Workspace() {
           />
         </div>
       </SidebarInset>
-      <Dialog
-        open={!!panel}
-        onOpenChange={(open) => {
-          if (!open) setPanel("");
-        }}
-      >
-        <DialogContent className="settings-dialog" showCloseButton={false}>
-          <DialogHeader className="settings-heading">
-            <div>
-              <DialogTitle>{panelTitle}</DialogTitle>
-              <DialogDescription className="sr-only">
-                Codex 设置与会话工具
-              </DialogDescription>
-            </div>
-            <DialogClose asChild>
-              <TooltipIconButton tooltip="关闭详情">
-                <X />
-              </TooltipIconButton>
-            </DialogClose>
-          </DialogHeader>
+      </div>
+      {panel === "history" && <section className="conversation-history-page" aria-label="会话历史">
+        <header><h1>会话历史</h1><Button variant="ghost" onClick={() => setPanel("")}><ArrowLeft />返回聊天</Button></header>
+        <ConversationHistory state={state} onOpen={() => setPanel("")} />
+      </section>}
+      {!!panel && panel !== "history" && <section className="settings-page" aria-label="设置">
           <div className="settings-layout">
             <nav className="settings-navigation" aria-label="设置分类">
-              {settingsSections.map(({ id, label, icon: Icon }) => (
-                <button
-                  type="button"
-                  key={id}
-                  data-active={panel === id}
-                  onClick={() => setPanel(id)}
-                >
-                  <Icon />
-                  {label}
+              <div className="settings-page-title"><h1>设置</h1><TooltipIconButton tooltip="返回聊天" onClick={() => setPanel("")}><ArrowLeft /></TooltipIconButton></div>
+              <label className="settings-search"><Search size={15} /><input type="search" aria-label="搜索设置" placeholder="搜索" value={settingsSearch} onChange={(event) => setSettingsSearch(event.target.value)} /></label>
+              {settingsSections.filter((section) =>
+                (section.id !== "windows" || state.nativeProtocol?.platform?.startsWith("win")) &&
+                section.label.toLowerCase().includes(settingsSearch.toLowerCase())
+              ).map(({ id, label, icon: Icon }) => (
+                <button type="button" key={id} data-active={panel === id} onClick={() => setPanel(id)}>
+                  <Icon />{label}
                 </button>
               ))}
             </nav>
             <div className="settings-body" key={panel}>
-              {panel === "capabilities" ? (
+              {panel === "usage" ? <AccountUsage state={state} /> : panel === "voice" ? <VoiceSettings /> : ["memory", "hooks", "remote", "environments", "import", "windows", "diagnostics"].includes(panel) ? (
+                <RuntimeSettings tab={panel} state={state} />
+              ) : panel === "capabilities" ? (
                 <Capabilities state={state} />
               ) : panel === "loop" ? (
                 <Execution state={state} />
@@ -690,22 +741,12 @@ function Workspace() {
               ) : panel === "help" ? (
                 <div className="command-help">
                   <h3>在对话中直接操作</h3>
-                  <p>输入 / 选择命令，使用 ↑ ↓ 选择，Enter 执行。</p>
+                  <p>输入 / 选择命令，可用中文或命令名筛选；↑ ↓ 选择，Enter / Tab 确认，→ 打开子菜单，← / Esc 返回。</p>
                   <dl>
-                    {[
-                      ["/new", "新建会话"],
-                      ["/model", "模型与推理强度"],
-                      ["/plan", "切换计划模式"],
-                      ["/permissions", "文件与命令权限"],
-                      ["/skills", "浏览 Skills"],
-                      ["/resume", "恢复会话"],
-                      ["/review", "审查修改"],
-                      ["/compact", "压缩上下文"],
-                      ["/fork", "分叉会话"],
-                    ].map(([key, label]) => (
-                      <div key={key}>
-                        <dt>{key}</dt>
-                        <dd>{label}</dd>
+                    {slashCommands.map((command) => (
+                      <div key={command.name}>
+                        <dt>/{command.name}</dt>
+                        <dd>{command.label}{command.unavailable && `（${command.unavailable}）`}</dd>
                       </div>
                     ))}
                   </dl>
@@ -722,15 +763,15 @@ function Workspace() {
               )}
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+      </section>}
+      <ChatSearch open={searchOpen} onOpenChange={setSearchOpen} state={state} />
     </AssistantRuntimeProvider>
   );
 }
 createRoot(document.getElementById("root")!).render(
   <SidebarProvider
     className="h-dvh overflow-hidden"
-    style={{ "--sidebar-width": "260px" } as React.CSSProperties}
+    style={{ "--sidebar-width": "320px" } as React.CSSProperties}
   >
     <Workspace />
   </SidebarProvider>,

@@ -1,0 +1,6 @@
+@import "katex/dist/katex.min.css";
+
+.aui-md .katex { font-size: 1.08em; }
+.aui-md .katex-display { max-width: 100%; margin: 1em 0; overflow-x: auto; overflow-y: hidden; padding: 0.2em 0; }
+.aui-md .katex-error { color: var(--destructive, #b42318); white-space: pre-wrap; }
+.aui-md .katex table, .aui-md .katex td, .aui-md .katex th { border: 0; padding: 0; }

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from dataclasses import replace
+import uuid
 
 from .models import EventQuery, SnapshotQuery
 from .ports import ObservationError, InvalidCursor, UnknownEvent, UnknownSession
 from .service import CAPABILITIES
+from .static_files import CSP, StaticFiles
 
 from ..host import HostNotReady
 from ..state import identifier, payload_digest
@@ -24,12 +27,13 @@ class BodyTooLarge(ValueError):
 class ConsoleApp:
     """Same-origin Console for a trusted network; execution uses the Host principal."""
 
-    def __init__(self, host, events, *, max_streams=32):
+    def __init__(self, host, events, *, max_streams=32, static_dir=None):
         self.host, self.events = host, events
         self.max_streams, self._streams = max_streams, 0
         self._writes = asyncio.Lock()
         self._stopping = False
         self._native_locks = {}
+        self.static = StaticFiles(static_dir or Path(__file__).parent / 'static')
 
     @staticmethod
     async def _body(receive):
@@ -56,7 +60,7 @@ class ConsoleApp:
         await send({'type': 'http.response.start', 'status': status,
                     'headers': [(b'content-type', content_type.encode()), (b'cache-control', b'no-store'),
                                 (b'x-content-type-options', b'nosniff'),
-                                (b'content-security-policy', b"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https:; media-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'")]})
+                                (b'content-security-policy', CSP)]})
         await send({'type': 'http.response.body', 'body': body})
 
     async def _lifespan(self, receive, send):
@@ -231,16 +235,31 @@ class ConsoleApp:
         method, path = scope.get('method', 'GET'), scope.get('path', '/')
         if method == 'GET' and path == '/health/live':
             return await self._send(send, 200, {'live': True})
-        if method == 'GET' and path in {'/', '/app.js', '/transport.js', '/style.css'}:
-            filename, content_type = {'/': ('index.html', 'text/html; charset=utf-8'),
-                '/app.js': ('app.js', 'text/javascript'), '/transport.js': ('transport.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}[path]
-            return await self._send(send, 200, (Path(__file__).parent / 'static' / filename).read_bytes(), content_type=content_type)
+        if method in {'GET', 'HEAD'} and await self.static.serve(scope, send):
+            return
         headers = {k.decode().lower(): v.decode() for k, v in scope.get('headers', [])}
         if method == 'POST' and not self._same_origin(scope, headers):
             return await self._send(send, 403, {'error': 'origin-forbidden'})
         if method == 'POST' and self._stopping:
             return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
         try:
+            if path == '/api/mcp-app' and method == 'GET':
+                from .mcp_apps import resource_document
+                query = parse_qs(scope.get('query_string', b'').decode(), keep_blank_values=True)
+                if set(query) != {'threadId', 'server', 'uri'} or any(len(v) != 1 for v in query.values()):
+                    raise ValueError('invalid MCP application resource')
+                params = {key: values[0] for key, values in query.items()}
+                if not params['uri'].startswith('ui://'):
+                    raise ValueError('MCP application requires a ui resource')
+                result = await self.host.native.call('mcpServer/resource/read', params, 'app-' + uuid.uuid4().hex)
+                body, policy = resource_document(result, params['uri'], headers.get('host', ''))
+                await send({'type': 'http.response.start', 'status': 200, 'headers': [
+                    (b'content-type', b'text/html; charset=utf-8'), (b'cache-control', b'no-store'),
+                    (b'x-content-type-options', b'nosniff'), (b'referrer-policy', b'no-referrer'),
+                    (b'content-security-policy', policy.encode()),
+                    (b'permissions-policy', b'camera=(), microphone=(), geolocation=()'),
+                ]})
+                return await send({'type': 'http.response.body', 'body': body})
             if path == '/health/ready' and method == 'GET':
                 self.host.assert_ready()
                 return await self._send(send, 200, {'ready': True})
@@ -249,7 +268,29 @@ class ConsoleApp:
                     'principal_id': self.host.principal_id, 'tools': self.host.registry.dynamic_tools(self.host.actions)})
             if path == '/api/native/protocol' and method == 'GET':
                 return await self._send(send, 200, {**PROTOCOL.catalog(), 'cwd': str(self.host.workspace_dir),
+                                                   'skill_roots': getattr(self.host, 'skill_roots', []),
+                                                   'platform': sys.platform,
                                                    'configuration_editable': bool(self.host.configuration_changed)})
+            if path == '/api/sidebar-groups' and method == 'GET':
+                return await self._send(send, 200, self.host.store.read('console/sidebar-groups.json') or {'sections': [], 'revision': 0})
+            if path == '/api/sidebar-groups' and method == 'POST':
+                body = await self._body(receive)
+                async def save_groups(_key):
+                    sections = body.get('sections')
+                    if (not isinstance(sections, list) or len(sections) > 1000
+                            or any(not isinstance(s, dict) or set(s) != {'id', 'name'}
+                                   or not isinstance(s['id'], str) or not s['id']
+                                   or not isinstance(s['name'], str) or not s['name'].strip()
+                                   or len(s['name']) > 256 for s in sections)
+                            or len({s['id'] for s in sections}) != len(sections)):
+                        raise ValueError('invalid project groups')
+                    previous = self.host.store.read('console/sidebar-groups.json') or {'revision': 0}
+                    if body.get('revision') != previous['revision']:
+                        raise ValueError('project groups changed in another client; refresh and retry')
+                    result = {'sections': sections, 'revision': previous['revision'] + 1}
+                    self.host.store.write('console/sidebar-groups.json', result)
+                    return result
+                return await self._send(send, 200, await self._write(path, body, headers, save_groups))
             if path == '/api/native/requests' and method == 'GET':
                 return await self._send(send, 200, self.host.native.list_pending())
             if path.startswith('/api/native/requests/') and method == 'POST':

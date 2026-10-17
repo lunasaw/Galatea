@@ -1,3 +1,4 @@
+import { exactSlashCommand, initPrompt } from "./slash-commands";
 import type {
   Capabilities,
   EventPage,
@@ -8,6 +9,7 @@ import type {
   NativeRequest,
   NativeProtocol,
 } from "./types";
+import { NativeProjects, projectPages } from "./native-projects";
 import {
   emptyLayout,
   mergeProjects,
@@ -73,6 +75,12 @@ export const busyStatuses = new Set([
   "interrupting",
   "closing",
 ]);
+function mergeSessionSettings(previous: Record<string, any> | undefined, update: Record<string, unknown>) {
+  const next = { ...previous };
+  if (update.permissions) { delete next.sandbox; delete next.sandboxPolicy; }
+  else if (update.sandboxPolicy) delete next.permissions;
+  return { ...next, ...update };
+}
 export const statusLabel = (status: string) =>
   ({
     ready: "就绪",
@@ -113,10 +121,15 @@ export type ConsoleState = {
     model: string;
     displayName?: string;
     supportedReasoningEfforts?: Array<{ reasoningEffort: string }>;
+    defaultReasoningEffort?: string;
   }>;
   preferences: { model: string; effort: string; mode: string };
   settingsBusy: boolean;
+  goalInputs: Record<string, boolean>;
+  goalRevision: number;
   projectLayout: ProjectLayout;
+  threadSections: Array<{ id: string; name: string }>;
+  projectBusy: boolean;
   draftCwd: string;
   draftProjectId: string;
   draftPermission: PermissionPreset | null;
@@ -124,6 +137,11 @@ export type ConsoleState = {
 };
 
 export class ConsoleStore {
+  private nativeProjects = new NativeProjects((method, params) => this.nativeCall(method, params));
+  private nativeProjectMode = false;
+  private projectCatalogReady = false;
+  private projectWrites: Promise<boolean> = Promise.resolve(true);
+  private pendingProjectWrites = 0;
   private defaults = { model: "", effort: "medium", mode: "default" };
   private listeners = new Set<() => void>();
   private controller?: AbortController;
@@ -139,6 +157,7 @@ export class ConsoleStore {
     input?: Record<string, unknown>[];
     options?: Record<string, unknown>;
   };
+  private goalSubmissions = new Map<string, { id?: string; objective: string; key: string }>();
   private historyPage: string | null = null;
   private historyDepth = 0;
   private paging = false;
@@ -169,7 +188,11 @@ export class ConsoleStore {
     models: [],
     preferences: { model: "", effort: "medium", mode: "default" },
     settingsBusy: false,
+    goalInputs: {},
+    goalRevision: 0,
     projectLayout: emptyLayout(),
+    threadSections: [],
+    projectBusy: false,
     draftCwd: "",
     draftProjectId: "",
     draftPermission: null,
@@ -220,29 +243,40 @@ export class ConsoleStore {
         nativeProtocol,
         nativeRequests,
       });
-      this.saveProjectLayout({});
+      // Model defaults are independent of project migration and history restore.
+      const defaultsReady = this.loadDefaults().catch((error) => this.fail(error));
+      if (nativeProtocol.methods?.includes("project/list")) {
+        const old = { ...this.state.projectLayout };
+        // Bind legacy memberships before switching the authoritative catalog.
+        old.threadProjects = Object.fromEntries(sessions.map((s) => [s.id, this.projectForSession(s.id)?.id || ""]));
+        this.nativeProjectMode = true;
+        const loaded = await this.nativeProjects.load();
+        const marker = "codex-agent.projects-native:" + nativeProtocol.cwd;
+        const mapping = localStorage.getItem(marker) ? new Map<string, string>() : await this.nativeProjects.migrate(old, sessions, loaded.projects);
+        await this.refreshProjects(mapping.size || old.sections.length ? undefined : loaded);
+        localStorage.setItem(marker, "1");
+        const selected = mapping.get(this.state.draftProjectId);
+        if (selected) this.patch({ draftProjectId: selected });
+      } else this.saveProjectLayout({});
       const previous = localStorage.getItem("codex-agent.active");
       if (previous && sessions.some((s) => s.id === previous))
         await this.select(previous);
-      const [models, config] = await Promise.all([
-        this.nativeCall("model/list", {}) as Promise<any>,
-        this.nativeCall("config/read", {
-          includeLayers: false,
-        }) as Promise<any>,
-      ]);
-      this.defaults = {
-        model: config.config?.model || "",
-        effort: config.config?.model_reasoning_effort || "medium",
-        mode: "default",
-      };
-      this.patch({
-        models: models.data || [],
-        preferences: this.defaults,
-        runtimeDefaults: config.config || {},
-      });
+      await defaultsReady;
     } catch (error) {
       this.fail(error);
     }
+  }
+  private async loadDefaults() {
+    const [models, config] = await Promise.all([
+      this.nativeCall("model/list", {}) as Promise<any>,
+      this.nativeCall("config/read", { includeLayers: false }) as Promise<any>,
+    ]);
+    this.defaults = {
+      model: config.config?.model || "",
+      effort: config.config?.model_reasoning_effort || "medium",
+      mode: "default",
+    };
+    this.patch({ models: models.data || [], preferences: this.defaults, runtimeDefaults: config.config || {} });
   }
   async refreshNativeRequests() {
     try {
@@ -277,6 +311,7 @@ export class ConsoleStore {
     );
   }
   get projects() {
+    if (this.nativeProjectMode) return this.state.projectLayout.projects;
     return mergeProjects(this.state.projectLayout, [
       this.state.nativeProtocol?.cwd || "",
       this.state.draftCwd,
@@ -286,9 +321,10 @@ export class ConsoleStore {
     ]);
   }
   projectForSession(id: string) {
-    if (this.state.projectLayout.threadProjects[id] === "") return undefined;
     const session = this.state.sessions.find((s) => s.id === id);
     if (!session) return undefined;
+    if (this.nativeProjectMode) return this.projects.find((p) => p.id === session.settings?.projectId);
+    if (this.state.projectLayout.threadProjects[id] === "") return undefined;
     const path = session.cwd || session.settings?.cwd || "";
     const projects = this.projects;
     const assigned = projects.find(
@@ -304,6 +340,30 @@ export class ConsoleStore {
     );
   }
   saveProjectLayout(update: Partial<ProjectLayout>) {
+    if (this.nativeProjectMode) {
+      if (!Object.keys(update).length) return Promise.resolve(true);
+      if (!this.projectCatalogReady) { this.fail(new Error("项目列表尚未加载，请刷新后重试")); return Promise.resolve(false); }
+      const local = { collapsed: update.collapsed || this.state.projectLayout.collapsed,
+        threadOrder: update.threadOrder || this.state.projectLayout.threadOrder };
+      if (!update.projects && !update.sections && !update.threadProjects) {
+        this.patch({ projectLayout: { ...this.state.projectLayout, ...local } });
+        localStorage.setItem("codex-agent.projects", JSON.stringify(this.state.projectLayout));
+        return Promise.resolve(true);
+      }
+      this.pendingProjectWrites++;
+      this.patch({ projectBusy: true });
+      const previous = structuredClone(this.state.projectLayout);
+      this.projectWrites = this.projectWrites.then(async () => {
+        try {
+          await this.nativeProjects.update(previous, update, this.state.sessions);
+          await this.refreshProjects();
+          this.patch({ projectLayout: { ...this.state.projectLayout, ...local } });
+          return true;
+        } catch (error) { this.fail(error); await this.refreshProjects().catch(this.fail); return false; }
+        finally { this.pendingProjectWrites--; this.patch({ projectBusy: this.pendingProjectWrites > 0 }); }
+      });
+      return this.projectWrites;
+    }
     const threadProjects = { ...this.state.projectLayout.threadProjects };
     // Bind older sessions before a new project or a reorder can change any fallback.
     for (const session of this.state.sessions) {
@@ -318,6 +378,7 @@ export class ConsoleStore {
     };
     localStorage.setItem("codex-agent.projects", JSON.stringify(projectLayout));
     this.patch({ projectLayout });
+    return Promise.resolve(true);
   }
   addProject(path: string, name = "", section = "") {
     path = normalizeProjectPath(path);
@@ -332,6 +393,54 @@ export class ConsoleStore {
     this.saveProjectLayout({ projects: [...this.projects, project] });
     return project;
   }
+  async addProjectPersistent(path: string, name = "", section = "") {
+    if (!this.nativeProjectMode) return this.addProject(path, name, section);
+    if (!this.projectCatalogReady) throw new Error("项目列表尚未加载，请刷新后重试");
+    const project = await this.nativeProjects.create(normalizeProjectPath(path), name.trim() || projectName(path), section);
+    await this.refreshProjects(); return project;
+  }
+  async refreshProjects(loaded?: Awaited<ReturnType<NativeProjects["load"]>>) {
+    const catalog = loaded || await this.nativeProjects.load();
+    // Read membership from native storage too, including edits made by another client.
+    // Section-position ordering requires an actual section ID. Unsectioned
+    // threads support the regular timestamp order only.
+    const unsectioned = await projectPages((method, params) => this.nativeCall(method, params),
+      "thread/list", { sectionId: null, sortKey: "updated_at", sortDirection: "desc" });
+    const threads = [...unsectioned];
+    for (const sectionId of catalog.threadSections.map((section) => section.id)) {
+      threads.push(...await projectPages((method, params) => this.nativeCall(method, params),
+        "thread/list", { sectionId, sortKey: "section_position", sortDirection: "asc" }));
+    }
+    const byId = new Map(threads.map((thread) => [thread.id, thread]));
+    const sessionIds = new Map(this.state.sessions.map((s) => [s.thread_id, s.id]));
+    const unsectionedIds = new Set(unsectioned.map((thread) => sessionIds.get(thread.id)).filter(Boolean));
+    this.projectCatalogReady = true;
+    this.patch({ projectLayout: { ...this.state.projectLayout, projects: catalog.projects, sections: catalog.sections,
+        threadOrder: [...new Set([
+          ...this.state.projectLayout.threadOrder.filter((id) => unsectionedIds.has(id)),
+          ...threads.flatMap((t) => sessionIds.has(t.id) ? [sessionIds.get(t.id)!] : []),
+        ])] },
+      threadSections: catalog.threadSections,
+      sessions: this.state.sessions.map((s) => byId.has(s.thread_id) ? { ...s, section_id: byId.get(s.thread_id)?.section?.id,
+        settings: { ...s.settings, projectId: byId.get(s.thread_id)?.projectId || "" } } : s) });
+  }
+  async orderThread(id: string, beforeId?: string) {
+    const session = this.state.sessions.find((s) => s.id === id);
+    const before = this.state.sessions.find((s) => s.id === beforeId);
+    if (!this.nativeProjectMode || !session?.thread_id) return false;
+    const sectionId = before?.section_id || session.section_id;
+    if (!sectionId) return false; // Unsectioned manual order is a Web display preference.
+    await this.nativeCall("thread/section/move", { threadId: session.thread_id, sectionId, beforeThreadId: before?.thread_id || null });
+    await this.refreshProjects(); return true;
+  }
+  async moveToThreadSection(id: string, sectionId: string | null, beforeId?: string) {
+    const session = this.state.sessions.find((s) => s.id === id);
+    const before = this.state.sessions.find((s) => s.id === beforeId);
+    if (!session?.thread_id) return;
+    if (session.settings?.projectId) await this.nativeCall("thread/metadata/update", { threadId: session.thread_id, projectId: "" });
+    await this.nativeCall("thread/section/move", { threadId: session.thread_id, sectionId, beforeThreadId: before?.thread_id || null });
+    await this.refreshProjects();
+  }
   removeProject(id: string) {
     const project = this.projects.find((p) => p.id === id);
     if (!project) return;
@@ -340,15 +449,19 @@ export class ConsoleStore {
         .filter((s) => this.projectForSession(s.id)?.id === id)
         .map((s) => [s.id, ""]),
     );
-    this.saveProjectLayout({
+    const saved = this.saveProjectLayout({
       projects: this.projects.filter((p) => p.id !== id),
       hiddenPaths: [
         ...new Set([...this.state.projectLayout.hiddenPaths, project.path]),
       ],
       threadProjects,
     });
-    if (this.state.draftProjectId === id)
+    if (!this.nativeProjectMode && this.state.draftProjectId === id)
       this.setDraftProject({ id: "", path: "" });
+    return saved.then((accepted) => {
+      if (accepted && this.state.draftProjectId === id) this.setDraftProject({ id: "", path: "" });
+      return accepted;
+    });
   }
   private setDraftProject(project: { id: string; path: string }) {
     localStorage.setItem("codex-agent.project", project.path);
@@ -368,7 +481,7 @@ export class ConsoleStore {
     const project = this.projects.find((p) => p.id === projectId);
     const session = this.state.sessions.find((s) => s.id === id);
     if (
-      !project ||
+      (!project && projectId !== "") ||
       !session ||
       this.state.settingsBusy ||
       this.state.submitting ||
@@ -376,11 +489,14 @@ export class ConsoleStore {
     )
       return false;
     if (
-      (session.cwd || session.settings?.cwd) !== project.path &&
+      project && (session.cwd || session.settings?.cwd) !== project.path &&
       !(await this.updateSessionSettings(id, { cwd: project.path }))
     )
       return false;
-    this.saveProjectLayout({ threadProjects: { [id]: project.id } });
+    if (this.nativeProjectMode) {
+      try { await this.nativeCall("thread/metadata/update", { threadId: session.thread_id, projectId }); await this.refreshProjects(); }
+      catch (error) { this.fail(error); return false; }
+    } else this.saveProjectLayout({ threadProjects: { [id]: projectId } });
     return true;
   }
   async updateSessionSettings(id: string, settings: Record<string, unknown>) {
@@ -409,7 +525,7 @@ export class ConsoleStore {
                 ...(typeof settings.cwd === "string"
                   ? { cwd: settings.cwd }
                   : {}),
-                settings: { ...s.settings, ...settings },
+                settings: mergeSessionSettings(s.settings, settings),
               }
             : s,
         ),
@@ -461,16 +577,20 @@ export class ConsoleStore {
     return true;
   }
   get composerSettings() {
-    const settings = this.state.sessions.find(
+    const session = this.state.sessions.find(
       (s) => s.id === this.state.active,
-    )?.settings;
+    );
+    const settings = session?.settings;
+    const live = session?.active_turn_id ? session.turn_settings : undefined;
     const fallback = this.state.active ? this.defaults : this.state.preferences;
     return {
       model:
+        live?.model ||
         settings?.collaborationMode?.settings?.model ||
         settings?.model ||
         fallback.model,
       effort:
+        live?.effort ||
         settings?.collaborationMode?.settings?.reasoning_effort ||
         settings?.effort ||
         settings?.config?.model_reasoning_effort ||
@@ -483,8 +603,18 @@ export class ConsoleStore {
     const next = { ...this.composerSettings, ...update };
     const session = this.state.sessions.find((s) => s.id === this.state.active);
     if (!session) {
-      this.patch({ preferences: next });
+      this.patch({ preferences: next, ...(update.mode === "plan" ? { goalInputs: { ...this.state.goalInputs, new: false } } : {}) });
       return true;
+    }
+    if (session.active_turn_id) {
+      if (update.mode !== undefined) {
+        this.fail(new Error("工作模式将在当前回复结束后才能切换"));
+        return false;
+      }
+      return this.updateTurnSettings(session.id, {
+        ...(update.model !== undefined ? { model: update.model } : {}),
+        ...(update.effort !== undefined ? { effort: update.effort } : {}),
+      });
     }
     this.patch({ settingsBusy: true });
     try {
@@ -494,6 +624,7 @@ export class ConsoleStore {
         ...settings,
       });
       this.patch({
+        ...(update.mode === "plan" ? { goalInputs: { ...this.state.goalInputs, [session.id]: false } } : {}),
         sessions: this.state.sessions.map((s) =>
           s.id === session.id
             ? { ...s, settings: { ...s.settings, ...settings } }
@@ -507,6 +638,61 @@ export class ConsoleStore {
     } finally {
       this.patch({ settingsBusy: false });
     }
+  }
+  get goalInputMode() {
+    return !!this.state.goalInputs[this.state.active || "new"];
+  }
+  async chooseGoalMode(enabled: boolean) {
+    if (this.state.settingsBusy || this.state.submitting || this.state.creating) return false;
+    const id = this.state.active;
+    if (enabled && this.composerSettings.mode === "plan" && !await this.updateComposerSettings({ mode: "default" })) return false;
+    if (this.state.active !== id) return false;
+    this.patch({ goalInputs: { ...this.state.goalInputs, [id || "new"]: enabled }, error: "" });
+    return true;
+  }
+  async sendGoal(objective: string, accepted?: (sessionId: string) => void) {
+    if (!this.goalInputMode || !objective.trim() || this.state.submitting || this.state.creating || this.state.settingsBusy) return false;
+    const active = this.state.active;
+    const owner = active || "new";
+    let submission = this.goalSubmissions.get(owner);
+    if (!submission || submission.objective !== objective.trim()) {
+      submission = { id: submission?.id || active || undefined, objective: objective.trim(), key: requestKey() };
+      this.goalSubmissions.set(owner, submission);
+    }
+    this.patch({ submitting: true, error: "" });
+    try {
+      submission.id ||= (await this.create(false)) || undefined;
+      const session = this.state.sessions.find((s) => s.id === submission.id);
+      if (!session?.thread_id) throw new Error(this.state.error || "无法创建聊天");
+      await api("/api/native/call", { method: "thread/goal/set", params: {
+        threadId: session.thread_id, objective: submission.objective,
+      } }, submission.key);
+      this.goalSubmissions.delete(owner);
+      this.patch({ goalInputs: { ...this.state.goalInputs, [owner]: false }, goalRevision: this.state.goalRevision + 1 });
+      if (!active && this.state.active === active) await this.select(session.id);
+      this.schedule();
+      await this.refreshSessions().catch(this.fail);
+      accepted?.(session.id);
+      return true;
+    } catch (error) {
+      // Definite rejections may be retried after correcting the runtime state.
+      // Network/503 failures retain the same key because the goal may exist.
+      if (error instanceof ApiError && [400, 409, 422].includes(error.status)) submission.key = requestKey();
+      this.fail(error); return false;
+    } finally { this.patch({ submitting: false }); }
+  }
+  async updateTurnSettings(id: string, settings: Record<string, unknown>) {
+    const session = this.state.sessions.find((s) => s.id === id);
+    if (!session?.thread_id || !session.active_turn_id || this.state.settingsBusy) return false;
+    const turnId = session.active_turn_id;
+    this.patch({ settingsBusy: true, error: "" });
+    try {
+      await this.nativeCall("turn/settings/update", { threadId: session.thread_id, turnId, ...settings });
+      this.patch({ sessions: this.state.sessions.map((s) => s.id === id && s.active_turn_id === turnId
+        ? { ...s, turn_settings: { ...s.turn_settings, ...settings } } : s) });
+      return true;
+    } catch (error) { this.fail(error); return false; }
+    finally { this.patch({ settingsBusy: false }); }
   }
   private turnOptions(
     settings = this.composerSettings,
@@ -658,7 +844,7 @@ export class ConsoleStore {
       }
     }
   }
-  async create() {
+  async create(activate = true) {
     if (this.state.creating) return null;
     this.patch({ creating: true });
     const key = this.actions.get("create") || requestKey();
@@ -667,22 +853,26 @@ export class ConsoleStore {
       const { model, effort } = this.state.preferences;
       const project = this.currentProject;
       const options = {
-        ...(this.state.draftCwd ? { cwd: this.state.draftCwd } : {}),
+        ...(this.nativeProjectMode && project ? { projectId: project.id } : {}),
+        ...(project?.path || this.state.draftCwd ? { cwd: project?.path || this.state.draftCwd } : {}),
         ...(this.state.draftPermission
           ? permissionSettings(this.state.draftPermission, true)
           : {}),
         ...(model ? { model, config: { model_reasoning_effort: effort } } : {}),
       };
       const session = await api<Session>("/api/sessions", { options }, key);
-      this.actions.delete("create");
       if (project)
         this.saveProjectLayout({
           threadProjects: { [session.id]: project.id },
         });
       await this.refreshSessions();
-      await this.select(session.id);
-      if (model && !(await this.updateComposerSettings(this.state.preferences)))
-        return null;
+      if (activate) {
+        await this.select(session.id);
+        if (model && !(await this.updateComposerSettings(this.state.preferences))) return null;
+      } else if (model) {
+        await this.nativeCall("thread/settings/update", { threadId: session.thread_id, ...this.turnOptions(this.state.preferences) });
+      }
+      this.actions.delete("create");
       return session.id;
     } catch (error) {
       this.fail(error);
@@ -734,9 +924,19 @@ export class ConsoleStore {
       this.state.settingsBusy
     )
       return;
+    this.patch({ error: "" });
     const command = text.trim().match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
     if (command && !input?.length) {
-      const name = command[1];
+      const name = command[1].toLowerCase();
+      const definition = exactSlashCommand("/" + name);
+      if (definition?.unavailable || definition?.thread && !this.state.sessions.find((s) => s.id === this.state.active)?.thread_id) {
+        this.fail(new Error(definition?.unavailable || "请先开始聊天")); return;
+      }
+      const session = this.state.sessions.find((s) => s.id === this.state.active);
+      if (definition?.idle && (session?.active_turn_id || busyStatuses.has(session?.status || ""))) {
+        this.fail(new Error("请先停止当前回复")); return;
+      }
+      if (name === "init") { await this.send(initPrompt); return; }
       if (name === "new" || name === "clear") {
         await this.select(null);
         return;
@@ -750,6 +950,9 @@ export class ConsoleStore {
       if (
         [
           "model",
+          "reasoning",
+          "usage",
+          "feedback",
           "permissions",
           "skills",
           "mcp",
@@ -758,12 +961,15 @@ export class ConsoleStore {
           "status",
           "resume",
           "help",
+          "goal",
+          "queue",
+          "search",
         ].includes(name)
       ) {
         window.dispatchEvent(new CustomEvent("codex-panel", { detail: name }));
         return;
       }
-      if (["compact", "fork", "review", "undo"].includes(name)) {
+      if (["compact", "fork", "review", "undo", "archive"].includes(name)) {
         window.dispatchEvent(new CustomEvent("codex-action", { detail: name }));
         return;
       }
@@ -995,6 +1201,17 @@ export class ConsoleStore {
   }
   async latest() {
     if (this.state.active) await this.select(this.state.active);
+  }
+  async locateItem(itemId: string) {
+    const id = this.state.active;
+    const found = () => this.state.snapshot?.messages?.find((m) => m.item_id === itemId);
+    while (!found() && this.state.older) {
+      const previous = this.state.snapshot;
+      await this.older();
+      if (this.state.active !== id) throw new Error("当前会话已改变，请重新选择搜索结果");
+      if (this.state.snapshot === previous) break;
+    }
+    if (!found()) throw new Error("未在可用历史中找到该消息，可能已被回退或删除");
   }
   async history(filter = this.filter, next = false) {
     this.filter = filter;

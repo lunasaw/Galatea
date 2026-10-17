@@ -784,7 +784,7 @@
 .file-browser-list {
   padding: 8px;
 }
-.file-browser-list > button {
+.file-browser-list > button, .file-browser-row > button:first-child {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -794,7 +794,7 @@
   font-size: 12px;
   text-align: left;
 }
-.file-browser-list > button:hover {
+.file-browser-list > button:hover, .file-browser-row > button:first-child:hover {
   background: var(--muted);
 }
 .file-browser-list svg {

@@ -13,7 +13,7 @@
     "esModuleInterop": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node", "react-syntax-highlighter"]
   },
   "include": ["src"]
 }

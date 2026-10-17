@@ -1,4 +1,15 @@
+import { deferred } from "./deferred";
+const AppsPanel = deferred(() => import("./apps-panel").then(m => ({ default: m.AppsPanel })));
+const ModelSettings = deferred(() => import("./model-settings").then(m => ({ default: m.ModelSettings })));
+const TerminalWorkspace = deferred(() => import("./terminal-workspace").then(m => ({ default: m.TerminalWorkspace })));
+const SkillsPanel = deferred(() => import("./integrations").then(m => ({ default: m.SkillsPanel })));
+const McpPanel = deferred(() => import("./integrations").then(m => ({ default: m.McpPanel })));
+const PluginsPanel = deferred(() => import("./integrations").then(m => ({ default: m.PluginsPanel })));
+
+
 import { requestThreadAction } from "./thread-actions";
+
+import { FileCapabilities } from "./file-capabilities";
 import {
   useEffect,
   useState,
@@ -26,7 +37,7 @@ import {
   type Obj,
 } from "./native";
 import type { NativeRequest } from "./types";
-import { SkillsPanel, McpPanel, PluginsPanel } from "./integrations";
+
 
 const Json = ({ value }: { value: unknown }) => (
   <pre className="json">{json(value)}</pre>
@@ -436,295 +447,18 @@ export function NativeRequests({
   ) : null;
 }
 
-function Settings({ state }: { state: ConsoleState }) {
-  const session = state.sessions.find((s) => s.id === state.active);
-  const [models, setModels] = useState<Obj[]>([]);
-  const currentSettings = store.composerSettings;
-  const [model, setModel] = useState(currentSettings.model);
-  const [effort, setEffort] = useState(currentSettings.effort);
-  const [cwd, setCwd] = useState(store.cwd);
-  const permission = store.permissionConfiguration;
-  const policyType = permission.sandboxPolicy?.type;
-  const [sandbox, setSandbox] = useState(
-    (
-      {
-        readOnly: "read-only",
-        workspaceWrite: "workspace-write",
-        dangerFullAccess: "danger-full-access",
-      } as Obj
-    )[policyType] ||
-      permission.sandbox ||
-      "workspace-write",
-  );
-  const [approval, setApproval] = useState(
-    permission.approvalPolicy || "on-request",
-  );
-  const [mode, setMode] = useState(currentSettings.mode);
-  const [search, setSearch] = useState("live");
-  const [flags, setFlags] = useState<Obj>({});
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let live = true;
-    void Promise.all([
-      native("model/list", {}),
-      native("config/read", { includeLayers: false }),
-    ])
-      .then(([m, c]) => {
-        if (!live) return;
-        setModels(m.data || []);
-        setModel(currentSettings.model || c.config?.model || "");
-        setEffort(
-          currentSettings.effort ||
-            c.config?.model_reasoning_effort ||
-            "medium",
-        );
-        setFlags(c.config?.features || {});
-        setSearch(c.config?.web_search || "live");
-      })
-      .catch((e) => live && setError(String(e)));
-    return () => {
-      live = false;
-    };
-  }, []);
-  const save = async (create: boolean) => {
-    setBusy(true);
-    setError("");
-    setStatus("");
-    try {
-      let id = session?.id;
-      if (create || !session) {
-        const result = await api<Obj>(
-          "/api/sessions",
-          {
-            options: {
-              cwd,
-              ...(model ? { model } : {}),
-              sandbox,
-              approvalPolicy: approval,
-            },
-          },
-          requestKey(),
-        );
-        id = result.id;
-        await store.refreshSessions();
-        await store.select(id!);
-      }
-      const current = store.state.sessions.find((s) => s.id === id)!;
-      await native("thread/settings/update", {
-        threadId: current.thread_id,
-        cwd,
-        ...(model ? { model } : {}),
-        effort,
-        sandboxPolicy: sandboxPolicy(sandbox),
-        approvalPolicy: approval,
-        ...(model
-          ? {
-              collaborationMode: {
-                mode,
-                settings: {
-                  model,
-                  reasoning_effort: effort,
-                  developer_instructions: null,
-                },
-              },
-            }
-          : {}),
-      });
-      await store.refreshSessions();
-      setStatus("会话设置已应用");
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="native-form">
-      <Field label="工作目录">
-        <input
-          value={cwd}
-          onChange={(e) => setCwd(e.target.value)}
-          placeholder="绝对路径"
-        />
-      </Field>
-      <Field label="模型">
-        <input
-          aria-label="模型"
-          list="native-models"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-        />
-        <datalist id="native-models">
-          {models.map((m) => (
-            <option key={m.id} value={m.model}>
-              {m.displayName}
-            </option>
-          ))}
-        </datalist>
-      </Field>
-      <div className="native-grid">
-        <Field label="推理强度">
-          <select value={effort} onChange={(e) => setEffort(e.target.value)}>
-            {[
-              "none",
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max",
-              "ultra",
-            ].map((e) => (
-              <option key={e}>{e}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="工作模式">
-          <select value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="default">执行</option>
-            <option value="plan">计划</option>
-          </select>
-        </Field>
-      </div>
-      <Field label="文件与命令权限">
-        <select value={sandbox} onChange={(e) => setSandbox(e.target.value)}>
-          <option value="read-only">只读</option>
-          <option value="workspace-write">允许工作区写入</option>
-          <option value="danger-full-access">完全访问</option>
-        </select>
-      </Field>
-      <Field label="审批策略">
-        <select value={approval} onChange={(e) => setApproval(e.target.value)}>
-          <option value="untrusted">不可信操作需审批</option>
-          <option value="on-request">按需请求审批</option>
-          <option value="never">不请求审批</option>
-        </select>
-      </Field>
-      <div className="native-options">
-        <Button disabled={busy} onClick={() => void save(false)}>
-          {session ? "应用到当前会话" : "创建会话"}
-        </Button>
-        {session && (
-          <Button
-            disabled={busy}
-            variant="outline"
-            onClick={() => void save(true)}
-          >
-            以此设置新建
-          </Button>
-        )}
-      </div>
-      <details>
-        <summary>全局功能配置</summary>
-        <p className="text-sm text-muted-foreground">
-          修改后用于后续会话；部分功能取决于服务端和平台支持。
-        </p>
-        <Field label="联网搜索">
-          <select value={search} onChange={(e) => setSearch(e.target.value)}>
-            {["disabled", "cached", "live"].map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </Field>
-        {Object.entries({
-          shell_tool: "Shell 执行",
-          unified_exec: "交互命令",
-          view_image: "查看图片",
-          multi_agent: "多 Agent",
-          apps: "Apps",
-          plugins: "Plugins",
-          goals: "目标",
-          hooks: "Hooks",
-          skill_search: "Skill 搜索",
-        }).map(([key, title]) => (
-          <label className="native-checkbox" key={key}>
-            <input
-              type="checkbox"
-              checked={flags[key] === true}
-              onChange={(e) => setFlags({ ...flags, [key]: e.target.checked })}
-            />
-            {title}
-          </label>
-        ))}
-        <Button
-          disabled={busy || !state.nativeProtocol?.configuration_editable}
-          onClick={async () => {
-            setBusy(true);
-            setError("");
-            try {
-              await native("config/batchWrite", {
-                reloadUserConfig: true,
-                edits: [
-                  {
-                    keyPath: "web_search",
-                    value: search,
-                    mergeStrategy: "replace",
-                  },
-                  ...Object.entries(flags).map(([key, value]) => ({
-                    keyPath: `features.${key}`,
-                    value,
-                    mergeStrategy: "replace",
-                  })),
-                ],
-              });
-              setStatus("全局配置已保存");
-            } catch (e) {
-              setError(String(e));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          保存全局功能
-        </Button>
-      </details>
-      <p role="status">{status}</p>
-      <ErrorText error={error} />
-    </div>
-  );
-}
-
-function Apps() {
-  const [data, setData] = useState<Obj>({});
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const load = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      setData(await native("app/list", {}));
-    } catch (error) {
-      setError(String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-  useEffect(() => {
-    void load();
-  }, []);
-  return (
-    <div className="native-form">
-      <Button variant="outline" disabled={busy} onClick={() => void load()}>
-        刷新列表
-      </Button>
-      <Json value={data} />
-      <ErrorText error={error} />
-    </div>
-  );
-}
-
-function History({ state }: { state: ConsoleState }) {
+export function ConversationHistory({ state, agents = false, onOpen }: { state: ConsoleState; agents?: boolean; onOpen?: () => void }) {
   const [data, setData] = useState<Obj>({});
   const [term, setTerm] = useState("");
   const [archived, setArchived] = useState(false);
-  const [agents, setAgents] = useState(false);
+  const threadId = state.sessions.find((s) => s.id === state.active)?.thread_id;
+  const generation = useRef(0);
   const [error, setError] = useState("");
   const load = async (cursor?: string) => {
+    const version = ++generation.current;
+    if (agents && !threadId) { setData({ data: [] }); return; }
     try {
-      setData(
-        await native("thread/list", {
+      const result = await native("thread/list", {
           limit: 50,
           searchTerm: term,
           archived,
@@ -744,23 +478,26 @@ function History({ state }: { state: ConsoleState }) {
                 ],
               }
             : {}),
-        }),
-      );
+        });
+      if (version !== generation.current) return;
+      setData((previous) => cursor ? { ...result, data: [...(previous.data || []), ...result.data] } : result);
       setError("");
     } catch (e) {
-      setError(String(e));
+      if (version === generation.current) setError(String(e));
     }
   };
   useEffect(() => {
     void load();
-  }, [archived, agents]);
+    return () => { generation.current++; };
+  }, [archived, agents, threadId]);
   useEffect(() => {
     const listener = () => void load();
     window.addEventListener("codex-threads-changed", listener);
     return () => window.removeEventListener("codex-threads-changed", listener);
-  }, [archived, agents, term]);
+  }, [archived, agents, term, threadId]);
   return (
     <div className="native-form">
+      {agents && <><h3>当前聊天的子 Agent</h3>{!threadId && <p>先打开一个聊天。</p>}</>}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -772,22 +509,14 @@ function History({ state }: { state: ConsoleState }) {
         </Field>
         <Button>搜索</Button>
       </form>
-      <label className="native-checkbox">
+      {!agents && <label className="native-checkbox">
         <input
           type="checkbox"
           checked={archived}
           onChange={(e) => setArchived(e.target.checked)}
         />
         已归档
-      </label>
-      <label className="native-checkbox">
-        <input
-          type="checkbox"
-          checked={agents}
-          onChange={(e) => setAgents(e.target.checked)}
-        />
-        当前会话的子 Agent
-      </label>
+      </label>}
       {(data.data || []).map((thread: Obj) => (
         <article className="native-card" key={thread.id}>
           <strong>{thread.name || thread.preview || thread.id}</strong>
@@ -799,6 +528,7 @@ function History({ state }: { state: ConsoleState }) {
                   if (archived)
                     await native("thread/unarchive", { threadId: thread.id });
                   await openNativeThread(thread.id);
+                  onOpen?.();
                 } catch (e) {
                   setError(String(e));
                 }
@@ -847,197 +577,9 @@ function History({ state }: { state: ConsoleState }) {
       ))}
       {data.nextCursor && (
         <Button variant="outline" onClick={() => void load(data.nextCursor)}>
-          下一页
+          加载更多
         </Button>
       )}
-      <ErrorText error={error} />
-    </div>
-  );
-}
-
-function TerminalFiles({
-  state,
-  files,
-  compact = false,
-}: {
-  state: ConsoleState;
-  files: boolean;
-  compact?: boolean;
-}) {
-  const [path, setPath] = useState(
-    state.sessions.find((s) => s.id === state.active)?.cwd ||
-      state.nativeProtocol?.cwd ||
-      "",
-  );
-  const [command, setCommand] = useState("");
-  const [stdin, setStdin] = useState("");
-  const [content, setContent] = useState("");
-  const [data, setData] = useState<Obj>({});
-  const [processId, setProcessId] = useState("");
-  const [error, setError] = useState("");
-  const [output, setOutput] = useState("");
-  const cursor = useRef("");
-  useEffect(() => {
-    if (!processId) return;
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      try {
-        const page = await api<Obj>(
-          "/api/events/history?limit=200&method=command%2Fexec%2FoutputDelta" +
-            (cursor.current
-              ? "&after=" + encodeURIComponent(cursor.current)
-              : ""),
-        );
-        if (stopped) return;
-        cursor.current = page.next_cursor;
-        for (const event of page.events)
-          if (event.payload?.params?.processId === processId)
-            setOutput(
-              (old) => old + decode64(event.payload.params.deltaBase64),
-            );
-      } catch (e) {
-        if (!stopped) setError(String(e));
-      }
-      if (!stopped) timer = setTimeout(poll, 250);
-    };
-    void poll();
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [processId]);
-  const invoke = async (method: string, params: Obj) => {
-    setError("");
-    try {
-      const r = await native(method, params);
-      setData(r);
-      if (r.dataBase64 !== undefined) setContent(decode64(r.dataBase64));
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-  const terminalOutput = (output || data.stdout !== undefined) && (
-    <pre className="native-terminal">
-      {output || data.stdout}
-      {data.stderr}
-    </pre>
-  );
-  return (
-    <div className={compact ? "native-form compact-terminal" : "native-form"}>
-      <Field label={files ? "文件或目录的绝对路径" : "命令工作目录"}>
-        <input value={path} onChange={(e) => setPath(e.target.value)} />
-      </Field>
-      {compact && (
-        <div className="compact-terminal-output" aria-label="终端输出">
-          {terminalOutput || <p>输入命令，在当前工作目录执行。</p>}
-        </div>
-      )}
-      {files ? (
-        <>
-          <div className="native-options">
-            <Button onClick={() => void invoke("fs/readDirectory", { path })}>
-              列出目录
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => void invoke("fs/readFile", { path })}
-            >
-              读取文件
-            </Button>
-          </div>
-          <Field label="文件内容">
-            <textarea
-              className="native-editor"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              spellCheck={false}
-            />
-          </Field>
-          <Button
-            onClick={() =>
-              void invoke("fs/writeFile", {
-                path,
-                dataBase64: encode64(content),
-              })
-            }
-          >
-            保存文件
-          </Button>
-        </>
-      ) : (
-        <>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (processId || !command.trim()) return;
-              const id = requestKey();
-              setProcessId(id);
-              try {
-                const baseline = await api<Obj>("/api/events/history?limit=1");
-                cursor.current = baseline.watermark;
-                setOutput("");
-                setData({});
-                await invoke("command/exec", {
-                  command: ["/bin/sh", "-lc", command],
-                  cwd: path,
-                  processId: id,
-                  streamStdin: true,
-                  streamStdoutStderr: true,
-                  timeoutMs: 300000,
-                });
-                await new Promise((resolve) => setTimeout(resolve, 400));
-              } catch (error) {
-                setError(String(error));
-              } finally {
-                setProcessId("");
-              }
-            }}
-          >
-            <Field label="Shell 命令">
-              <textarea
-                value={command}
-                onChange={(e) => setCommand(e.target.value)}
-                spellCheck={false}
-              />
-            </Field>
-            <Button disabled={!!processId || !command.trim()}>执行命令</Button>
-          </form>
-          {processId && (
-            <>
-              <p role="status">命令执行中…</p>
-              <Field label="标准输入">
-                <input
-                  value={stdin}
-                  onChange={(e) => setStdin(e.target.value)}
-                />
-              </Field>
-              <div className="native-options">
-                <Button
-                  onClick={() =>
-                    void invoke("command/exec/write", {
-                      processId,
-                      deltaBase64: encode64(stdin + "\n"),
-                    })
-                  }
-                >
-                  发送输入
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    void invoke("command/exec/terminate", { processId })
-                  }
-                >
-                  停止命令
-                </Button>
-              </div>
-            </>
-          )}
-          {!compact && terminalOutput}
-        </>
-      )}
-      {!compact && <Json value={data} />}
       <ErrorText error={error} />
     </div>
   );
@@ -1051,6 +593,13 @@ function ProtocolExplorer({ state }: { state: ConsoleState }) {
   const [result, setResult] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const methods = (protocol?.methods || []).filter(
+    (m: string) =>
+      !/^account\//.test(m) &&
+      !/oauth\/login/.test(m) &&
+      !m.startsWith("userVerification/") &&
+      m !== "attestation/generate",
+  );
   const select = (name: string) => {
     setMethod(name);
     const value = schemaValue(
@@ -1065,18 +614,15 @@ function ProtocolExplorer({ state }: { state: ConsoleState }) {
   return (
     <div className="native-form">
       <p>
-        {protocol?.version} · {protocol?.methods.length}{" "}
-        个运行时方法。此工具供高级调试使用，账号认证接口不在网页中提供。
+        {protocol?.version} · {methods.length}{" "}
+        个可用原生方法。此工具供高级调试使用，账号认证接口不在网页中提供。
       </p>
       <Field label="筛选方法">
         <input value={filter} onChange={(e) => setFilter(e.target.value)} />
       </Field>
       <Field label="原生方法">
         <select value={method} onChange={(e) => select(e.target.value)}>
-          {(protocol?.methods || [])
-            .filter(
-              (m: string) => !/^account\//.test(m) && !/oauth\/login/.test(m),
-            )
+          {methods
             .filter(
               (m: string) =>
                 !filter || m.toLowerCase().includes(filter.toLowerCase()),
@@ -1142,16 +688,13 @@ export function NativeControl({
   return (
     <div id={compact ? "terminal-control" : "native-control"}>
       {tab === "settings" ? (
-        <Settings state={state} />
+        <ModelSettings key={state.active || "new"} state={state} />
       ) : tab === "history" ? (
-        <History state={state} />
-      ) : tab === "terminal" || tab === "files" ? (
-        <TerminalFiles
-          key={tab}
-          state={state}
-          files={tab === "files"}
-          compact={compact}
-        />
+        <ConversationHistory state={state} />
+      ) : tab === "terminal" ? (
+        <TerminalWorkspace compact={compact} />
+      ) : tab === "files" ? (
+        <FileCapabilities />
       ) : tab === "protocol" ? (
         <ProtocolExplorer state={state} />
       ) : tab === "skills" ? (
@@ -1161,7 +704,7 @@ export function NativeControl({
       ) : tab === "plugins" ? (
         <PluginsPanel state={state} />
       ) : (
-        <Apps />
+        <AppsPanel key={state.active || "global"} state={state} />
       )}
     </div>
   );

@@ -345,6 +345,7 @@ class AgentHost:
             if session['status'] == 'recovery_required':
                 status = 'recovery_required'
             session.update(status=status, active_turn_id=None, active_request_id=None)
+            session.pop('turn_settings', None)
             self._save(session)
             self._cancels.pop(session['id'], None)
         elif method not in {'item/started', 'item/completed', 'item/agentMessage/delta', 'thread/tokenUsage/updated'}:

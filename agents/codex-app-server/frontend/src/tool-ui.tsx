@@ -1,7 +1,11 @@
+import { deferred } from "./deferred";
+const McpAppView = deferred(() => import("./mcp-app-view").then(m => ({ default: m.McpAppView })));
 import {
   useAuiState,
   type ToolCallMessagePartProps,
 } from "@assistant-ui/react";
+import { GuardianReview } from "./review-capabilities";
+import { NativeAgentActivity, NativeHookActivity, NativeImageActivity } from "./native-item-details";
 import {
   Terminal,
   FileDiff,
@@ -23,6 +27,9 @@ import { toolState } from "./messages";
 import type { Step } from "./types";
 import { WorkspaceFileScope, WorkspaceLink } from "./workspace-file";
 import { commandActions } from "./command-actions";
+import { McpContent } from "./mcp-capabilities";
+
+import { consoleStore as store } from "./store";
 
 const object = (v: unknown): Record<string, any> =>
   v && typeof v === "object" ? (v as Record<string, any>) : {};
@@ -35,9 +42,29 @@ export function CodexToolFallback(props: ToolCallMessagePartProps) {
     (meta?.steps as Record<string, Step> | undefined)?.[props.toolCallId] ||
     (meta?.step as Step | undefined);
   if (!step) return <ToolFallback {...props} />;
+  return <NativeToolActivity step={step} running={props.status.type === "running"} result={props.result} />;
+}
+
+/** The same native activity presentation is used in the main chat and agent drawer. */
+export function NativeToolActivity({ step, running = false, result, threadId: scopeThreadId }: { step: Step; running?: boolean; result?: unknown; threadId?: string }) {
   const d = object(step.detail);
+  if (step.type === "guardian") return <GuardianReview notification={d} />;
+  if (["imageView", "imageGeneration"].includes(step.type || "")) return <NativeImageActivity step={step} />;
+  if (["subAgentActivity", "collabAgentToolCall"].includes(step.type || "")) return <NativeAgentActivity step={step} />;
+  if (step.type === "hook") return <NativeHookActivity step={step} />;
+  if (step.type === "mcpToolCall") {
+    const uri = d.appContext?.resourceUri || d.mcpAppResourceUri;
+    const threadId = scopeThreadId || store.state.sessions.find((s) => s.id === store.state.active)?.thread_id;
+    return <section className="native-rich-item"><strong>{d.appContext?.appName || d.server} · {d.appContext?.actionName || d.tool}</strong>
+      {d.status === "inProgress" && <p role="status">执行中…</p>}
+      {d.error && <p role="alert">{d.error.message || pretty(d.error)}</p>}
+      {d.result && <McpContent content={d.result.content || []} />}
+      {typeof uri === "string" && uri.startsWith("ui://") && threadId && <McpAppView server={d.server} threadId={threadId} uri={uri} args={d.arguments} result={d.result} />}
+      <details className="native-arguments"><summary>调用详情</summary><pre className="json">{pretty({ arguments: d.arguments, result: d.result })}</pre></details>
+    </section>;
+  }
   const state = toolState(step);
-  const pending = state === "running" && props.status.type !== "running";
+  const pending = state === "running" && !running;
   const actions = step.type === "commandExecution" ? commandActions(d) : [];
   const label =
     step.type === "warning"
@@ -231,13 +258,13 @@ export function CodexToolFallback(props: ToolCallMessagePartProps) {
                   </pre>
                 </details>
                 {output && <pre className="native-terminal">{output}</pre>}
-                {(props.result !== undefined ||
+                {(result !== undefined ||
                   d.result !== undefined ||
                   d.error) && (
                   <div>
                     <p className="muted">工具回执</p>
                     <pre className="json">
-                      {pretty(props.result ?? d.result ?? d.error)}
+                      {pretty(result ?? d.result ?? d.error)}
                     </pre>
                   </div>
                 )}

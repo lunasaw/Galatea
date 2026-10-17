@@ -17,6 +17,7 @@ from jsonschema import Draft7Validator
 from .console.observer import observation_context
 from .console.projection import redact
 from .state import payload_digest
+from .rpc import RpcError
 
 
 class NativeProtocol:
@@ -60,6 +61,15 @@ class NativeBridge:
         method, params = message['method'], message.get('params', {})
         if method == 'currentTime/read':
             return {'result': {'currentTimeAt': int(time.time())}}
+        if method in {'attestation/generate', 'account/chatgptAuthTokens/refresh'}:
+            # These are client integrations, not human approvals. The Web Host
+            # has neither a platform attestation provider nor external ChatGPT
+            # token ownership. Match the CLI's unsupported-client behavior;
+            # never queue a credential/attestation JSON form in the browser.
+            return {'error': {'code': -32601, 'message': (
+                'Client attestation is not available in this Web Host.'
+                if method == 'attestation/generate' else
+                'External ChatGPT token refresh is not configured in this Web Host.')}}
         if method not in PROTOCOL.bundle['responses']:
             return {'error': {'code': -32601, 'message': 'Unknown server request'}}
         thread_id = params.get('threadId', params.get('conversationId'))
@@ -132,7 +142,8 @@ class NativeBridge:
             raise ValueError('method is managed by Host or unknown')
         PROTOCOL.validate(PROTOCOL.schema(method), params)
         await host._check_admission()
-        if method.startswith(('config/value/', 'config/batch', 'externalAgentConfig/import')) or method in {
+        if method.startswith(('config/value/', 'config/batch')) or method in {
+                'externalAgentConfig/import', 'externalAgentConfig/import/recordHistory',
                 'experimentalFeature/enablement/set', 'skills/config/write', 'skills/extraRoots/set',
                 'plugin/install', 'plugin/uninstall', 'plugin/reconcile',
                 'marketplace/add', 'marketplace/remove', 'marketplace/upgrade'}:
@@ -143,6 +154,9 @@ class NativeBridge:
             changes_config = False
         thread_id = (params or {}).get('threadId')
         session = host._session_for_thread(thread_id)
+        if method == 'turn/settings/update' and (
+                not session or params['turnId'] != session.get('active_turn_id')):
+            raise ValueError('turn identity changed')
         if method == 'thread/start':
             options = dict(params)
             options.pop('dynamicTools', None)
@@ -168,29 +182,56 @@ class NativeBridge:
             raise ValueError('stop the active turn first')
         context = {'thread_id': thread_id, 'session_id': session['id'] if session else None,
                    'host_request_id': request_id}
-        # A review starts an agent turn just like turn/start, so reserve its
+        # Reviews and queued submissions start agent turns, so reserve their
         # admission slot before the native notification can arrive.
-        if method == 'review/start':
-            if not session or session['status'] != 'ready' or params.get('delivery') == 'detached':
+        starts_turn = method in {'review/start', 'thread/queue/start'}
+        if starts_turn:
+            if method == 'review/start' and params.get('delivery') == 'detached':
                 raise ValueError('start an inline review on a ready session')
             async with host._admission:
+                await host._check_admission()
+                if not session or session['id'] not in host._attached or session['status'] != 'ready':
+                    raise ValueError('start a turn on a ready session')
                 if host._active_turns >= host.max_active_turns:
                     raise ValueError('active turn limit reached')
-                host.store.write(f'requests/{request_id}.json', {'request_id': request_id, 'status': 'intent_recorded'})
+                host.store.write(f'requests/{request_id}.json', {'request_id': request_id,
+                    'session_id': session['id'], 'thread_id': thread_id, 'status': 'intent_recorded'})
                 session.update(status='starting', active_request_id=request_id, active_turn_id=None)
                 host._save(session)
                 host._active_turns += 1
         try:
             with observation_context(**context):
-                result = await host.client.peer.request(method, params, timeout=600 if method in {
-                    'command/exec', 'mcpServer/tool/call', 'account/login/start', 'mcpServer/oauth/login'} else 60)
-        except BaseException:
-            if method == 'review/start':
-                session['status'] = 'recovery_required'
+                timeout = 600 if method in {
+                    'command/exec', 'mcpServer/tool/call', 'account/login/start', 'mcpServer/oauth/login'} else 60
+                if method == 'command/exec' and params.get('tty') and params.get('disableTimeout'):
+                    timeout = float('inf')
+                result = await host.client.peer.request(method, params, timeout=timeout)
+        except BaseException as error:
+            if starts_turn:
+                # A definite native rejection consumed no turn; uncertain transport
+                # failures keep the reservation until the session is reconciled.
+                if isinstance(error, RpcError) and not session.get('active_turn_id'):
+                    session.update(status='ready', active_request_id=None)
+                    host._active_turns = max(0, host._active_turns - 1)
+                    host.store.write(f'requests/{request_id}.json', {'request_id': request_id, 'status': 'failed'})
+                else:
+                    session['status'] = 'recovery_required'
                 host._save(session)
             raise
+        if starts_turn:
+            path = f'requests/{request_id}.json'
+            record = host.store.read(path)
+            if record['status'] not in {'completed', 'failed', 'interrupted'}:
+                turn_id = result['turn']['id']
+                record.update(turn_id=turn_id, status='accepted')
+                host.store.write(path, record)
+                session.update(status='running', active_turn_id=turn_id)
+                host._save(session)
         if changes_config:
             await host.configuration_changed()
+        if method == 'skills/extraRoots/set':
+            host.store.write('console/skill-roots.json', {'roots': params['extraRoots']})
+            host.skill_roots = list(params['extraRoots'])
         if method == 'thread/unarchive':
             result = await host.client.resume(thread_id)
         if method in {'thread/resume', 'thread/fork', 'thread/unarchive'}:
@@ -238,11 +279,55 @@ class NativeBridge:
                 thread = (await host.client.read_thread(thread_id))['thread']
             host.restore_thread(session['id'], thread)
         if session and method in {'thread/settings/update', 'turn/settings/update'}:
-            session['settings'] = {**session.get('settings', {}), **{k: v for k, v in params.items() if k != 'threadId'}}
+            key = 'turn_settings' if method == 'turn/settings/update' else 'settings'
+            if key == 'turn_settings' and params['turnId'] != session.get('active_turn_id'):
+                return redact(result)[0]
+            settings = dict(session.get(key, {}))
+            if params.get('permissions'):
+                settings.pop('sandboxPolicy', None)
+                settings.pop('sandbox', None)
+            elif params.get('sandboxPolicy'):
+                settings.pop('permissions', None)
+            settings.update({k: v for k, v in params.items() if k not in {'threadId', 'turnId'}})
+            session[key] = settings
             if params.get('cwd'):
                 session['cwd'] = params['cwd']
             host._save(session)
+        if session and method == 'thread/memoryMode/set':
+            session['settings'] = {**session.get('settings', {}), 'memoryMode': params['mode']}
+            host._save(session)
+        if session and method == 'thread/metadata/update' and params.get('projectId') is not None:
+            session['settings'] = {**session.get('settings', {}), 'projectId': params['projectId']}
+            host._save(session)
+        if session and method == 'thread/read' and 'projectId' in result.get('thread', {}):
+            session['settings'] = {**session.get('settings', {}), 'projectId': result['thread']['projectId'] or ''}
+            session['section_id'] = (result['thread'].get('section') or {}).get('id')
+            host._save(session)
+        if method == 'thread/list':
+            for thread in result.get('data', []):
+                member = host._session_for_thread(thread['id'])
+                if member and 'projectId' in thread:
+                    member['settings'] = {**member.get('settings', {}), 'projectId': thread['projectId'] or ''}
+                    member['section_id'] = (thread.get('section') or {}).get('id')
+                    host._save(member)
+        if session and method == 'thread/section/move':
+            session['section_id'] = params['sectionId']
+            host._save(session)
+        if method == 'project/delete':
+            for member in host._sessions.values():
+                if member.get('settings', {}).get('projectId') == params['projectId']:
+                    member['settings']['projectId'] = ''
+                    host._save(member)
         public = redact(result)[0]
+        if method in {'userVerification/status', 'userVerification/enroll', 'userVerification/delete'} and 'credentialId' in result:
+            # This is a public key identifier, not a secret credential. In
+            # particular, null must remain null so the UI can detect enrollment.
+            public['credentialId'] = result['credentialId']
+        if method == 'userVerification/verify' and isinstance(result.get('proof'), dict):
+            # The user requested a challenge signature to pass to its verifier.
+            # Preserve only the protocol's public proof fields; audit redaction
+            # still applies independently to the underlying RPC observation.
+            public['proof'] = {key: result['proof'][key] for key in ('credentialId', 'signature')}
         if method in {'account/login/start', 'mcpServer/oauth/login'}:
             # OAuth authorization URLs are user-facing protocol output, not
             # bearer credentials. Keep them usable while audit logs redact.

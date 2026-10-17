@@ -13,12 +13,13 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '../frontend/node_mo
     const shot=async name=>{if(process.env.CONSOLE_SCREENSHOTS){fs.mkdirSync(process.env.CONSOLE_SCREENSHOTS,{recursive:true});await page.mouse.move(0,0);await page.waitForTimeout(300);await page.screenshot({path:path.join(process.env.CONSOLE_SCREENSHOTS,name+'.png')});}};
     await page.goto(process.env.CONSOLE_TEST_URL);
     await page.getByRole('heading',{name:'今天想构建什么？'}).waitFor();
-    assert.equal(await page.getByRole('button', {name:'添加图片或文本文件',exact:true}).count(), 1);
+    assert.equal(await page.getByRole('button', {name:'添加到聊天',exact:true}).count(), 1);
     await shot('welcome');
-    const search = page.getByRole('searchbox', {name:'搜索会话'});
+    await page.getByRole('button', {name:'搜索聊天',exact:true}).click();
+    const search = page.getByRole('searchbox', {name:'搜索聊天',exact:true});
     await search.fill('does-not-exist');
-    await page.getByText('没有匹配的会话', {exact:true}).waitFor();
-    await search.fill('');
+    await page.getByText('没有找到结果', {exact:true}).waitFor();
+    await page.keyboard.press('Escape');
     await page.getByRole('button',{name:/探索代码/}).click();
     assert.match(await page.locator('#text').inputValue(),/项目的结构/);
     await page.locator('#text').fill('浏览器测试 <img src=x onerror="window.injected=1">');
@@ -68,7 +69,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '../frontend/node_mo
     await page.locator('#steps').getByText('galatea_observe_job', {exact: true}).waitFor();
     assert.equal(await page.evaluate(() => getComputedStyle(document.body).overflow), 'hidden');
     await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => !!document.activeElement.closest('[role=dialog]')), true);
+    assert.equal(await page.locator('.settings-page').isVisible(), true);
     await page.getByRole('button', {name: '原生事件', exact: true}).click();
     await page.locator('#native-events details').first().locator('summary').click();
     await page.locator('#native-events pre').first().waitFor();
@@ -80,7 +81,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '../frontend/node_mo
     });
     await page.getByRole('button',{name:'查看实时',exact:true}).click();
     assert.equal(await page.locator('#method').inputValue(),'');
-    await page.getByRole('button',{name:'关闭详情',exact:true}).click();
+    await page.getByRole('button',{name:'返回聊天',exact:true}).click();
     for (const [button, label] of [['中断','已中断'],['核对并恢复','就绪']]) {
       await page.getByRole('button',{name:'会话操作',exact:true}).click();
       await page.locator('[role=menu]').getByRole('menuitem',{name:button,exact:true}).click();
@@ -163,7 +164,7 @@ const {chromium} = require(process.env.PLAYWRIGHT_MODULE || '../frontend/node_mo
     await page.getByRole('button',{name:'能力',exact:true}).click();
     await page.getByText('当前可用能力',{exact:true}).waitFor();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-    await page.getByRole('button',{name:'关闭详情',exact:true}).click();
+    await page.getByRole('button',{name:'返回聊天',exact:true}).click();
     assert.deepEqual(errors, []);
     process.stdout.write('Browser: ChatGPT layout, public reasoning streaming/collapse/replay, search/rename persistence, tools, Markdown/copy/export, capability gates, retry, session controls, reload/reset, event filters, fixed-watermark pagination, autoscroll, themes, mobile chat, focus/scroll locking, CSP and XSS passed.\n');
   } finally { await browser.close(); }

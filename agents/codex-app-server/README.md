@@ -33,6 +33,7 @@ codex-agent --config /absolute/path/agent.json serve --dev
 
 - **Skill**：在 `agent.json` 中设置 `skills.roots`。每个目录包含若干 `<skill>/SKILL.md`，通过原生 `skills/extraRoots/set` 注册；Codex 仍发现工作区和原生 Skill。页面可选择 Skill，Agent 也可根据任务判断使用。
 - **MCP**：在 `codex-home/config.toml` 配置 `[mcp_servers.<name>]`，支持独立 stdio 进程和远程服务。模板见 [mcp.example.toml](config/mcp.example.toml)。Host 不实现上传、训练等业务服务。
+- **MCP Apps**：工具声明 `ui://` HTML 资源即可展示交互页面，支持消息/上下文桥、工具与资源、全屏/画中画/右侧固定、下载与权限确认。业务页面由 MCP 服务提供；接入约定和能力边界见 [通用 MCP Apps Host](docs/18-mcp-apps.md)。
 - **插件**：设置中的插件页面按原生市场展示目录、详情、Skills、MCP 和应用，支持安装、卸载、同步及授权提示。Skill、MCP 与插件管理的设计对照和验收见 [扩展管理](docs/16-integrations.md)。正式 Release 的配置修改保持只读。
 - **自定义 Tool**：通过 `tools.catalog_dir` 和 `tools.providers` 加载独立 Python 扩展。示例见 [echo](examples/echo/provider.py)；未配置时无 Host 自定义工具，原生编码工具仍可用。
 
@@ -66,7 +67,10 @@ codex-agent --config /absolute/path/agent.json serve --dev
 
 侧栏的 `＋` 可添加服务器上的已有目录，或创建文件夹作为项目。`…` 可创建、重命名分组；
 项目、分组和会话支持拖动排序，项目菜单也提供上移、下移和移动分组。
+桌面端可拖动会话列表右边缘调整宽度，双击恢复默认；宽度保存在当前浏览器，收拢后重新展开也会保留。
 每个项目有独立 ID 和名称，多个项目可以选择同一个文件夹，会话归属不按目录合并。
+会话列表、聊天记录、模型与项目目录独立加载，已到达的内容立即展示，其余信息在后台补齐；
+切换会话时聊天记录不等待健康检查，发送操作仍等待当前会话状态核对完成。
 项目名称、多个工作目录、项目顺序和会话归属使用原生项目协议保存；项目分组名称与顺序由同一 Host 共享保存。
 折叠状态和本地展示偏好仍保留在浏览器。旧 localStorage 项目通过原生 `project/import` 幂等迁移。
 非项目会话另用原生会话分组。共享范围是同一个 Host / Codex Home，不承诺跨主机同步。
@@ -81,7 +85,10 @@ codex-agent --config /absolute/path/agent.json serve --dev
 在输入框中键入 `$` 可搜索当前工作目录的可用 Skill；用 ↑/↓ 选择、Enter/Tab 确认，也可直接点击。
 选中后当前 `$关键词` 转为可移除的引用标签；Esc 关闭候选列表，未选择的文字保持原样。
 引用以标签随下一条消息发送；目标与计划输入模式互斥，目标只接受文字。
-目标和队列卡片在输入框上方，文件、代码审查、审批记录、后台终端和子 Agent 在聊天右侧。
+待发送消息以窄条贴在主输入框上方，显示预览和删除按钮，点击消息可编辑，更多菜单可排序或立即发送。
+运行中 Enter 补充当前回复（steer），Tab 将内容加入队列；也可点击输入框内的队列按钮。
+快捷键沿用仓库原生 CLI 默认绑定，Skill 和斜杠菜单补全优先；队列由原生运行时在聊天空闲时依次发送。
+目标卡片在输入框上方，文件、代码审查、审批记录、后台终端和子 Agent 在聊天右侧。
 麦克风录音作为音频附件，蓝色语音按钮启动原生实时对话。终端提供沙箱命令与主机进程两个标签。
 完整功能位置、原生接口与验收边界见 [Web 能力对齐](docs/17-web-capability-parity.md)。
 

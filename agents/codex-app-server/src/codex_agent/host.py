@@ -12,6 +12,7 @@ from jsonschema import Draft202012Validator
 from .state import AtomicJsonStore, identifier, payload_digest, single_writer_lock
 from .console.observer import observation_context
 from .native import NativeBridge, PROTOCOL
+from .mcp_app_context import with_app_context
 
 
 class HostNotReady(RuntimeError):
@@ -217,6 +218,7 @@ class AgentHost:
             await self._check_admission()
             if session_id not in self._attached or session['status'] != 'ready' or self._active_turns >= self.max_active_turns:
                 raise HostNotReady('session busy or recovery required')
+            options = with_app_context(self.store, session_id, options)
             record = {'request_id': request_id, 'session_id': session_id, 'thread_id': session['thread_id'],
                       'payload_digest': digest, 'status': 'intent_recorded'}
             self.store.write(path, record)

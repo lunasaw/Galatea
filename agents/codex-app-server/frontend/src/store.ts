@@ -104,6 +104,8 @@ export type ConsoleState = {
   capabilities: Capabilities | null;
   events: NativeEvent[];
   eventPage: EventPage | null;
+  sessionsLoading: boolean;
+  sessionRefreshing: boolean;
   loading: boolean;
   creating: boolean;
   submitting: boolean;
@@ -127,6 +129,7 @@ export type ConsoleState = {
   settingsBusy: boolean;
   goalInputs: Record<string, boolean>;
   goalRevision: number;
+  queueRevision: number;
   projectLayout: ProjectLayout;
   threadSections: Array<{ id: string; name: string }>;
   projectBusy: boolean;
@@ -145,6 +148,7 @@ export class ConsoleStore {
   private defaults = { model: "", effort: "medium", mode: "default" };
   private listeners = new Set<() => void>();
   private controller?: AbortController;
+  private initController?: AbortController;
   private generation = 0;
   private timer?: ReturnType<typeof setTimeout>;
   private refreshQueued = false;
@@ -172,6 +176,8 @@ export class ConsoleStore {
     capabilities: null,
     events: [],
     eventPage: null,
+    sessionsLoading: true,
+    sessionRefreshing: false,
     loading: false,
     creating: false,
     submitting: false,
@@ -190,6 +196,7 @@ export class ConsoleStore {
     settingsBusy: false,
     goalInputs: {},
     goalRevision: 0,
+    queueRevision: 0,
     projectLayout: emptyLayout(),
     threadSections: [],
     projectBusy: false,
@@ -214,6 +221,13 @@ export class ConsoleStore {
       });
   };
   async init() {
+    this.initController?.abort();
+    const controller = new AbortController();
+    this.initController = controller;
+    const { signal } = controller;
+    const selectionVersion = this.generation;
+    const previous = localStorage.getItem("codex-agent.active");
+    const report = (error: unknown) => { if (!signal.aborted) this.fail(error); };
     try {
       const permission = localStorage.getItem("codex-agent.draft-permission");
       this.patch({
@@ -228,55 +242,74 @@ export class ConsoleStore {
       });
       const titles = localStorage.getItem("codex-agent.titles");
       if (titles) this.patch({ titles: JSON.parse(titles) });
-      const [health, sessions, capabilities, nativeProtocol, nativeRequests] =
-        await Promise.all([
-          api<Health>("/api/console/status"),
-          api<Session[]>("/api/sessions"),
-          api<Capabilities>("/api/capabilities"),
-          api<NativeProtocol>("/api/native/protocol"),
-          api<NativeRequest[]>("/api/native/requests"),
-        ]);
-      this.patch({
-        health,
-        sessions,
-        capabilities,
-        nativeProtocol,
-        nativeRequests,
+    } catch (error) {
+      report(error);
+    }
+    // Publish each surface as soon as it arrives. Only project migration needs
+    // both the protocol and session catalog; it must not gate chat restoration.
+    const sessionsReady = api<Session[]>("/api/sessions", undefined, undefined, signal)
+      .then((sessions) => {
+        if (!signal.aborted) this.patch({ sessions });
+        return sessions;
+      }).finally(() => { if (!signal.aborted) this.patch({ sessionsLoading: false }); });
+    const protocolReady = api<NativeProtocol>("/api/native/protocol", undefined, undefined, signal)
+      .then((nativeProtocol) => {
+        if (!signal.aborted) this.patch({ nativeProtocol });
+        return nativeProtocol;
       });
-      // Model defaults are independent of project migration and history restore.
-      const defaultsReady = this.loadDefaults().catch((error) => this.fail(error));
+    const restore = sessionsReady.then(async (sessions) => {
+      if (!signal.aborted && selectionVersion === this.generation && previous && sessions.some((s) => s.id === previous))
+        await this.select(previous, false, { refreshMetadata: false, clearError: false });
+    });
+    const projects = Promise.all([sessionsReady, protocolReady]).then(async ([sessions, nativeProtocol]) => {
+      if (signal.aborted) return;
       if (nativeProtocol.methods?.includes("project/list")) {
         const old = { ...this.state.projectLayout };
         // Bind legacy memberships before switching the authoritative catalog.
         old.threadProjects = Object.fromEntries(sessions.map((s) => [s.id, this.projectForSession(s.id)?.id || ""]));
         this.nativeProjectMode = true;
+        // Invalidate both sidebar groups and memoized thread memberships together.
+        this.patch({ projectLayout: { ...this.state.projectLayout } });
         const loaded = await this.nativeProjects.load();
+        if (signal.aborted) return;
         const marker = "codex-agent.projects-native:" + nativeProtocol.cwd;
         const mapping = localStorage.getItem(marker) ? new Map<string, string>() : await this.nativeProjects.migrate(old, sessions, loaded.projects);
+        if (signal.aborted) return;
         await this.refreshProjects(mapping.size || old.sections.length ? undefined : loaded);
+        if (signal.aborted) return;
         localStorage.setItem(marker, "1");
         const selected = mapping.get(this.state.draftProjectId);
         if (selected) this.patch({ draftProjectId: selected });
       } else this.saveProjectLayout({});
-      const previous = localStorage.getItem("codex-agent.active");
-      if (previous && sessions.some((s) => s.id === previous))
-        await this.select(previous);
-      await defaultsReady;
-    } catch (error) {
-      this.fail(error);
-    }
+    });
+    await Promise.all([
+      sessionsReady, protocolReady, restore, projects,
+      api<Health>("/api/console/status", undefined, undefined, signal)
+        .then((health) => { if (!signal.aborted) this.patch({ health }); }),
+      api<Capabilities>("/api/capabilities", undefined, undefined, signal)
+        .then((capabilities) => { if (!signal.aborted) this.patch({ capabilities }); }),
+      api<NativeRequest[]>("/api/native/requests", undefined, undefined, signal)
+        .then((nativeRequests) => { if (!signal.aborted) this.patch({ nativeRequests }); }),
+      this.loadDefaults(signal),
+    ].map((task) => task.catch(report)));
   }
-  private async loadDefaults() {
-    const [models, config] = await Promise.all([
-      this.nativeCall("model/list", {}) as Promise<any>,
-      this.nativeCall("config/read", { includeLayers: false }) as Promise<any>,
+  private async loadDefaults(signal: AbortSignal) {
+    const preferences = this.state.preferences;
+    await Promise.all([
+      (this.nativeCall("model/list", {}, signal) as Promise<any>).then((models) => {
+        if (!signal.aborted) this.patch({ models: models.data || [] });
+      }),
+      (this.nativeCall("config/read", { includeLayers: false }, signal) as Promise<any>).then((config) => {
+        if (signal.aborted) return;
+        this.defaults = {
+          model: config.config?.model || "",
+          effort: config.config?.model_reasoning_effort || "medium",
+          mode: "default",
+        };
+        this.patch({ runtimeDefaults: config.config || {},
+          ...(this.state.preferences === preferences ? { preferences: this.defaults } : {}) });
+      }),
     ]);
-    this.defaults = {
-      model: config.config?.model || "",
-      effort: config.config?.model_reasoning_effort || "medium",
-      mode: "default",
-    };
-    this.patch({ models: models.data || [], preferences: this.defaults, runtimeDefaults: config.config || {} });
   }
   async refreshNativeRequests() {
     try {
@@ -296,9 +329,9 @@ export class ConsoleStore {
     );
     await this.refreshNativeRequests();
   }
-  async nativeCall(method: string, params: unknown) {
+  async nativeCall(method: string, params: unknown, signal?: AbortSignal) {
     const key = requestKey();
-    return api(`/api/native/call`, { method, params }, key);
+    return api(`/api/native/call`, { method, params }, key, signal);
   }
   get cwd() {
     const session = this.state.sessions.find((s) => s.id === this.state.active);
@@ -401,6 +434,9 @@ export class ConsoleStore {
   }
   async refreshProjects(loaded?: Awaited<ReturnType<NativeProjects["load"]>>) {
     const catalog = loaded || await this.nativeProjects.load();
+    // The catalog can render while section memberships and ordering load.
+    this.patch({ projectLayout: { ...this.state.projectLayout, projects: catalog.projects, sections: catalog.sections },
+      threadSections: catalog.threadSections });
     // Read membership from native storage too, including edits made by another client.
     // Section-position ordering requires an actual section ID. Unsectioned
     // threads support the regular timestamp order only.
@@ -758,9 +794,9 @@ export class ConsoleStore {
   }
   async refreshSessions() {
     const sessions = await api<Session[]>("/api/sessions");
-    this.patch({ sessions });
+    this.patch({ sessions, sessionsLoading: false });
   }
-  async select(id: string | null, global = false) {
+  async select(id: string | null, global = false, { refreshMetadata = true, clearError = true } = {}) {
     this.controller?.abort();
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -780,7 +816,8 @@ export class ConsoleStore {
       events: [],
       eventPage: null,
       loading: !!id || global,
-      error: "",
+      sessionRefreshing: !!id && refreshMetadata,
+      error: clearError ? "" : this.state.error,
       streamError: "",
       history: false,
       older: false,
@@ -789,29 +826,18 @@ export class ConsoleStore {
     if (id) localStorage.setItem("codex-agent.active", id);
     else localStorage.removeItem("codex-agent.active");
     if (!id && !global) return;
+    const report = (error: unknown) => { if (version === this.generation) this.fail(error); };
+    if (refreshMetadata) {
+      void api<Health>("/api/console/status", undefined, undefined, controller.signal).then((health) => {
+        if (version !== this.generation) return;
+        this.patch({ health, reset: this.state.reset ||
+          (!!this.state.health && this.state.health.epoch !== health.epoch) });
+      }).catch(report);
+      void api<Session[]>("/api/sessions", undefined, undefined, controller.signal).then((sessions) => {
+        if (version === this.generation) this.patch({ sessions, sessionRefreshing: false });
+      }).catch(report);
+    }
     try {
-      const [health, sessions] = await Promise.all([
-        api<Health>(
-          "/api/console/status",
-          undefined,
-          undefined,
-          controller.signal,
-        ),
-        api<Session[]>(
-          "/api/sessions",
-          undefined,
-          undefined,
-          controller.signal,
-        ),
-      ]);
-      if (version !== this.generation) return;
-      this.patch({
-        health,
-        sessions,
-        reset:
-          this.state.reset ||
-          (!!this.state.health && this.state.health.epoch !== health.epoch),
-      });
       let cursor: string;
       if (global) {
         const page = await api<EventPage>(
@@ -1127,6 +1153,8 @@ export class ConsoleStore {
               this.patch({ events: [...this.state.events, data].slice(-200) });
             }
             cursor = data.event_id;
+            if (data.method === "thread/queue/changed")
+              this.patch({ queueRevision: this.state.queueRevision + 1 });
             this.schedule();
           } else if (
             frame.event === "cursor" &&
@@ -1246,6 +1274,7 @@ export class ConsoleStore {
   }
   dispose() {
     this.generation++;
+    this.initController?.abort();
     this.controller?.abort();
     clearTimeout(this.timer);
   }

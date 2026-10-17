@@ -1,4 +1,5 @@
 import { MessageTurnActions } from "@/thread-actions";
+import { MessageCopyButton } from "@/message-copy";
 import { BrandIcon } from "@/brand";
 import { NativeMessageExtras, NativeUserInputs } from "@/native-message-extras";
 // Source: assistant-ui/assistant-ui @ 2bdd534a3d8da45e6c7a9ee6553862b83713059d (MIT). See UPSTREAM.md.
@@ -37,6 +38,7 @@ import {
   ComposerOptions,
   ComposerAddMenu,
   ComposerConversationCards,
+  ComposerQueue,
   WorkspaceContext,
   useComposerCommands,
 } from "@/chat-controls";
@@ -62,10 +64,8 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   AudioLinesIcon,
-  CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  CopyIcon,
   DownloadIcon,
   MicIcon,
   MoreHorizontalIcon,
@@ -261,7 +261,10 @@ const ThreadRoot: FC<{
             <ThreadScrollToBottom />
             <ThreadFollowupSuggestions />
             <ComposerConversationCards />
-            <Composer autoFocus={autoFocus} />
+            <div className="composer-stack">
+              <ComposerQueue />
+              <Composer autoFocus={autoFocus} />
+            </div>
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>
@@ -372,16 +375,7 @@ const SpokenActionBar: FC = () => {
       autohide="always"
       className="aui-spoken-action-bar text-muted-foreground flex shrink-0 gap-1"
     >
-      <ActionBarPrimitive.Copy asChild>
-        <TooltipIconButton tooltip="复制回复" className="size-6">
-          <AuiIf condition={(s) => s.message.isCopied}>
-            <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
-          </AuiIf>
-          <AuiIf condition={(s) => !s.message.isCopied}>
-            <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
-          </AuiIf>
-        </TooltipIconButton>
-      </ActionBarPrimitive.Copy>
+      <MessageCopyButton className="size-6" />
     </ActionBarPrimitive.Root>
   );
 };
@@ -546,6 +540,7 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
             <ComposerOptions />
             <VoiceButtons />
             <div className="composer-submit">
+              {commands.queueButton}
               {commands.steerButton}
               {commands.goalButton || <ComposerAction />}
             </div>
@@ -829,16 +824,7 @@ const AssistantActionBar: FC = () => {
       hideWhenRunning
       className="aui-assistant-action-bar-root text-muted-foreground animate-in fade-in flex items-center gap-0.5 duration-200 [&_button]:size-8 [&_button]:rounded-lg"
     >
-      <ActionBarPrimitive.Copy asChild>
-        <TooltipIconButton tooltip="复制回复">
-          <AuiIf condition={(s) => s.message.isCopied}>
-            <CheckIcon className="animate-in zoom-in-50 fade-in duration-200 ease-out" />
-          </AuiIf>
-          <AuiIf condition={(s) => !s.message.isCopied}>
-            <CopyIcon className="animate-in zoom-in-75 fade-in duration-150" />
-          </AuiIf>
-        </TooltipIconButton>
-      </ActionBarPrimitive.Copy>
+      <MessageCopyButton />
       <AuiIf condition={(s) => s.thread.capabilities.feedback}>
         <ActionBarPrimitive.FeedbackPositive asChild>
           <TooltipIconButton
@@ -961,16 +947,7 @@ const UserActionBar: FC = () => {
       autohide="always"
       className="aui-user-action-bar-root flex items-center"
     >
-      <ActionBarPrimitive.Copy asChild>
-        <TooltipIconButton tooltip="复制消息" className="size-8 rounded-lg">
-          <AuiIf condition={(s) => s.message.isCopied}>
-            <CheckIcon />
-          </AuiIf>
-          <AuiIf condition={(s) => !s.message.isCopied}>
-            <CopyIcon />
-          </AuiIf>
-        </TooltipIconButton>
-      </ActionBarPrimitive.Copy>
+      <MessageCopyButton label="复制消息" className="size-8 rounded-lg" />
       <MessageTurnActions />
       <AuiIf condition={(s) => s.thread.capabilities.edit}>
         <ActionBarPrimitive.Edit asChild>

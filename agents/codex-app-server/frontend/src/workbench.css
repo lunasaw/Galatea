@@ -1,4 +1,15 @@
 /* Shared desktop chrome; chat and tool panels scroll independently. */
+.clipboard-copy-source {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 :root {
   --sidebar: #f7f7f7;
   --border: #ebebeb;
@@ -14,8 +25,36 @@
   --muted: #ffffff0a;
   --muted-foreground: #a2a2a2;
 }
-[data-slot="sidebar-wrapper"] {
-  --sidebar-width: 260px;
+.sidebar-resize-handle {
+  position: absolute;
+  inset-block: 0;
+  right: -4px;
+  width: 8px;
+  z-index: 30;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.sidebar-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 3px;
+  width: 2px;
+}
+.sidebar-resize-handle:hover::after,
+.sidebar-resize-handle:focus-visible::after,
+[data-sidebar-resizing="true"] .sidebar-resize-handle::after {
+  background: var(--muted-foreground);
+}
+[data-sidebar-resizing="true"] [data-slot="sidebar-gap"],
+[data-sidebar-resizing="true"] [data-slot="sidebar-container"] {
+  transition: none;
+}
+body[data-sidebar-resizing="true"],
+body[data-sidebar-resizing="true"] * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .workbench-sidebar [data-sidebar="sidebar"] {
   border-right: 1px solid var(--border);

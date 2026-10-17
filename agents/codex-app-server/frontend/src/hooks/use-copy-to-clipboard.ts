@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { copyText } from "@/clipboard";
 
 export type UseCopyToClipboardOptions = {
   copiedDuration?: number;
@@ -11,6 +12,7 @@ export const useCopyToClipboard = ({
   copiedDuration = 3000,
 }: UseCopyToClipboardOptions = {}) => {
   const [isCopied, setIsCopied] = useState<boolean>(false);
+  const [copyError, setCopyError] = useState("");
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -29,12 +31,18 @@ export const useCopyToClipboard = ({
   );
 
   const copyToClipboard = (value: string) => {
-    if (!value || typeof navigator === "undefined" || !navigator.clipboard) {
+    if (!value || typeof navigator === "undefined") {
       return;
     }
 
-    const scopeGeneration = scopeGenerationRef.current;
-    navigator.clipboard.writeText(value).then(
+    setCopyError("");
+    setIsCopied(false);
+    if (copiedTimerRef.current !== undefined) {
+      clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = undefined;
+    }
+    const scopeGeneration = ++scopeGenerationRef.current;
+    copyText(value).then(
       () => {
         if (scopeGeneration !== scopeGenerationRef.current) return;
 
@@ -47,9 +55,11 @@ export const useCopyToClipboard = ({
           setIsCopied(false);
         }, copiedDuration);
       },
-      () => {},
+      () => {
+        if (scopeGeneration === scopeGenerationRef.current) setCopyError("复制失败，请重试");
+      },
     );
   };
 
-  return { isCopied, copyToClipboard };
+  return { isCopied, copyError, copyToClipboard };
 };

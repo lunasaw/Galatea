@@ -18,6 +18,7 @@ from .console.observer import observation_context
 from .console.projection import redact
 from .state import payload_digest
 from .rpc import RpcError
+from .mcp_app_context import with_app_context
 
 
 class NativeProtocol:
@@ -172,6 +173,10 @@ class NativeBridge:
             if params['turnId'] != session.get('active_turn_id'):
                 raise ValueError('turn identity changed')
             return await host.interrupt(session['id'])
+        if method == 'turn/steer' and session:
+            if params['expectedTurnId'] != session.get('active_turn_id'):
+                raise ValueError('turn identity changed')
+            params = with_app_context(host.store, session['id'], params)
         if method == 'thread/resume' and session:
             if params.get('path') or params.get('history'):
                 raise ValueError('resume a Host session by its thread identity')

@@ -16,7 +16,7 @@
 | `/init`、`/compact` | 创建仓库指南的普通 Agent 任务；原生上下文压缩 | `/init` 沿用 CLI 提示词流程，先检查已有 AGENTS.md，不覆盖；`thread/compact/start`；占用比例使用最近一次上下文 Token / 模型窗口 |
 | 输入框模式 | 目标、计划模式互斥；推理强度滑块和模型选择 | `thread/goal/set`；`collaborationMode`；模型公布的 reasoning efforts，不用提示词模拟计划 |
 | 输入框上方 | 目标内容、用量、预算、暂停/继续、清除 | `thread/goal/get|set|clear`；原生目标只接收文字 |
-| 输入框上方 | 输入队列添加、编辑、排序、删除、立即启动 | `thread/queue/*`；运行时在聊天空闲时自动发送，Web 不另建调度循环 |
+| 主输入框与上方队列条 | 主输入框添加；窄条预览、编辑、删除，更多菜单排序/立即发送；无独立扩展面板入口 | 运行中 Enter → `turn/steer`，Tab/队列按钮 → `thread/queue/add`，沿用原生 CLI 默认键位；`thread/queue/*` 管理持久队列，运行时在聊天空闲时自动发送 |
 | 输入框上方 | 录音时长、取消、保存附件；实时静音、结束、文字和语音记录 | 原生 `audio` 输入、`thread/realtime/*`、`thread/timeline/list`；PCM 输入输出、WAV 附件 |
 | 左侧放大镜 | 浮层聊天搜索、正文命中位置、聊天跳转；搜索文件快捷操作 | `thread/list|search|searchOccurrences`，`fuzzyFileSearch/session*`；文件打开右侧预览 |
 | 左侧历史 | 全部、已归档聊天，恢复与归档等操作 | `thread/list|read|resume|archive|unarchive|delete`；分叉、回退沿用原生轮次身份 |
@@ -68,12 +68,13 @@
 - `test_conversation_panels.cjs`：三类引用的标签及原生消息、审查目标、子 Agent 范围、历史入口。
 - `test_project_roots_browser.cjs`：目录添加/排序/删除、刷新、保留未知元数据、新聊天默认目录。
 - `test_composer_capabilities.cjs`：目标/计划模式、预算、队列 CRUD/顺序/启动、搜索/后台终端。
+- `test_composer_queue_browser.cjs`：内嵌队列条、原生 Enter/Tab 分流、重试幂等、附件保留、切换/刷新和深色/手机布局。
 - `test_skill_mentions_browser.cjs`：`$` 搜索、光标补全、键盘/鼠标、引用去重、原生发送/steer、输入法、失败恢复与手机布局。
 - `test_slash_commands_browser.cjs`：截图命令顺序、中英文筛选、键盘/输入法、子菜单、当前聊天 MCP 状态、上下文窗口占用、用量/反馈、初始化/压缩/指定轮次分支/归档、运行中拦截及深浅色/手机布局。
 - `test_file_editor_browser.cjs`：BOM、外部编辑冲突、草稿、保存、复制、监听清理和删除确认。
 - `test_voice_browser.cjs`：合成麦克风 WAV、原生语音事件、播放、静音、结束、历史恢复和设备拒绝。
 - `test_terminal_recovery.cjs`：刷新复用进程身份，输出回放、继续输入和停止。
-- `test_mcp_app_browser.cjs`：资源/握手/工具结果、修改审批、iframe 隔离。
+- `test_mcp_app_browser.cjs`：资源/握手/工具结果、作用域与审批、消息/上下文桥、下载、显示模式、固定与折叠、手机布局、关闭重开。完整边界见 [MCP Apps Host](18-mcp-apps.md)。
 - 既有 console、native、workbench、integrations 用例覆盖主流程、设置、主题、手机布局和安全边界。
 
 依赖账号或平台的能力必须在相应环境另做实际服务验收；此处不将模拟结果写成外部服务已通过。

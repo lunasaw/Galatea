@@ -32,15 +32,222 @@ const make = () => {
   stores.push(s);
   return s;
 };
+const tick = () => new Promise(resolve => setImmediate(resolve));
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+};
+const pendingStream = (init?: RequestInit) => new Promise<Response>((_, reject) => {
+  init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+});
+
+test("startup renders the catalog, chat and defaults before optional requests finish", async () => {
+  const s = make();
+  memory.set("codex-agent.active", "a");
+  const optional = deferred<void>();
+  const history = deferred<Response>();
+  const calls: string[] = [];
+  globalThis.fetch = async (path, init) => {
+    const url = String(path); calls.push(url);
+    if (url === "/api/sessions") return json([{ id: "a", status: "ready" }]);
+    if (url.endsWith("/snapshot")) return history.promise;
+    if (url.includes("/events?")) return pendingStream(init);
+    if (url === "/api/native/call") {
+      const { method } = JSON.parse(init!.body as string);
+      return json(method === "model/list" ? { data: [{ model: "fixture" }] } : { config: { model: "fixture" } });
+    }
+    await optional.promise;
+    return json(url === "/api/native/protocol" ? { methods: [], cwd: "/startup" } : url === "/api/native/requests" ? [] : {});
+  };
+  const initialized = s.init();
+  try {
+    await tick();
+    assert.equal(s.state.sessionsLoading, false);
+    assert.equal(s.state.active, "a");
+    assert.equal(s.state.loading, true);
+    assert.equal(s.state.health, null);
+    assert.equal(s.state.nativeProtocol, null);
+    assert.equal(s.state.preferences.model, "fixture");
+    history.resolve(json(snapshot("a")));
+    await tick();
+    assert.equal(s.state.snapshot?.messages?.[0].id, "a");
+    assert.equal(s.state.loading, false);
+    assert.ok(calls.some(url => url.includes("/events?after=e%3A10")));
+  } finally {
+    history.resolve(json(snapshot("a")));
+    optional.resolve();
+    await initialized;
+  }
+  assert.equal(calls.filter(url => url === "/api/sessions").length, 1);
+  assert.equal(calls.filter(url => url === "/api/console/status").length, 1);
+});
+
+test("optional startup failure does not prevent restoration", async () => {
+  const s = make();
+  memory.set("codex-agent.active", "a");
+  globalThis.fetch = async (path, init) => {
+    const url = String(path);
+    if (url === "/api/sessions") return json([{ id: "a", status: "ready" }]);
+    if (url.endsWith("/snapshot")) return json(snapshot("a"));
+    if (url.includes("/events?")) return pendingStream(init);
+    if (url === "/api/native/requests") return json([]);
+    if (url === "/api/native/protocol") throw new Error("protocol unavailable");
+    return json({});
+  };
+  await s.init();
+  assert.equal(s.state.snapshot?.messages?.[0].id, "a");
+  assert.equal(s.state.loading, false);
+  assert.equal(s.state.error, "protocol unavailable");
+});
+
+test("startup restoration cannot override a new chat selected while the catalog loads", async () => {
+  const s = make();
+  memory.set("codex-agent.active", "a");
+  const sessions = deferred<Response>();
+  let snapshotRequests = 0;
+  globalThis.fetch = async (path) => {
+    const url = String(path);
+    if (url === "/api/sessions") return sessions.promise;
+    if (url.endsWith("/snapshot")) snapshotRequests++;
+    return json(url === "/api/native/protocol" ? { methods: [] } : url === "/api/native/requests" ? [] : {});
+  };
+  const initialized = s.init();
+  await s.select(null);
+  sessions.resolve(json([{ id: "a", status: "ready" }]));
+  await initialized;
+  assert.equal(s.state.active, null);
+  assert.equal(snapshotRequests, 0);
+  assert.equal(memory.has("codex-agent.active"), false);
+});
+
+test("models render before config and late defaults preserve user preferences", async () => {
+  const s = make();
+  const config = deferred<Response>();
+  globalThis.fetch = async (path, init) => {
+    if (String(path) === "/api/native/call") {
+      const { method } = JSON.parse(init!.body as string);
+      return method === "config/read" ? config.promise : json({ data: [{ model: "fixture" }] });
+    }
+    return json(String(path) === "/api/native/protocol" ? { methods: [] } : String(path).match(/sessions|requests/) ? [] : {});
+  };
+  const initialized = s.init();
+  try {
+    await tick();
+    assert.equal(s.state.models[0]?.model, "fixture");
+    await s.updateComposerSettings({ model: "chosen", effort: "high" });
+  } finally {
+    config.resolve(json({ config: { model: "default", model_reasoning_effort: "low" } }));
+    await initialized;
+  }
+  assert.equal(s.state.preferences.model, "chosen");
+  assert.equal(s.state.preferences.effort, "high");
+  assert.equal(s.state.runtimeDefaults.model, "default");
+});
+
+test("switching renders history and starts the stream while metadata is pending", async () => {
+  const s = make();
+  const health = deferred<Response>();
+  const sessions = deferred<Response>();
+  let streamed = false;
+  globalThis.fetch = async (path, init) => {
+    const url = String(path);
+    if (url === "/api/console/status") return health.promise;
+    if (url === "/api/sessions") return sessions.promise;
+    if (url.endsWith("/snapshot")) return json(snapshot("a"));
+    streamed = true; return pendingStream(init);
+  };
+  await s.select("a");
+  assert.equal(s.state.snapshot?.messages?.[0].id, "a");
+  assert.equal(s.state.loading, false);
+  assert.equal(s.state.sessionRefreshing, true);
+  assert.equal(streamed, true);
+  sessions.resolve(json([{ id: "a", status: "running", active_turn_id: "turn-2" }]));
+  await tick();
+  assert.equal(s.state.sessionRefreshing, false);
+  assert.equal(s.state.sessions[0].active_turn_id, "turn-2");
+  health.resolve(new Response('{"error":"health-unavailable"}', { status: 503 }));
+  await tick();
+  assert.equal(s.state.snapshot?.messages?.[0].id, "a");
+});
+
+test("late metadata from a previous selection cannot replace current session state", async () => {
+  const s = make();
+  const health = deferred<Response>();
+  const sessions = deferred<Response>();
+  globalThis.fetch = async (path, init) => {
+    const url = String(path);
+    if (url === "/api/console/status") return s.state.active === "a" ? health.promise : json({ epoch: "new" });
+    if (url === "/api/sessions") return s.state.active === "a" ? sessions.promise : json([{ id: "b", status: "running" }]);
+    if (url.endsWith("/snapshot")) return json(snapshot(s.state.active!));
+    return pendingStream(init);
+  };
+  await s.select("a");
+  await s.select("b");
+  health.resolve(json({ epoch: "old" }));
+  sessions.resolve(json([{ id: "a", status: "ready" }]));
+  await tick();
+  assert.equal(s.state.health?.epoch, "new");
+  assert.equal(s.state.sessions[0].id, "b");
+  assert.equal(s.state.snapshot?.messages?.[0].id, "b");
+  assert.equal(s.state.sessionRefreshing, false);
+});
+
+test("failed metadata keeps history readable and a retry restores composing", async () => {
+  const s = make();
+  let failed = true;
+  globalThis.fetch = async (path, init) => {
+    const url = String(path);
+    if (url === "/api/console/status") return json({ epoch: "e" });
+    if (url === "/api/sessions") return failed
+      ? new Response('{"error":"catalog-unavailable"}', { status: 503 })
+      : json([{ id: "a", status: "ready" }]);
+    if (url.endsWith("/snapshot")) return json(snapshot("a"));
+    return pendingStream(init);
+  };
+  await s.select("a");
+  await tick();
+  assert.equal(s.state.snapshot?.messages?.[0].id, "a");
+  assert.equal(s.state.loading, false);
+  assert.equal(s.state.sessionRefreshing, true);
+  assert.match(s.state.error, /catalog-unavailable/);
+  failed = false;
+  await s.latest();
+  assert.equal(s.state.sessionRefreshing, false);
+  assert.equal(s.state.error, "");
+});
+
+test("disposed startup cannot publish delayed responses or restore a conversation", async () => {
+  const s = make();
+  const requests = deferred<void>();
+  memory.set("codex-agent.active", "a");
+  globalThis.fetch = async path => {
+    await requests.promise;
+    if (String(path) === "/api/sessions") return json([{ id: "a", status: "ready" }]);
+    return json({});
+  };
+  const initialized = s.init();
+  s.dispose();
+  const state = s.state;
+  requests.resolve();
+  await initialized;
+  assert.equal(s.state, state);
+  assert.equal(s.state.active, null);
+});
+
 test("startup loads model defaults while projects are pending and reuses the initial catalog", async () => {
   const s = make();
+  memory.set("codex-agent.active", "a");
   let releaseProjects!: () => void;
   const pendingProjects = new Promise<void>(resolve => { releaseProjects = resolve; });
   const calls: string[] = [];
   globalThis.fetch = async (path, init) => {
     const url = String(path);
     if (url === "/api/console/status") return json({});
-    if (url === "/api/sessions" || url === "/api/native/requests") return json([]);
+    if (url === "/api/sessions") return json([{ id: "a", status: "ready" }]);
+    if (url === "/api/native/requests") return json([]);
+    if (url.endsWith("/snapshot")) return json(snapshot("a"));
+    if (url.includes("/events?")) return pendingStream(init);
     if (url === "/api/capabilities") return json({});
     if (url === "/api/native/protocol") return json({ methods: ["project/list"], cwd: "/startup" });
     if (url === "/api/sidebar-groups") return json({ sections: [], revision: 0 });
@@ -56,6 +263,8 @@ test("startup loads model defaults while projects are pending and reuses the ini
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(s.state.models[0]?.model, "fixture");
     assert.equal(s.state.preferences.model, "fixture");
+    assert.equal(s.state.snapshot?.messages?.[0].id, "a");
+    assert.equal(s.state.loading, false);
   } finally {
     releaseProjects();
     await initialized;

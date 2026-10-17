@@ -40,6 +40,7 @@ import { useFileWatch, FileCapabilities } from "./file-capabilities";
 import { openFile, WorkspaceFileView, type FileTarget } from "./workspace-file";
 import { statusLabel, type ConsoleState } from "./store";
 import { reviewFiles, reviewTurns } from "./workbench-data";
+import { useSidebarPanelRef } from "./sidebar-resize";
 
 export type WorkbenchTab =
   | "launcher"
@@ -389,6 +390,7 @@ export function WorkbenchPanel({
   const [selectedAgent, setSelectedAgent] = useState("");
   const [visited, setVisited] = useState<Set<WorkbenchTab>>(new Set());
   const [width, setWidth] = useState(480);
+  const sidebarPanelRef = useSidebarPanelRef();
   const resize = useRef<{ x: number; width: number } | null>(null);
   const previousSession = useRef(state.active);
   const tabsElement = useRef<HTMLDivElement>(null);
@@ -638,6 +640,7 @@ export function WorkbenchPanel({
     </Dialog>
   ) : (
     <aside
+      ref={sidebarPanelRef}
       className="workbench-panel"
       data-file-open={tab === "preview"}
       aria-label="任务面板"

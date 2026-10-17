@@ -9,9 +9,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { SidebarResizeHandle } from "@/sidebar-resize";
 import { ThreadList } from "@/components/assistant-ui/elements/thread-list.aui";
 
 export function ThreadListSidebar({
@@ -50,7 +50,7 @@ export function ThreadListSidebar({
       <SidebarContent className="aui-sidebar-content px-2">
         <ThreadList navigation={navigation} />
       </SidebarContent>
-      {props.collapsible !== "none" && <SidebarRail />}
+      {props.collapsible !== "none" && <SidebarResizeHandle />}
       <SidebarFooter className="aui-sidebar-footer p-3">{footer}</SidebarFooter>
     </Sidebar>
   );

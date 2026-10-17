@@ -19,3 +19,4 @@
 - [原生能力覆盖](15-native-workspace.md)
 - [Skill、MCP 与插件管理](16-integrations.md)
 - [Web 能力对齐与验收](17-web-capability-parity.md)
+- [通用 MCP Apps Host](18-mcp-apps.md)

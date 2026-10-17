@@ -17,6 +17,7 @@ from ..host import HostNotReady
 from ..state import identifier, payload_digest
 from ..native import PROTOCOL
 from ..rpc import RpcError
+from ..mcp_app_context import app_identity, message_input, update_context
 from .projection import redact
 
 
@@ -189,7 +190,7 @@ class ConsoleApp:
                 if 'result' in previous:
                     return previous['result']
                 # Message admission has its own durable intent and safe deduplication.
-                if not path.endswith('/messages'):
+                if not (path.startswith('/api/sessions/') and path.endswith('/messages')):
                     raise HostNotReady('request outcome unknown')
             self.host.store.write(record_path, {'digest': digest, 'status': 'intent_recorded'})
             result = await action(key)
@@ -243,6 +244,31 @@ class ConsoleApp:
         if method == 'POST' and self._stopping:
             return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
         try:
+            if path in {'/api/mcp-app/context', '/api/mcp-app/messages'} and method == 'POST':
+                body = await self._body(receive)
+                app_identity(body)
+                session = self.host._session_for_thread(body.get('threadId'))
+                if not session or session.get('principal_id') != self.host.principal_id:
+                    raise UnknownSession('MCP App thread does not belong to this Host')
+                async def app_action(key):
+                    if path.endswith('/context'):
+                        return update_context(self.host.store, session['id'], body)
+                    inputs = message_input(body.get('message'))
+                    current = self.host._session_for_thread(body['threadId'])
+                    if not current or current.get('status') not in {'ready', 'running'}:
+                        raise HostNotReady('MCP App thread is not ready')
+                    # The app cannot choose another thread or a turn id. Resolve
+                    # both from its bound Host session; native steer checks races.
+                    turn = current.get('active_turn_id')
+                    params = {'threadId': current['thread_id'], 'input': inputs}
+                    method = 'turn/steer' if turn else 'turn/start'
+                    if turn:
+                        params['expectedTurnId'] = turn
+                    result = await self.host.native.call(method, params, key)
+                    if result.get('status') == 'unknown':
+                        raise HostNotReady('MCP App message outcome unknown')
+                    return {}
+                return await self._send(send, 200, await self._write(path, body, headers, app_action))
             if path == '/api/mcp-app' and method == 'GET':
                 from .mcp_apps import resource_document
                 query = parse_qs(scope.get('query_string', b'').decode(), keep_blank_values=True)
@@ -257,7 +283,7 @@ class ConsoleApp:
                     (b'content-type', b'text/html; charset=utf-8'), (b'cache-control', b'no-store'),
                     (b'x-content-type-options', b'nosniff'), (b'referrer-policy', b'no-referrer'),
                     (b'content-security-policy', policy.encode()),
-                    (b'permissions-policy', b'camera=(), microphone=(), geolocation=()'),
+                    (b'permissions-policy', b'camera=(), microphone=(), geolocation=(), clipboard-write=()'),
                 ]})
                 return await send({'type': 'http.response.body', 'body': body})
             if path == '/health/ready' and method == 'GET':

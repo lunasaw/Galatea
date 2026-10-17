@@ -42,24 +42,25 @@ export function CodexToolFallback(props: ToolCallMessagePartProps) {
     (meta?.steps as Record<string, Step> | undefined)?.[props.toolCallId] ||
     (meta?.step as Step | undefined);
   if (!step) return <ToolFallback {...props} />;
-  return <NativeToolActivity step={step} running={props.status.type === "running"} result={props.result} />;
+  return <NativeToolActivity step={step} running={props.status.type === "running"} result={props.result} turnStatus={(meta?.turn as { status?: string } | undefined)?.status} />;
 }
 
 /** The same native activity presentation is used in the main chat and agent drawer. */
-export function NativeToolActivity({ step, running = false, result, threadId: scopeThreadId }: { step: Step; running?: boolean; result?: unknown; threadId?: string }) {
+export function NativeToolActivity({ step, running = false, result, threadId: scopeThreadId, turnStatus }: { step: Step; running?: boolean; result?: unknown; threadId?: string; turnStatus?: string }) {
   const d = object(step.detail);
   if (step.type === "guardian") return <GuardianReview notification={d} />;
   if (["imageView", "imageGeneration"].includes(step.type || "")) return <NativeImageActivity step={step} />;
   if (["subAgentActivity", "collabAgentToolCall"].includes(step.type || "")) return <NativeAgentActivity step={step} />;
   if (step.type === "hook") return <NativeHookActivity step={step} />;
   if (step.type === "mcpToolCall") {
-    const uri = d.appContext?.resourceUri || d.mcpAppResourceUri;
+    const uri = d.mcpAppUi?.resourceUri || d.appContext?.resourceUri || d.mcpAppResourceUri;
     const threadId = scopeThreadId || store.state.sessions.find((s) => s.id === store.state.active)?.thread_id;
+    const status = d.status === "inProgress" && ["interrupted", "failed"].includes(turnStatus || "") ? turnStatus : d.status;
     return <section className="native-rich-item"><strong>{d.appContext?.appName || d.server} · {d.appContext?.actionName || d.tool}</strong>
       {d.status === "inProgress" && <p role="status">执行中…</p>}
       {d.error && <p role="alert">{d.error.message || pretty(d.error)}</p>}
       {d.result && <McpContent content={d.result.content || []} />}
-      {typeof uri === "string" && uri.startsWith("ui://") && threadId && <McpAppView server={d.server} threadId={threadId} uri={uri} args={d.arguments} result={d.result} />}
+      {typeof uri === "string" && uri.startsWith("ui://") && threadId && <McpAppView server={d.server} threadId={threadId} uri={uri} instanceId={step.id} toolName={d.tool} args={d.arguments} result={d.result} status={status} toolError={d.error?.message} />}
       <details className="native-arguments"><summary>调用详情</summary><pre className="json">{pretty({ arguments: d.arguments, result: d.result })}</pre></details>
     </section>;
   }

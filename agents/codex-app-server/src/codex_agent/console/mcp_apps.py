@@ -8,7 +8,8 @@ from urllib.parse import urlsplit
 
 def resource_document(result: dict, uri: str, host: str) -> tuple[bytes, str]:
     resource = next((item for item in result.get('contents', [])
-                     if item.get('uri') == uri and item.get('mimeType', '').split(';')[0] == 'text/html'), None)
+                     if isinstance(item, dict) and item.get('uri') == uri
+                     and str(item.get('mimeType', '')).split(';')[0].strip() == 'text/html'), None)
     if resource is None:
         raise ValueError('MCP resource did not contain the requested HTML document')
     html = resource.get('text')
@@ -29,7 +30,17 @@ def resource_document(result: dict, uri: str, host: str) -> tuple[bytes, str]:
             if not isinstance(value, str) or not re.fullmatch(r'[a-z]+://(?:\*\.)?[A-Za-z0-9.-]+(?::[0-9]+)?', value):
                 continue
             parsed = urlsplit(value)
-            if parsed.scheme not in schemes or parsed.netloc.lower() == host.lower():
+            try:
+                host_name = urlsplit('http://' + host).hostname or ''
+                candidate = parsed.hostname or ''
+                # Reject this Host even with default-port spelling or wildcard
+                # metadata. App network access must use its external service.
+                same_host = candidate.lower() == host_name.lower() or (
+                    candidate.startswith('*.') and host_name.lower().endswith(candidate[1:].lower()))
+                valid_port = parsed.port is None or 0 < parsed.port <= 65535
+            except ValueError:
+                continue
+            if parsed.scheme not in schemes or same_host or not valid_port:
                 continue
             values.append(value)
         return ' '.join(values)
@@ -37,7 +48,9 @@ def resource_document(result: dict, uri: str, host: str) -> tuple[bytes, str]:
     resources = domains('resourceDomains', {'https', 'http'})
     connections = domains('connectDomains', {'https', 'http', 'wss', 'ws'})
     frames = domains('frameDomains', {'https', 'http'})
-    policy = ("default-src 'none'; sandbox allow-scripts; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; "
+    bases = domains('baseUriDomains', {'https', 'http'})
+    policy = ("default-src 'none'; sandbox allow-scripts; frame-ancestors 'self'; form-action 'none'; "
+              f"base-uri {bases or chr(39) + 'none' + chr(39)}; "
               f"script-src 'unsafe-inline' {resources}; style-src 'unsafe-inline' {resources}; "
               f"img-src data: blob: {resources}; font-src data: {resources}; media-src data: blob: {resources}; "
               f"connect-src {connections or chr(39) + 'none' + chr(39)}; frame-src {frames or chr(39) + 'none' + chr(39)}")

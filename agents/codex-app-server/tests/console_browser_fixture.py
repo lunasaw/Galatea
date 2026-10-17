@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import copy
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -46,27 +47,21 @@ class FixtureNative(NativeBridge):
             return {'data': [{'position': 1, 'type': 'realtime', 'item': {'id': 'rt-1', 'realtimeSessionId': 'fixture-rt', 'type': 'transcriptSegment', 'role': 'user', 'text': '历史语音文字'}}], 'nextCursor': None, 'activeRealtimeSessionAtPageStart': None}
         if method == 'mcpServerStatus/list':
             return {'data': [{'name': 'fixture-app', 'authStatus': 'unsupported', 'tools': {
-                'lookup': {'name': 'lookup', 'inputSchema': {'type': 'object'}, 'annotations': {'readOnlyHint': True}},
+                'lookup': {'name': 'lookup', 'inputSchema': {'type': 'object'}, 'annotations': {'readOnlyHint': True}, '_meta': {'ui': {'resourceUri': 'ui://fixture/app'}}},
+                'model_only': {'name': 'model_only', 'inputSchema': {'type': 'object'}, '_meta': {'ui': {'visibility': ['model']}}},
                 'change': {'name': 'change', 'inputSchema': {'type': 'object'}, 'annotations': {'readOnlyHint': False}},
             }, 'resources': [], 'resourceTemplates': []}], 'nextCursor': None}
+        if method == 'turn/start':
+            return await self.host.send_message(params['threadId'], request_id, '\n'.join(p['text'] for p in params['input'] if p['type'] == 'text'), input_items=params['input'])
+        if method == 'turn/steer':
+            if self.host.sessions[params['threadId']].get('active_turn_id') != params['expectedTurnId']:
+                raise ValueError('turn identity changed')
+            return {'turnId': params['expectedTurnId']}
         if method == 'mcpServer/tool/call':
             return {'content': [{'type': 'text', 'text': 'native app tool result'}], 'isError': False}
         if method == 'mcpServer/resource/read':
-            return {'contents': [{'uri': params['uri'], 'mimeType': 'text/html;profile=mcp-app', 'text': '''<!doctype html>
-<html><body><p id="status">starting</p><button id="read">Read tool</button><button id="change">Change tool</button><p id="reply"></p>
-<script>
-const send = (value) => parent.postMessage({jsonrpc:'2.0', ...value}, '*');
-addEventListener('message', event => {
-  if(event.source !== parent) return;
-  const m = event.data;
-  if(m.id === 1 && m.result) send({method:'ui/notifications/initialized',params:{}});
-  if(m.method === 'ui/notifications/tool-result') document.querySelector('#status').textContent = m.params.content[0].text;
-  if(m.id === 2 || m.id === 3) document.querySelector('#reply').textContent = m.result?.content?.[0]?.text || JSON.stringify(m.error);
-});
-send({id:1,method:'ui/initialize',params:{appInfo:{name:'fixture',version:'1'},appCapabilities:{},protocolVersion:'2026-01-26'}});
-document.querySelector('#read').onclick = () => send({id:2,method:'tools/call',params:{name:'lookup',arguments:{q:'hello'}}});
-document.querySelector('#change').onclick = () => send({id:3,method:'tools/call',params:{name:'change',arguments:{value:'edited'}}});
-</script></body></html>'''}]}
+            return {'contents': [{'uri': params['uri'], 'mimeType': 'text/html;profile=mcp-app',
+                'text': (Path(__file__).parent / 'fixtures/mcp_app.html').read_text()}]}
         if method in {'configRequirements/read', 'modelProvider/capabilities/read'}:
             return {'requirements': None} if method == 'configRequirements/read' else {'imageGeneration': True, 'namespaceTools': True, 'webSearch': False}
         if method == 'permissionProfile/list':
@@ -341,13 +336,18 @@ class BrowserHost(test_console.FakeHost):
                 'cwd': '/fixture', 'status': 'completed', 'exitCode': 0, 'aggregatedOutput': 'src/workbench.tsx:84: preview'}})
         if text == 'mcp-app-fixture':
             wire('item/completed', {'item': {'id': 'mcp-app', 'type': 'mcpToolCall', 'server': 'fixture-app', 'tool': 'lookup',
-                'status': 'completed', 'arguments': {'q': 'initial'}, 'appContext': {'connectorId': 'fixture', 'resourceUri': 'ui://fixture/app', 'appName': 'Fixture App'},
+                'status': 'completed', 'arguments': {'q': 'initial'}, 'mcpAppUi': {'resourceUri': 'ui://fixture/app'},
                 'result': {'content': [{'type': 'text', 'text': 'MCP App ready'}]}}})
         reply = '你好，完整回复。' if 'Markdown' not in text else '## 已完成分析\n\n这是 **Markdown** 回复。\n\n| 项目 | 状态 |\n| --- | --- |\n| 能力查询 | 可用 |\n\n```python\nprint(\"hello Galatea\")\n```\n\n<img src=x onerror=\"window.injected=1\">'
         if text == 'parity-fixture':
             reply = '验收完成。\n\n[查看报告](/fixture/report.md) · [查看源码](/fixture/file.py:2)'
         if text == 'desktop-ui-fixture':
             reply = '会话交互已调整。点击文件后可在右侧阅读，对话与草稿会保留。\n\n[阅读说明](/fixture/README.md) · [定位源码](/fixture/src/workbench.tsx#L84-L86)\n\n[相对路径](src/workbench.tsx:12) · [中文文件](docs/%E7%95%8C%E9%9D%A2%20%E8%AF%B4%E6%98%8E.md) · [重试文件](/fixture/missing.md) · [慢速文件](/fixture/slow.txt) · [外部文档](https://developers.openai.com/codex/app/features)'
+        if text == 'copy-fixture':
+            reply = '## 完整复制验收\n\n' + '\n\n'.join(
+                f'第 {index} 段：这段内容必须完整保留。**中文和标点**、`代码`、链接 [文档](https://example.test/docs)。'
+                for index in range(160)
+            ) + '\n\n```python\nprint("完整代码")\n```\n\n| 字段 | 内容 |\n| --- | --- |\n| 结果 | 全部保留 |\n\n最后一行：回答已完整复制。'
         wire('item/agentMessage/delta', {'itemId': 'answer', 'delta': reply[:3]})
         await asyncio.sleep(.8)
         wire('item/agentMessage/delta', {'itemId': 'answer', 'delta': reply[3:]})
@@ -376,5 +376,5 @@ if __name__ == '__main__':
     with tempfile.TemporaryDirectory() as directory:
         events = ConsoleObservationService()
         host = BrowserHost(events, Path(directory))
-        app = ConsoleApp(host, events)
+        app = ConsoleApp(host, events, static_dir=os.environ.get('CONSOLE_BUILD_DIR'))
         uvicorn.run(app, host='127.0.0.1', port=int(sys.argv[1]), log_level='warning')

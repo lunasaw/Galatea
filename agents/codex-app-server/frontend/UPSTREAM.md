@@ -52,6 +52,12 @@ License: MIT, preserved in `licenses/assistant-ui-components.txt` and bundled no
 - Sidebar search, thread controls and Host inspection panels keep the existing
   runtime adapter; clone demo-only shell controls are not imported as a second
   independent sidebar state.
+- `sidebar-resize.tsx` wraps the shared SidebarProvider with browser-persisted
+  desktop width and replaces the expanded rail with a pointer/keyboard resize
+  handle. The upstream collapse controls and mobile Sheet remain in use.
+- `message-copy.tsx` reads the message runtime's complete copy text on click.
+  The shared clipboard helper falls back to a selected textarea for HTTP hosts
+  without Clipboard API support; failed message copies show a retry message.
 - `tool-ui.tsx` composes the official ToolFallback parts to preserve Host-specific
   running/failed/unknown observations and job metadata. An observed call without
   a receipt is never labeled a success. `ToolFallback.Trigger` accepts a label
@@ -95,3 +101,14 @@ Pending native requests are scoped to their owning session; unrelated requests u
 a separate notification dialog. Account and OAuth login controls are omitted.
 The build retains the upstream runtime, message grouping, attachment handling,
 Markdown, focus management and CSP adaptation.
+
+## Composer queue update (2026-10-17)
+
+`Thread` wraps the upstream composer and a sibling queue list in one visual stack.
+Queued submissions appear as inset rows behind the composer; edit forms stay
+outside the composer form. The header queue entry and separate add form are removed.
+The main composer sends Enter through native steering while a turn is active;
+Tab and the queue button use `thread/queue/add`, preserving attachments and retry
+identity. Completion menus and IME take precedence. These are the repository's
+native CLI defaults, not a claim about Desktop keyboard settings. Queue dispatch
+remains owned by the native runtime.

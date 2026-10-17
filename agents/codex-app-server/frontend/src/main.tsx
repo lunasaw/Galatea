@@ -41,7 +41,6 @@ import {
   Home,
   Search,
   Target,
-  ListOrdered,
   ArrowLeft,
   AudioLines,
 } from "lucide-react";
@@ -60,11 +59,11 @@ import { Thread } from "./components/assistant-ui/elements/thread.aui";
 import { ThreadListSidebar } from "./components/assistant-ui/elements/threadlist-sidebar.aui";
 import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button";
 import {
-  SidebarProvider,
   SidebarInset,
   SidebarTrigger,
   useSidebar,
 } from "./components/ui/sidebar";
+import { ResizableSidebarProvider } from "./sidebar-resize";
 import { Button } from "./components/ui/button";
 import {
   DropdownMenu,
@@ -207,6 +206,7 @@ function Workspace() {
     isDisabled:
       state.global ||
       state.loading ||
+      state.sessionRefreshing ||
       state.creating ||
       state.settingsBusy ||
       (!!session && !["ready", ...busyStatuses].includes(session.status)),
@@ -235,7 +235,7 @@ function Workspace() {
       threadList: {
         threadId: state.active || undefined,
         threads,
-        isLoading: state.health === null && !state.error,
+        isLoading: state.sessionsLoading,
         onSwitchToNewThread: () => choose(null),
         onSwitchToThread: choose,
         onRename: (id, title) => store.rename(id, title),
@@ -516,7 +516,6 @@ function Workspace() {
                 </TooltipIconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => openSettings("queue")}><ListOrdered />输入队列</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => openSettings("background")}><Terminal />Agent 后台终端</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => openSettings("review")}><FileDiff />代码审查与审批记录</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => openSettings("agents")}><Workflow />子 Agent</DropdownMenuItem>
@@ -605,6 +604,11 @@ function Workspace() {
                   className="flex items-center justify-between gap-2 bg-destructive/10 p-2 text-destructive"
                 >
                   <span>{state.error}</span>
+                  {state.sessionRefreshing && !state.loading && (
+                    <Button size="sm" variant="outline" onClick={() => void store.latest()}>
+                      重试加载
+                    </Button>
+                  )}
                   {store.canRetry && (
                     <Button
                       size="sm"
@@ -769,10 +773,7 @@ function Workspace() {
   );
 }
 createRoot(document.getElementById("root")!).render(
-  <SidebarProvider
-    className="h-dvh overflow-hidden"
-    style={{ "--sidebar-width": "320px" } as React.CSSProperties}
-  >
+  <ResizableSidebarProvider>
     <Workspace />
-  </SidebarProvider>,
+  </ResizableSidebarProvider>,
 );

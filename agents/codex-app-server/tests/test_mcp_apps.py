@@ -35,3 +35,18 @@ class McpAppDocumentTests(unittest.TestCase):
             resource_document({'contents': [{'uri': 'ui://other', 'mimeType': 'text/html', 'text': 'wrong'}]}, 'ui://fixture/app', 'localhost')
         with self.assertRaises(ValueError):
             resource_document({'contents': [{'uri': 'ui://fixture/app', 'mimeType': 'text/plain', 'text': 'wrong'}]}, 'ui://fixture/app', 'localhost')
+
+    def test_base_uri_and_host_aliases_cannot_weaken_network_isolation(self):
+        _, policy = resource_document({'contents': [None, {'uri': 'ui://fixture/app', 'mimeType': None}, {
+            'uri': 'ui://fixture/app', 'mimeType': 'text/html', 'text': 'hello',
+            '_meta': {'ui': {'csp': {
+                'baseUriDomains': ['https://cdn.example.test'],
+                'connectDomains': ['https://console.example.test:443', 'https://*.example.test',
+                                   'https://api.example.test:99999', 'https://api.example.test'],
+            }}},
+        }]}, 'ui://fixture/app', 'console.example.test')
+        self.assertIn('base-uri https://cdn.example.test;', policy)
+        self.assertIn('connect-src https://api.example.test;', policy)
+        self.assertNotIn('console.example.test', policy)
+        self.assertNotIn('*.example.test', policy)
+        self.assertNotIn('99999', policy)

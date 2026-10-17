@@ -6,6 +6,8 @@ import { observeNative } from "./native-events";
 import { requestKey, consoleStore as store } from "./store";
 import { SchemaInput, schemaDefault } from "./schema-form";
 import type { McpServer } from "./integrations-data";
+import { deferred } from "./deferred";
+const McpAppView = deferred(() => import("./mcp-app-view").then(m => ({ default: m.McpAppView })));
 
 export function McpContent({ content }: { content: Obj[] }) {
   return <div className="mcp-content">{content.map((part, index) => {
@@ -20,12 +22,18 @@ export function McpContent({ content }: { content: Obj[] }) {
 function ToolRunner({ server, name, tool, threadId }: { server: string; name: string; tool: Obj; threadId?: string }) {
   const schema = tool.inputSchema || { type: "object" }; const [args, setArgs] = useState(() => schemaDefault(schema));
   const [result, setResult] = useState<Obj>(); const action = useAction();
+  const [invocation, setInvocation] = useState<{ id: string; args: Obj }>();
+  const appUri = tool._meta?.ui?.resourceUri ?? tool._meta?.["ui/resourceUri"];
   return <details className="integration-tool"><summary>{tool.name || name}</summary><p>{tool.description}</p>
     <form onSubmit={(e) => { e.preventDefault(); void action.run(async () => {
-      const response = await native("mcpServer/tool/call", { threadId, server, tool: name, arguments: args }); setResult(response);
+      const id = requestKey();
+      const response = await native("mcpServer/tool/call", { threadId, server, tool: name, arguments: args }, id); setResult(response);
+      setInvocation({ id, args });
       if (response.isError) throw new Error("工具返回执行错误，请查看结果");
     }, "调用完成"); }}><SchemaInput schema={schema} value={args} change={setArgs} /><Button disabled={action.busy || !threadId}>调用工具</Button>{!threadId && <p>请先选择一个会话。</p>}</form>
     {result && <><McpContent content={result.content || []} />{result.structuredContent && <Facts value={result.structuredContent} />}</>}
+    {result && invocation && threadId && typeof appUri === "string" && appUri.startsWith("ui://") &&
+      <McpAppView key={invocation.id} server={server} threadId={threadId} uri={appUri} instanceId={invocation.id} toolName={name} args={invocation.args} result={result} status="completed" />}
     <Feedback error={action.error} status={action.status} />
   </details>;
 }
@@ -45,7 +53,7 @@ export function McpCapabilities({ server, threadId }: { server: McpServer; threa
     return () => { generation.current++; cleanup.current?.(); if (active.current) void native("mcpServer/event/stream/stop", { subscriptionId: active.current }).catch(store.fail); active.current = ""; };
   }, [server.name, threadId]);
   return <div className="mcp-capabilities">
-    {Object.entries(server.tools || {}).map(([name, tool]) => <ToolRunner key={name} {...{ name, tool, threadId }} server={server.name} />)}
+    {Object.entries(server.tools || {}).map(([name, tool]) => <ToolRunner key={JSON.stringify([server.name, threadId, name])} {...{ name, tool, threadId }} server={server.name} />)}
     <h4>资源</h4><ul className="capability-list">{server.resources?.map((r) => <li key={r.uri}><button onClick={() => setUri(r.uri)}>{r.name} · {r.uri}</button></li>)}{server.resourceTemplates?.map((r) => <li key={r.uriTemplate}><button onClick={() => setUri(r.uriTemplate)}>{r.name} · {r.uriTemplate}</button></li>)}</ul>
     <form onSubmit={(e) => { e.preventDefault(); void action.run(async () => setResource(await native("mcpServer/resource/read", { server: server.name, uri, ...(threadId ? { threadId } : {}) })), "资源已读取"); }}><Field label="资源 URI"><input required value={uri} onChange={(e) => setUri(e.target.value)} /></Field><Button variant="outline" disabled={action.busy || !uri || /\{[^}]+\}/.test(uri)}>读取资源</Button></form>
     {resource && <McpContent content={resource.contents || []} />}

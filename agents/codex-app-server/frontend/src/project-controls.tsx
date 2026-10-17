@@ -358,6 +358,10 @@ export function ProjectSidebar({
   const threadItems = useAuiState((s) => s.threads.threadItems);
   const projects = store.projects;
   const layout = state.projectLayout;
+  const sectionForThread = (id: string) => {
+    const sectionId = state.sessions.find((s) => s.id === id)?.section_id;
+    return state.threadSections.some((section) => section.id === sectionId) ? sectionId : "";
+  };
   const [adding, setAdding] = useState<string | null>(null);
   const [edit, setEdit] = useState<{
     kind: "section" | "project" | "threadSection";
@@ -735,7 +739,7 @@ export function ProjectSidebar({
           <DropdownMenuContent><DropdownMenuItem onSelect={() => setEdit({ kind: "threadSection", ...group })}>重命名会话分组</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void native("threadSection/delete", { sectionId: group.id }).then(() => store.refreshProjects()).catch(store.fail)}>删除分组，保留会话</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}
         </div>
-        {[...new Set([...layout.threadOrder, ...threadIds])].filter((id) => indexById.has(id) && !items.get(id)?.custom?.projectId && (state.sessions.find((s) => s.id === id)?.section_id || "") === group.id && (!query || (items.get(id)?.title || "").toLowerCase().includes(query)))
+        {[...new Set([...layout.threadOrder, ...threadIds])].filter((id) => indexById.has(id) && !items.get(id)?.custom?.projectId && sectionForThread(id) === group.id && (!query || (items.get(id)?.title || "").toLowerCase().includes(query)))
           .map((id) => <div className="unassigned-thread" key={id}>{renderThread(id, "")}<DropdownMenu><DropdownMenuTrigger asChild><button aria-label={`${store.title(id)}移动到会话分组`}><MoreHorizontal size={12} /></button></DropdownMenuTrigger><DropdownMenuContent>
             {[...state.threadSections, { id: "", name: "其他会话" }].map((target) => <DropdownMenuItem key={target.id} onSelect={() => void store.moveToThreadSection(id, target.id || null).catch(store.fail)}>{target.name}</DropdownMenuItem>)}
           </DropdownMenuContent></DropdownMenu></div>)}

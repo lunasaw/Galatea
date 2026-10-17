@@ -194,5 +194,5 @@ function AgentItem({ item, turn, parentId, threadId }: { item: Obj; turn: Obj; p
   }
   if (item.type === "subAgentActivity" && item.agentThreadId === parentId) return <p className="subagents-note">与主 Agent 交互</p>;
   const step: Step = { id: item.id, type: item.type, first_seq: "0", last_seq: "0", status: item.status || (turn.status === "inProgress" ? "inProgress" : "completed"), detail: item };
-  return <NativeToolActivity step={step} running={turn.status === "inProgress"} threadId={threadId} />;
+  return <NativeToolActivity step={step} running={turn.status === "inProgress"} threadId={threadId} turnStatus={turn.status} />;
 }

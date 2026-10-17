@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sharedMutation } from "./native-mutation";
 import { Button } from "./components/ui/button";
-import { consoleStore as store, requestKey, type ConsoleState } from "./store";
+import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "./components/ui/dropdown-menu";
+import { consoleStore as store, type ConsoleState } from "./store";
 import { native, openNativeThread, type Obj } from "./native";
 import { allPages, Field, Feedback, useAction, useResource } from "./capability-controls";
 import { textInput, tokenBudget } from "./conversation-capabilities";
-import { ChevronDown, ChevronUp, Target, ListOrdered } from "lucide-react";
+import { ChevronDown, ChevronUp, Target, CircleDashed, MoreHorizontal, Trash2, X } from "lucide-react";
 
 const goalStatuses: Record<string, string> = { active: "进行中", paused: "已暂停", blocked: "受阻", usageLimited: "额度受限", budgetLimited: "预算已用尽", complete: "已完成" };
 
@@ -63,54 +65,80 @@ export function GoalCard({ threadId, revision, expanded, onExpandedChange }: {
     <Feedback error={resource.error || action.error} status={action.status} />
   </section>;
 }
-export function QueueCard({ threadId, expanded, onExpandedChange }: {
-  threadId?: string; expanded: boolean; onExpandedChange: (expanded: boolean) => void;
+export function QueueCard({ threadId, revision, canStart }: {
+  threadId?: string; revision: number; canStart: boolean;
 }) {
   const load = useCallback(() => threadId ? allPages("thread/queue/list", { threadId }) : Promise.resolve([]), [threadId]);
-  const resource = useResource(load, 3000); const action = useAction();
-  const [text, setText] = useState(""); const [editing, setEditing] = useState<Obj>();
+  const resource = useResource(load, threadId ? 3000 : 0);
+  const action = useAction();
+  const root = useRef<HTMLElement>(null);
+  const previousRevision = useRef(revision);
+  const [editing, setEditing] = useState<string>();
   const [draft, setDraft] = useState("");
-  const submission = sharedMutation(`queue:${threadId}`);
+  const [requested, setRequested] = useState(false);
   const rows = resource.data || [];
-  if (!expanded && !rows.length) return resource.error ? <Feedback error={resource.error} /> : null;
+  useEffect(() => {
+    if (previousRevision.current === revision) return;
+    previousRevision.current = revision;
+    void resource.refresh();
+  }, [revision, resource.refresh]);
+  useEffect(() => {
+    const show = (event: Event) => {
+      if ((event as CustomEvent).detail !== "queue") return;
+      setRequested(true);
+      void resource.refresh();
+      requestAnimationFrame(() => { root.current?.scrollIntoView({ block: "nearest" }); root.current?.focus(); });
+    };
+    window.addEventListener("codex-composer-panel", show);
+    return () => window.removeEventListener("codex-composer-panel", show);
+  }, [resource.refresh]);
   const mutate = (method: string, params: Obj) => action.run(async () => {
-    await native(method, { threadId, ...params }); await resource.refresh(); await store.refreshSessions(); store.schedule();
-  });
+    await sharedMutation(`queue-edit:${threadId}`).run(method, { threadId, ...params });
+    setEditing(undefined);
+    await resource.refresh();
+    if (method === "thread/queue/start") { await store.refreshSessions(); store.schedule(); }
+  }, "");
   const reorder = (index: number, offset: number) => {
     const ids = rows.map((row) => row.id); [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]];
     void mutate("thread/queue/reorder", { queuedSubmissionIds: ids });
   };
-  return <section className="composer-goal-card" aria-label="当前聊天的输入队列">
-    <div className="composer-card-heading"><button type="button" aria-expanded={expanded} onClick={() => onExpandedChange(!expanded)}>
-      <ListOrdered size={16} /><strong>待发送消息</strong><span>{rows.length}</span>{expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-    </button></div>
-    {!expanded && rows[0] && <p className="composer-goal-objective">{rows[0].input.filter((p: Obj) => p.type === "text").map((p: Obj) => p.text).join("\n")}</p>}
-    {expanded && <div className="composer-card-body capability-page">
-    {!threadId ? <p className="muted">先打开一个聊天，再添加待发送消息。</p> : <>
-    <p className="muted">消息由运行时在聊天空闲时依次发送。</p>
-    <form onSubmit={(e) => { e.preventDefault(); void action.run(async () => {
-      await submission.run("thread/queue/add", { threadId, clientUserMessageId: requestKey(), input: textInput(text) }, JSON.stringify([threadId, text]));
-      setText((current) => current === text ? "" : current); await resource.refresh();
-    }, "已加入队列"); }}><Field label="排队输入"><textarea value={text} disabled={action.busy} onChange={(e) => setText(e.target.value)} required /></Field>
-      <Button disabled={action.busy || !text.trim()}>加入队列</Button></form>
-    <ol className="capability-list">{rows.map((row, index) => <li key={row.id}>
-      {editing?.id === row.id ? <form onSubmit={(e) => { e.preventDefault(); void action.run(async () => {
-        const other = row.input.filter((part: Obj) => part.type !== "text");
-        await native("thread/queue/update", { threadId, queuedSubmissionId: row.id, input: [...textInput(draft), ...other] });
-        setEditing(undefined); await resource.refresh();
-      }); }}><Field label="编辑排队消息"><textarea value={draft} onChange={(e) => setDraft(e.target.value)} /></Field>
-        <Button disabled={action.busy || !draft.trim()}>保存消息</Button><Button type="button" variant="ghost" onClick={() => setEditing(undefined)}>取消</Button></form>
-        : <><p className="whitespace-pre-wrap">{row.input.filter((p: Obj) => p.type === "text").map((p: Obj) => p.text).join("\n")}</p>
-          {row.input.filter((p: Obj) => p.type !== "text").map((p: Obj, i: number) => <small key={i}>{p.name || p.path || p.type}</small>)}
-          <div className="native-options"><Button type="button" size="sm" disabled={action.busy} onClick={() => void mutate("thread/queue/start", { queuedSubmissionId: row.id })}>启动</Button>
-            <Button type="button" size="sm" variant="ghost" disabled={action.busy} onClick={() => { setEditing(row); setDraft(row.input.filter((p: Obj) => p.type === "text").map((p: Obj) => p.text).join("\n")); }}>编辑</Button>
-            <Button type="button" size="sm" variant="ghost" disabled={action.busy || index === 0} onClick={() => reorder(index, -1)}>上移</Button>
-            <Button type="button" size="sm" variant="ghost" disabled={action.busy || index === rows.length - 1} onClick={() => reorder(index, 1)}>下移</Button>
-            <Button type="button" size="sm" variant="ghost" disabled={action.busy} onClick={() => void mutate("thread/queue/delete", { queuedSubmissionId: row.id })}>删除</Button></div></>}
-    </li>)}</ol>
-    {resource.data && !rows.length && <p className="muted">队列为空</p>}
-    </>}
-    <Feedback error={resource.error || action.error} status={action.status} /></div>}
+  if (!rows.length && !resource.error && !action.error && !requested) return null;
+  return <section ref={root} tabIndex={-1} className="composer-queue" aria-label="待发送消息">
+    <ol className="composer-queue-list">{rows.map((row, index) => {
+      const text = row.input.filter((part: Obj) => part.type === "text").map((part: Obj) => part.text).join("\n");
+      const other = row.input.filter((part: Obj) => part.type !== "text");
+      return <li key={row.id} className="composer-queue-item" data-queued-id={row.id}>
+        <div className="composer-queue-row">
+          <CircleDashed size={15} className="composer-queue-indicator" aria-hidden="true" />
+          <button type="button" className="composer-queue-preview" title={text || "附件消息"}
+            aria-label={`编辑待发送消息：${text || "附件消息"}`} disabled={action.busy}
+            onClick={() => { setEditing(row.id); setDraft(text); }}>
+            <span>{text || "附件消息"}</span>
+            {!!other.length && <small>{other.map((part: Obj) => part.name || (part.type === "image" ? "图片" : part.type === "audio" ? "音频" : part.path || part.type)).join(" · ")}</small>}
+          </button>
+          <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className="composer-queue-more" aria-label="待发送消息更多操作" disabled={action.busy}><MoreHorizontal size={16} /></button></DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="end">
+              <DropdownMenuItem disabled={!canStart} onSelect={() => void mutate("thread/queue/start", { queuedSubmissionId: row.id })}>立即发送</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => { setEditing(row.id); setDraft(text); }}>编辑</DropdownMenuItem>
+              <DropdownMenuItem disabled={index === 0} onSelect={() => reorder(index, -1)}>上移</DropdownMenuItem>
+              <DropdownMenuItem disabled={index === rows.length - 1} onSelect={() => reorder(index, 1)}>下移</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <TooltipIconButton type="button" tooltip="删除待发送消息" aria-label="删除待发送消息" className="composer-queue-delete"
+            disabled={action.busy} onClick={() => void mutate("thread/queue/delete", { queuedSubmissionId: row.id })}><Trash2 size={15} /></TooltipIconButton>
+        </div>
+        {editing === row.id && <form className="composer-queue-edit" onSubmit={(event) => {
+          event.preventDefault();
+          void mutate("thread/queue/update", { queuedSubmissionId: row.id, input: [...(draft.trim() ? textInput(draft) : []), ...other] });
+        }}>
+          <textarea aria-label="编辑待发送消息" autoFocus rows={2} value={draft} disabled={action.busy} onChange={(event) => setDraft(event.target.value)} />
+          <div><Button type="button" size="sm" variant="ghost" onClick={() => setEditing(undefined)}>取消</Button>
+            <Button size="sm" disabled={action.busy || (!draft.trim() && !other.length)}>保存</Button></div>
+        </form>}
+      </li>;
+    })}</ol>
+    {!rows.length && requested && <div className="composer-queue-empty"><span>没有待发送消息</span><button type="button" aria-label="关闭队列提示" onClick={() => setRequested(false)}><X size={14} /></button></div>}
+    {(resource.error || action.error) && <div className="composer-queue-error"><Feedback error={resource.error || action.error} /><button type="button" onClick={() => void resource.refresh()}>刷新</button></div>}
   </section>;
 }
 

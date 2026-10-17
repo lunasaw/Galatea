@@ -21,6 +21,7 @@ import {
   RotateCcw,
   ChevronRight,
   X,
+  ListPlus,
 } from "lucide-react";
 import { Button } from "./components/ui/button";
 import {
@@ -31,7 +32,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "./components/ui/dropdown-menu";
-import { consoleStore as store } from "./store";
+import { consoleStore as store, requestKey } from "./store";
+import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button";
 import { native } from "./native";
 import { Popover, Slider } from "radix-ui";
 import { ComposerPrimitive } from "@assistant-ui/react";
@@ -114,18 +116,17 @@ export function ComposerConversationCards() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const threadId = state.sessions.find((s) => s.id === state.active)?.thread_id;
   const [goalOpen, setGoalOpen] = useState(false);
-  const [queueOpen, setQueueOpen] = useState(false);
-  useEffect(() => {
-    const show = (event: Event) => { if ((event as CustomEvent).detail === "queue") setQueueOpen(true); };
-    window.addEventListener("codex-composer-panel", show);
-    return () => window.removeEventListener("codex-composer-panel", show);
-  }, []);
-  useEffect(() => { setGoalOpen(false); setQueueOpen(false); }, [state.active]);
+  useEffect(() => { setGoalOpen(false); }, [state.active]);
   return <div className="composer-conversation-cards">
     <GoalCard key={`goal-${threadId}`} threadId={threadId} revision={state.goalRevision} expanded={goalOpen} onExpandedChange={setGoalOpen} />
-    <QueueCard key={`queue-${threadId}`} threadId={threadId} expanded={queueOpen} onExpandedChange={setQueueOpen} />
     <VoiceConversationCard />
   </div>;
+}
+export function ComposerQueue() {
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const session = state.sessions.find((s) => s.id === state.active);
+  return <QueueCard key={session?.thread_id || "new"} threadId={session?.thread_id}
+    revision={state.queueRevision} canStart={session?.status === "ready" && !session.active_turn_id && !state.sessionRefreshing} />;
 }
 export function ComposerOptions() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -271,6 +272,8 @@ export function useComposerCommands() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const session = state.sessions.find((s) => s.id === state.active);
   const [steering, setSteering] = useState(false);
+  const submittingInput = useRef(false);
+  const queueAvailable = !!session?.thread_id && !!state.nativeProtocol?.methods.includes("thread/queue/add");
   const goalMode = store.goalInputMode;
   const skillMentions = useSkillMentions({ disabled: goalMode || state.creating || (state.submitting && !session?.active_turn_id), threadId: session?.thread_id });
   const slash = useSlashCommands({ text, state, disabled: goalMode });
@@ -282,21 +285,26 @@ export function useComposerCommands() {
         && aui.composer().getState().text === text) aui.composer().setText("");
     });
   };
-  const steer = async () => {
-    if (!session?.active_turn_id || (!text.trim() && !attachmentCount) || steering) return;
+  const submitInput = async (kind: "steer" | "queue") => {
+    if (!session?.thread_id || (kind === "steer" && !session.active_turn_id) ||
+      (kind === "queue" && !queueAvailable) || (!text.trim() && !attachmentCount) ||
+      submittingInput.current || state.loading || state.sessionRefreshing || state.settingsBusy) return;
+    submittingInput.current = true;
     setSteering(true);
     const draftAttachments = [...aui.composer().getState().attachments];
     try {
       const prepared = await Promise.all(draftAttachments.map((a) => a.status.type === "complete" ? a : attachments.send(a as PendingAttachment)));
-      await sharedMutation(`steer:${session.thread_id}`).run("turn/steer", {
+      await sharedMutation(`${kind}:${session.thread_id}`).run(kind === "queue" ? "thread/queue/add" : "turn/steer", {
         threadId: session.thread_id,
-        expectedTurnId: session.active_turn_id,
+        ...(kind === "queue" ? { clientUserMessageId: requestKey() } : { expectedTurnId: session.active_turn_id }),
         input: nativeParts([{ type: "text", text }, ...prepared.flatMap((a) => a.content || [])]),
       }, JSON.stringify([session.thread_id, text, draftAttachments.map((a) => a.id)]));
+      if (kind === "queue") store.patch({ queueRevision: store.state.queueRevision + 1 });
       if (
         store.state.active === session.id &&
         aui.composer().getState().text === text
       ) {
+        store.patch({ error: "" });
         aui.composer().setText("");
         for (const attachment of draftAttachments) {
           if (aui.composer().getState().attachments.some((a) => a.id === attachment.id)) await aui.composer().attachment({ id: attachment.id }).remove();
@@ -305,6 +313,7 @@ export function useComposerCommands() {
     } catch (error) {
       store.fail(error);
     } finally {
+      submittingInput.current = false;
       setSteering(false);
     }
   };
@@ -317,6 +326,12 @@ export function useComposerCommands() {
       event.preventDefault(); event.stopPropagation(); void sendGoal(); return;
     }
     if (slash.onKeyDownCapture(event)) return;
+    // Native CLI uses Tab for an explicit queued submission. Keep completion
+    // menus first, and leave Tab navigation alone for empty/idle composers.
+    if (!goalMode && queueAvailable && session?.active_turn_id && (text.trim() || attachmentCount) &&
+      event.key === "Tab" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault(); event.stopPropagation(); void submitInput("queue"); return;
+    }
     if (event.key === "Enter" && !event.shiftKey && slash.submit()) {
       event.preventDefault(); event.stopPropagation(); return;
     }
@@ -327,7 +342,7 @@ export function useComposerCommands() {
     ) {
       event.preventDefault();
       event.stopPropagation();
-      void steer();
+      void submitInput("steer");
     }
   };
   return {
@@ -353,6 +368,11 @@ export function useComposerCommands() {
     },
     goalButton: goalMode ? <Button type="button" size="icon" className="rounded-full size-9" aria-label="发送目标"
       disabled={!text.trim() || state.submitting || state.creating || state.settingsBusy} onClick={() => void sendGoal()}><ArrowUp className="size-4" /></Button> : null,
+    queueButton: !goalMode && queueAvailable && (text.trim() || attachmentCount) ? <TooltipIconButton
+      type="button" className="composer-queue-submit" aria-label="加入待发送队列"
+      tooltip={session?.active_turn_id ? "加入待发送队列（Tab）" : "加入待发送队列"}
+      disabled={steering || state.loading || state.sessionRefreshing || state.settingsBusy}
+      onClick={() => { if (!slash.submit()) void submitInput("queue"); }}><ListPlus size={17} /></TooltipIconButton> : null,
     onKeyDownCapture,
     placeholder: goalMode ? "描述你的目标，并设定可衡量的成果，以获得最佳效果" : session?.active_turn_id
       ? "补充说明，或调整接下来的方向…"
@@ -366,7 +386,7 @@ export function useComposerCommands() {
           className="rounded-full size-9"
           aria-label="发送补充"
           disabled={steering}
-          onClick={() => { if (!slash.submit()) void steer(); }}
+          onClick={() => { if (!slash.submit()) void submitInput("steer"); }}
         >
           <ArrowUp className="size-4" />
         </Button>

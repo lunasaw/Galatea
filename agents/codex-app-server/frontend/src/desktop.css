@@ -171,6 +171,34 @@
 @media (max-width: 767px) { .desktop-setting-row { flex-wrap: wrap; gap: 10px; } .desktop-setting-control { max-width: 100%; } }
 .composer-conversation-cards { display: grid; gap: 8px; }
 .composer-conversation-cards:empty { display: none; }
+.composer-stack { display: flex; flex-direction: column; width: 100%; min-width: 0; }
+.composer-stack > .aui-composer-root { z-index: 1; }
+.composer-queue { margin: 0 14px -20px; padding: 2px 0 20px; border: 1px solid var(--border); border-radius: 19px 19px 0 0; background: color-mix(in srgb, var(--composer-background) 94%, var(--muted)); color: var(--muted-foreground); outline-offset: 2px; }
+.composer-queue-list { max-height: min(28dvh, 240px); overflow-y: auto; overscroll-behavior: contain; }
+.composer-queue-item + .composer-queue-item { border-top: 1px solid var(--border); }
+.composer-queue-row { display: flex; align-items: center; min-height: 42px; padding: 5px 12px; gap: 10px; }
+.composer-queue-indicator { flex-shrink: 0; opacity: .6; }
+.composer-queue-preview { flex: 1; min-width: 0; text-align: left; font-size: 14px; font-weight: 500; border-radius: 4px; }
+.composer-queue-preview > span, .composer-queue-preview > small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.composer-queue-preview > small { font-size: 11px; font-weight: 400; }
+.composer-queue-preview:hover { color: var(--foreground); }
+.composer-queue-more, .composer-queue-delete { display: grid; place-items: center; flex-shrink: 0; width: 26px; height: 26px; border-radius: 6px; color: var(--muted-foreground); }
+.composer-queue-more { opacity: 0; }
+.composer-queue-row:hover .composer-queue-more, .composer-queue-row:focus-within .composer-queue-more, .composer-queue-more[data-state="open"] { opacity: 1; }
+.composer-queue-more:hover, .composer-queue-delete:hover { background: var(--muted); color: var(--foreground); }
+.composer-queue button:focus-visible, .composer-queue textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.composer-queue-edit { padding: 0 12px 12px 37px; }
+.composer-queue-edit textarea { width: 100%; resize: vertical; min-height: 60px; max-height: 150px; background: var(--composer-background); color: var(--foreground); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-size: 13px; }
+.composer-queue-edit > div { display: flex; gap: 6px; justify-content: flex-end; padding-top: 6px; }
+.composer-queue-empty, .composer-queue-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; font-size: 12px; }
+.composer-queue-error { align-items: flex-start; overflow-wrap: anywhere; }
+.composer-queue-submit { width: 30px; height: 30px; color: var(--muted-foreground); }
+@media (hover: none) { .composer-queue-more { opacity: 1; } }
+@media (max-width: 767px) {
+  .composer-queue { margin-inline: 8px; }
+  .composer-queue-row { padding-inline: 10px; gap: 7px; }
+  .composer-queue-more { opacity: 1; }
+}
 .composer-card-body { max-height: 310px; overflow-y: auto; }
 .chat-search-dialog { width: 520px; max-width: calc(100vw - 32px); padding: 8px; gap: 0; border-radius: 20px; background: var(--popover); box-shadow: 0 16px 60px #0002; }
 .chat-search-input { display: flex; align-items: center; gap: 8px; padding: 8px 6px 12px; }

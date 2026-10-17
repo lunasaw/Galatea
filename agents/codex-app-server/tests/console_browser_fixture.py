@@ -320,6 +320,15 @@ class BrowserHost(test_console.FakeHost):
         await asyncio.sleep(.8)
         wire('item/completed', {'item': {'id': 'reasoning', 'type': 'reasoning',
              'summary': ['已检查当前可用能力。', '已整理结果与下一步建议。'], 'content': ['PRIVATE_REASONING_FIXTURE']}})
+        if text == 'scroll-fixture':
+            for index in range(100):
+                wire('item/completed', {'item': {
+                    'id': f'scroll-command-{index}', 'type': 'commandExecution',
+                    'command': f'printf scroll-row-{index:03d}', 'cwd': '/fixture',
+                    'status': 'completed', 'exitCode': 0,
+                    'aggregatedOutput': f'scroll-output-{index:03d}',
+                }})
+                await asyncio.sleep(.2)
         if text in ('parity-fixture', 'desktop-ui-fixture'):
             wire('item/completed', {'item': {'id': 'progress', 'type': 'agentMessage', 'phase': 'commentary', 'text': '正在检查命令与文件。'}})
             wire('turn/plan/updated', {'explanation': '验证会话展示', 'plan': [{'step': '读取配置', 'status': 'completed'}, {'step': '检查输出', 'status': 'inProgress'}]})

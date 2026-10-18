@@ -35,11 +35,12 @@ class AgentConfig:
     console_host: str = '0.0.0.0'
     console_port: int = 18880
     max_active_turns: int = 4
+    image_generation: dict = field(default_factory=dict, repr=False)
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_dict(cls, raw: dict, config_dir: Path):
-        _object(raw, {'schema_version', 'paths', 'codex', 'agent', 'skills', 'tools', 'console', 'release'}, 'configuration')
+        _object(raw, {'schema_version', 'paths', 'codex', 'agent', 'skills', 'tools', 'console', 'release', 'image_generation'}, 'configuration')
         if raw.get('schema_version') != 'codex-agent/v2':
             raise ValueError('unsupported config schema; create a codex-agent/v2 configuration')
         config_dir = config_dir.absolute()
@@ -108,13 +109,16 @@ class AgentConfig:
         if type(port) is not int or not 1 <= port <= 65535:
             raise ValueError('invalid Console port')
         _object(raw.get('release', {}), {'manifest', 'stage0_record'}, 'release')
+        from .image_generation import configuration_defaults
+        images = configuration_defaults(raw.get('image_generation', {}), path)
         return cls(config_dir=config_dir, **{k: path(v) for k, v in paths.items()},
                    binary=path(codex.get('binary')), runtime_version=codex['runtime_version'],
                    principal_id=principal, actions=frozenset(actions),
                    catalog_dir=path(tools['catalog_dir']) if tools.get('catalog_dir') else None,
                    compatibility_profile=path(codex['compatibility_profile']) if codex.get('compatibility_profile') else None,
                    skill_roots=tuple(path(root) for root in roots), providers=tuple(parsed),
-                   console_host=host, console_port=port, max_active_turns=maximum, raw=copy.deepcopy(raw))
+                   console_host=host, console_port=port, max_active_turns=maximum,
+                   image_generation=images, raw=copy.deepcopy(raw))
 
     def catalog(self):
         catalog = Catalog.load(self.catalog_dir) if self.catalog_dir else Catalog.empty()
@@ -134,5 +138,7 @@ class AgentConfig:
                     or key_path.stat().st_mode & 0o077):
                 raise ValueError('model key file must be an absolute protected file')
             environment['OPENAI_API_KEY'] = key_path.read_text().strip()
+            if not environment['OPENAI_API_KEY']:
+                raise ValueError('model key file must not be empty')
         environment.update(HOME=str(self.config_dir / 'codex-process-home'), CODEX_HOME=str(self.codex_home))
         return environment

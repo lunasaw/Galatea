@@ -13,6 +13,13 @@
     "inherit_env": []
   },
   "skills": {"roots": []},
+  "image_generation": {
+    "enabled": false,
+    "connection": "current",
+    "model": "gpt-image-2",
+    "quality": "medium",
+    "size": "1024x1024"
+  },
   "console": {
     "host": "0.0.0.0",
     "port": 18880,

@@ -20,6 +20,8 @@ for block in blocks:
     index = re.search(r'^index ([0-9a-f]{40})\.\.([0-9a-f]{40})(?: 100644)?$', block, re.M)
     if not header or not index:
         fail('缺少完整文件版本，无法安全撤销。')
+    if re.search(r'^(?:rename |copy |GIT binary patch|Binary files)', block, re.M):
+        fail('此变更暂不支持撤销。')
     if re.search(r'^(?:old mode|new mode|new file mode|deleted file mode) (?!100644$)', block, re.M):
         fail('此变更包含不支持撤销的文件类型。')
     paths = []
@@ -43,6 +45,9 @@ for block in blocks:
         if any(p.is_symlink() for p in (path, *path.parents)):
             fail('文件路径包含符号链接，无法撤销。')
         paths.append(path)
+    git_header = block.splitlines()[0]
+    if not git_header.startswith('diff --git '):
+        fail('无法识别变更记录。')
     before, after = paths
     if before and after and before != after:
         fail('重命名变更暂不支持撤销。')

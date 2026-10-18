@@ -95,6 +95,7 @@ codex-agent --config /absolute/path/agent.json serve --dev
 完整功能位置、原生接口与验收边界见 [Web 能力对齐](docs/17-web-capability-parity.md)。
 设置现含全部 103 个原生配置域、账户与登录、聊天资源及高级原生参数；
 逐项能力清单、配置集上游限制和验证结果见 [原生能力补齐与验收](docs/20-native-capability-completion.md)。
+图像生成设置和 API Skill 的连接、密钥保护及网关权限边界见 [图像生成设置](docs/22-image-generation.md)。
 
 聊天右上角「… → 复制」提供深度链接、整段会话 Markdown 和工作目录复制；「导出 Markdown」
 将同一份会话内容下载为 `.md` 文件。导出会读取当前 Host 的全部历史分页，保留 Markdown 原文、

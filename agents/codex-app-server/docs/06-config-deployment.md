@@ -12,14 +12,20 @@
 | paths.workspace_dir | 默认工作目录 |
 | agent.id / max_active_turns | Host 单身份及并发限制 |
 | skills.roots | 原生额外 Skill 根目录 |
+| image_generation | API 绘图默认连接、模型、质量和尺寸；见[图像生成配置](22-image-generation.md) |
 | tools.catalog_dir / actions / providers | 可选自定义工具；见 Tool 契约 |
 | codex.inherit_env | 传给原生 Codex 与 MCP 子进程的环境变量名 allowlist |
-| codex.model_api_key_file | 可选绝对路径密钥文件，仅 owner 可读写 |
+| codex.model_api_key_file | 可选绝对路径密钥文件，仅 owner 可读写；启动时通过原生 API Key 登录 |
 | codex.compatibility_profile | 自定义 Dynamic Tools 正式发布所需协议证据 |
 | console | 监听地址与 memory/sqlite 观察存储 |
 | release | 正式启动的 manifest 与 stage0_record |
 
 原生模型、权限和 MCP 放在 `codex_home/config.toml`，参考 [原生配置](../config/codex.example.toml) 与 [MCP 模板](../config/mcp.example.toml)。MCP 服务声明的 env_vars / bearer_token_env_var 若依赖宿主环境，需要同时列入 codex.inherit_env。Host 控制 HOME 和 CODEX_HOME，不继承其他环境变量。
+
+配置 `codex.model_api_key_file` 时，Host 每次启动都会读取非空 Key，并调用
+`account/login/start` 完成原生 API Key 登录；只注入 `OPENAI_API_KEY` 不会使 app-server
+自动登录。Key 的持久化由原生 `cli_auth_credentials_store` 决定，日志与 Console 对凭据脱敏。
+修改 Key 文件后重启即可切换凭据。未配置此项时保留原生已有登录，图像独立连接使用自己的 Key。
 
 ## 本地开发
 

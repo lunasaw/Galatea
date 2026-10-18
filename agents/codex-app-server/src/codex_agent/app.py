@@ -54,6 +54,8 @@ def build_host(config, *, development=False):
             host.bindings['effective_config_sha256'] = manifest['effective_config_sha256']
         if digest(observed) != manifest["effective_config_sha256"]:
             raise GateError("effective runtime config or config sources changed")
+        if await asyncio.to_thread(images.initialize, observed['config']):
+            await client.peer.request('skills/list', {'cwds': [str(config.workspace_dir)], 'forceReload': True})
         if development:
             from .runtime_upgrade import migrate_source_sessions
             await asyncio.to_thread(migrate_source_sessions, config, store, host.bindings)
@@ -85,4 +87,6 @@ def build_host(config, *, development=False):
                      client_stop=process.stop, extensions_close=providers.close, admission_check=check_admission, startup_check=startup_check,
                      configuration_changed=configuration_changed if development else None)
     host.skill_roots = [str(root) for root in config.skill_roots]
-    return host, ConsoleApp(host, events)
+    from .image_generation import ImageGenerationSettings
+    images = ImageGenerationSettings(config, editable=development)
+    return host, ConsoleApp(host, events, image_settings=images)

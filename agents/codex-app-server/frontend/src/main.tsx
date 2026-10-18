@@ -8,6 +8,7 @@ const RuntimeSettings = deferred(() => import("./runtime-settings").then(m => ({
 const ConfigurationSettings = deferred(() => import("./configuration-settings").then(m => ({ default: m.ConfigurationSettings })));
 const VoiceSettings = deferred(() => import("./voice-settings").then(m => ({ default: m.VoiceSettings })));
 const AccountUsage = deferred(() => import("./account-usage").then(m => ({ default: m.AccountUsage })));
+const ImageGenerationSettings = deferred(() => import("./image-generation-settings").then(m => ({ default: m.ImageGenerationSettings })));
 import "./csp-config";
 import {
   requestThreadAction,
@@ -50,6 +51,7 @@ import {
   Target,
   ArrowLeft,
   AudioLines,
+  Image,
 } from "lucide-react";
 import {
   Dialog,
@@ -134,6 +136,7 @@ const settingsSections = [
   { id: "plugins", label: "插件", icon: Puzzle },
   { id: "memory", label: "Memory", icon: BookOpen },
   { id: "voice", label: "语音", icon: AudioLines },
+  { id: "images", label: "图像生成", icon: Image },
   { id: "hooks", label: "Hooks", icon: Workflow },
   { id: "remote", label: "远程控制", icon: Terminal },
   { id: "environments", label: "执行环境", icon: Folder },
@@ -146,7 +149,7 @@ const settingsSections = [
 ];
 const threadComponents = { ToolFallback: CodexToolFallback };
 const settingsGroups = [
-  { label: "偏好设置", ids: ["configuration", "defaults", "account", "usage", "voice"] },
+  { label: "偏好设置", ids: ["configuration", "defaults", "account", "usage", "voice", "images"] },
   { label: "扩展与连接", ids: ["skills", "mcp", "apps", "plugins", "memory", "hooks"] },
   { label: "高级", ids: ["remote", "environments", "import", "windows", "advanced", "diagnostics", "help", "capabilities", "protocol"] },
 ];
@@ -784,7 +787,7 @@ function Workspace() {
               </div>
             </nav>
             <div className="settings-body" key={panel}>
-              {panel === "account" ? <AccountManagement state={state} /> : panel === "advanced" ? <AdvancedNativeSettings state={state} /> : panel === "defaults" ? <ModelDefaults state={state} /> : panel === "configuration" ? <ConfigurationSettings state={state} /> : panel === "usage" ? <AccountUsage state={state} /> : panel === "voice" ? <VoiceSettings state={state} /> : ["memory", "hooks", "remote", "environments", "import", "windows", "diagnostics"].includes(panel) ? (
+              {panel === "images" ? <ImageGenerationSettings /> : panel === "account" ? <AccountManagement state={state} /> : panel === "advanced" ? <AdvancedNativeSettings state={state} /> : panel === "defaults" ? <ModelDefaults state={state} /> : panel === "configuration" ? <ConfigurationSettings state={state} /> : panel === "usage" ? <AccountUsage state={state} /> : panel === "voice" ? <VoiceSettings state={state} /> : ["memory", "hooks", "remote", "environments", "import", "windows", "diagnostics"].includes(panel) ? (
                 <RuntimeSettings tab={panel} state={state} />
               ) : panel === "capabilities" ? (
                 <section className="capability-page"><h3>能力</h3><Capabilities state={state} /></section>

@@ -64,16 +64,17 @@ export function TurnFileChanges() {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [revision, setRevision] = useState(0);
+  const [undoneIdentity, setUndoneIdentity] = useState("");
   const storageKey = `codex:undone-files:${state.active}:${turnId}`;
   let undone = false;
   try { undone = localStorage.getItem(storageKey) === patch; } catch { /* storage may be disabled */ }
   // The state also retains success when persistent browser storage is unavailable.
-  undone ||= revision > 0;
+  undone ||= undoneIdentity === storageKey;
   if (!turnId || !files.length) return null;
   const additions = files.reduce((sum, f) => sum + f.additions, 0);
   const removals = files.reduce((sum, f) => sum + f.removals, 0);
   const unavailable = session?.active_turn_id || busyStatuses.has(session?.status || "") ? "请等待当前回复结束后撤销"
+    : state.nativeProtocol?.platform === "windows" ? "当前平台暂不支持撤销文件变更"
     : !state.nativeProtocol?.methods.includes("command/exec") ? "当前服务不支持撤销文件变更"
     : undoUnavailableReason(patch, cwd);
   const undo = async () => {
@@ -87,7 +88,7 @@ export function TurnFileChanges() {
       if (result.exitCode !== 0) throw new Error(result.stderr?.trim() || "撤销失败，请重试");
       if (!JSON.parse(result.stdout || "{}").undone) throw new Error("未收到撤销结果，请检查文件状态");
       try { localStorage.setItem(storageKey, patch); } catch { /* keep local success */ }
-      setRevision((n) => n + 1); setConfirm(false);
+      setUndoneIdentity(storageKey); setConfirm(false);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };

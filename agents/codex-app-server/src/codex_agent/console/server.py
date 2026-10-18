@@ -28,12 +28,13 @@ class BodyTooLarge(ValueError):
 class ConsoleApp:
     """Same-origin Console for a trusted network; execution uses the Host principal."""
 
-    def __init__(self, host, events, *, max_streams=32, static_dir=None):
+    def __init__(self, host, events, *, max_streams=32, static_dir=None, image_settings=None):
         self.host, self.events = host, events
         self.max_streams, self._streams = max_streams, 0
         self._writes = asyncio.Lock()
         self._stopping = False
         self._native_locks = {}
+        self.image_settings = image_settings
         self.static = StaticFiles(static_dir or Path(__file__).parent / 'static')
 
     @staticmethod
@@ -244,6 +245,28 @@ class ConsoleApp:
         if method == 'POST' and self._stopping:
             return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
         try:
+            if path in {'/api/image-generation/settings', '/api/image-generation/check'}:
+                if self.image_settings is None:
+                    return await self._send(send, 503, {'error': '图像设置服务尚未加载，请更新并重启此实例。'})
+                if method not in {'GET', 'POST'} or method == 'GET' and path.endswith('/check'):
+                    return await self._send(send, 405, {'error': 'method-not-allowed'})
+                self.host.assert_ready()
+                observed = await self.host.client.read_config(str(self.host.workspace_dir))
+                if method == 'GET':
+                    return await self._send(send, 200, self.image_settings.public(observed['config']))
+                body = await self._body(receive)
+                if path.endswith('/check'):
+                    result = await asyncio.to_thread(self.image_settings.check, body, observed['config'])
+                else:
+                    async def save_images(_key):
+                        result = await asyncio.to_thread(self.image_settings.save, body, observed['config'])
+                        try:
+                            await self.host.client.peer.request('skills/list', {'cwds': [str(self.host.workspace_dir)], 'forceReload': True})
+                        except Exception:
+                            result['warning'] = '配置已保存；技能列表刷新失败，请在 Skills 中刷新或开始新聊天。'
+                        return result
+                    result = await self._write(path, body, headers, save_images)
+                return await self._send(send, 200, result)
             if path in {'/api/mcp-app/context', '/api/mcp-app/messages'} and method == 'POST':
                 body = await self._body(receive)
                 app_identity(body)
@@ -402,7 +425,7 @@ class ConsoleApp:
         except HostNotReady:
             return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
         except ValueError as exc:
-            return await self._send(send, 409, {'error': str(exc) if path.startswith('/api/native/') else 'invalid-or-conflicting-request'})
+            return await self._send(send, 409, {'error': str(exc) if path.startswith(('/api/native/', '/api/image-generation/')) else 'invalid-or-conflicting-request'})
         except (KeyError, TimeoutError):
             return await self._send(send, 409, {'error': 'invalid-or-conflicting-request'})
         except Exception:

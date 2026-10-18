@@ -9,7 +9,7 @@ import { observeNative } from "./native-events";
 import { SettingRow } from "./model-settings";
 
 export function MemoryPanel({ state }: { state: ConsoleState }) {
-  const memoryStatus = useResource(useCallback(() => native("memory/status", null), []), 5000);
+  const memoryStatus = useResource(useCallback(() => native("memory/status", {}), []), 5000);
   const [confirm, setConfirm] = useState(false); const action = useAction();
   return <section className="capability-page"><h3>Memory</h3><p className="muted">管理此实例共享的记忆数据和默认配置。</p>
     <div className="desktop-settings-group"><SettingRow label="记忆服务" description="由当前运行实例提供。"><span>{memoryStatus.loading ? "读取中…" : memoryStatus.data?.v2Ready === true ? "已就绪" : memoryStatus.data?.v2Ready === false ? "尚未就绪" : "未提供状态"}</span></SettingRow>

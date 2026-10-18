@@ -115,7 +115,7 @@ export function reviewFiles(snapshot: Snapshot | null, turnId: string | undefine
       let diff = change.diff;
       // Native add/delete items carry file contents, while updates carry a patch.
       if (["add", "delete"].includes(change.kind?.type) && !/^@@ |^diff --git /m.test(diff))
-        diff = diff.replace(/\n$/, "").split("\n").map((line: string) => (change.kind.type === "add" ? "+" : "-") + line).join("\n");
+        diff = diff ? diff.replace(/\n$/, "").split("\n").map((line: string) => (change.kind.type === "add" ? "+" : "-") + line).join("\n") : "";
       const previous = files.get(path);
       const current = file(path, diff, { kind: change.kind?.type });
       files.set(path, { ...current, diff: (previous ? previous.diff + "\n" : "") + diff,

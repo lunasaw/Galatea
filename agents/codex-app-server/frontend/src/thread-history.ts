@@ -29,10 +29,7 @@ export function rollbackRequest(
   if (index < 0) throw new Error("所选轮次已不存在，请重新打开回退菜单");
   if (history.turns.some((turn) => turn.status === "inProgress"))
     throw new Error("请先停止当前回复，再回退会话");
-  return history.historyMode === "paginated"
-    ? { method: "thread/revert", params: { threadId, beforeTurnId } }
-    : {
-        method: "thread/rollback",
-        params: { threadId, numTurns: history.turns.length - index },
-      };
+  if (history.historyMode !== "paginated")
+    throw new Error("旧格式会话不支持原地回退，请从指定轮次分叉会话");
+  return { method: "thread/revert", params: { threadId, beforeTurnId } };
 }

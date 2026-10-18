@@ -6,6 +6,9 @@ import { Button } from "./components/ui/button";
 import { Feedback, Field, useAction } from "./capability-controls";
 import { terminals, type TerminalSession, type TerminalKind } from "./terminal-sessions";
 import { consoleStore as store } from "./store";
+import { SchemaInput } from "./schema-form";
+import { resolveSchema } from "./schema-data";
+import type { Obj } from "./native";
 import "@xterm/xterm/css/xterm.css";
 
 function TerminalView({ row, active }: { row: TerminalSession; active: boolean }) {
@@ -58,6 +61,12 @@ export function TerminalWorkspace({ compact = false }: { compact?: boolean }) {
   const [kind, setKind] = useState<TerminalKind>("command"); const [selected, setSelected] = useState("");
   const [creating, setCreating] = useState(false); const action = useAction();
   const [cwd, setCwd] = useState(store.cwd); const [program, setProgram] = useState("/bin/sh"); const [args, setArgs] = useState("-i");
+  const [options, setOptions] = useState<Record<TerminalKind, Obj>>({ command: {}, process: {} });
+  const root = { definitions: store.state.nativeProtocol?.definitions || {} };
+  const schema = resolveSchema(store.state.nativeProtocol?.params[kind === "command" ? "command/exec" : "process/spawn"] || {}, root);
+  const managed = ["command", "cwd", "processId", "processHandle"];
+  const advancedSchema = { ...schema, required: [], additionalProperties: false,
+    properties: Object.fromEntries(Object.entries(schema.properties || {}).filter(([key]) => !managed.includes(key))) };
   const rows = terminals.list().filter((r) => r.kind === kind);
   const current = rows.find((r) => r.id === selected) || rows.at(-1);
   return <section className={`terminal-workspace ${compact ? "is-compact" : ""}`} aria-label="终端工作区">
@@ -74,12 +83,13 @@ export function TerminalWorkspace({ compact = false }: { compact?: boolean }) {
       {current && !creating && current.status !== "exited" && <Button size="sm" variant="ghost" disabled={action.busy} onClick={() => void action.run(() => terminals.stop(current), "已请求停止")}>停止进程</Button>}
     </div>
     {creating || !current ? <form className="terminal-start" onSubmit={(e) => { e.preventDefault(); void action.run(async () => {
-      const id = await terminals.start(kind, cwd, [program, ...args.split("\n").filter(Boolean)]); setSelected(id); setCreating(false);
+      const id = await terminals.start(kind, cwd, [program, ...args.split("\n").filter(Boolean)], options[kind]); setSelected(id); setCreating(false);
     }, ""); }}>
       <p className="muted">{kind === "command" ? "按服务端配置的权限运行命令。" : "直接在 app-server 主机运行，不使用 Codex 沙箱。"}</p>
       <Field label="命令工作目录"><input required value={cwd} onChange={(e) => setCwd(e.target.value)} /></Field>
       <Field label="可执行程序"><input required value={program} onChange={(e) => setProgram(e.target.value)} /></Field>
       <Field label="参数（每行一个）"><textarea value={args} onChange={(e) => setArgs(e.target.value)} rows={2} /></Field>
+      <details><summary>高级执行设置</summary><SchemaInput key={kind} schema={advancedSchema} root={root} label="执行参数" value={options[kind]} change={(value) => setOptions((all) => ({ ...all, [kind]: value }))} /></details>
       <Button disabled={action.busy || !program.trim() || !cwd.trim()}>启动终端</Button>
     </form> : null}
     {rows.map((row) => <TerminalView key={row.id} row={row} active={!creating && current === row} />)}

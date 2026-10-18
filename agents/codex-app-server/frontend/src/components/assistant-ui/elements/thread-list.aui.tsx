@@ -3,7 +3,9 @@ import { requestThreadAction, type ThreadAction } from "@/thread-actions";
 ("use client");
 
 import { ProjectSidebar } from "@/project-controls";
+import { consoleStore as store, busyStatuses } from "@/store";
 import { Button } from "@/components/ui/button";
+import { TooltipIconButton } from "./tooltip-icon-button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -359,6 +361,8 @@ const ThreadListSkeleton: FC = () => {
 export const ThreadListItem: FC = () => {
   const isRunning = useAuiState((s) => s.threadListItem.isRunning);
   const id = useAuiState((s) => s.threadListItem.remoteId);
+  const status = useAuiState((s) => s.threadListItem.custom?.status);
+  const settingsBusy = useSyncExternalStore(store.subscribe, () => store.getSnapshot().settingsBusy);
   const [isRenaming, setIsRenaming] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef(false);
@@ -386,7 +390,7 @@ export const ThreadListItem: FC = () => {
           ref={triggerRef}
           data-slot="aui_thread-list-item-trigger"
           title={id}
-          className="focus-visible:ring-ring/50 flex h-full min-w-0 flex-1 items-center rounded-md px-2.5 text-start text-sm outline-none group-hover:pe-9 group-has-focus-visible:pe-9 group-has-data-[state=open]:pe-9 group-data-active:pe-9 focus-visible:ring-1"
+          className="focus-visible:ring-ring/50 flex h-full min-w-0 flex-1 items-center rounded-md px-2.5 text-start text-sm outline-none focus-visible:ring-1"
         >
           {isRunning && (
             <Loader2Icon
@@ -404,7 +408,20 @@ export const ThreadListItem: FC = () => {
           {isRunning && <span className="sr-only">Running</span>}
         </ThreadListItemPrimitive.Trigger>
       )}
-      <ThreadListItemMore onRename={() => setIsRenaming(true)} />
+      {!isRenaming && <div className="thread-list-quick-actions">
+        <ThreadListItemMore onRename={() => setIsRenaming(true)} />
+        <TooltipIconButton
+          tooltip="归档会话"
+          data-slot="aui_thread-list-item-archive"
+          disabled={isRunning || busyStatuses.has(String(status)) || settingsBusy || !id}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (id) requestThreadAction({ action: "archive", sessionId: id });
+          }}
+        >
+          <ArchiveIcon aria-hidden className="size-4" strokeWidth={1.5} />
+        </TooltipIconButton>
+      </div>}
     </ThreadListItemPrimitive.Root>
   );
 };
@@ -485,7 +502,7 @@ const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
           variant="ghost"
           size="icon"
           data-slot="aui_thread-list-item-more"
-          className="data-[state=open]:bg-accent absolute end-1.5 top-1/2 size-6 -translate-y-1/2 p-0 opacity-0 group-hover:opacity-100 group-has-focus-visible:opacity-100 group-data-active:opacity-100 data-[state=open]:opacity-100"
+          className="data-[state=open]:bg-accent size-6 p-0"
         >
           <MoreHorizontalIcon className="size-3.5" />
           <span className="sr-only">会话更多选项</span>

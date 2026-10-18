@@ -13,6 +13,7 @@ import tempfile
 from .catalog import Catalog, digest
 from .compatibility import RuntimeContract
 from .stage0 import GateError, file_sha256, package_manifest, require_stage0
+from .runtime_version import VERSION, RUNTIME_VERSION
 
 
 def load_json(path):
@@ -69,8 +70,8 @@ def measure(config):
         raise GateError('runtime bytes differ from the accepted compatibility profile')
     version = subprocess.check_output([str(config.binary), '--version'], text=True, timeout=15).strip()
     if (version != config.runtime_version or version != 'codex-cli ' + package['version']
-            or version != 'codex-cli 0.154.0'):
-        raise GateError('runtime must match the supported Codex 0.154.0 protocol')
+            or version != RUNTIME_VERSION):
+        raise GateError(f'runtime must match the supported Codex {VERSION} protocol')
     with tempfile.TemporaryDirectory(prefix='codex-schema-') as directory:
         subprocess.run([str(config.binary), 'app-server', 'generate-json-schema', '--experimental', '--out', directory],
                        check=True, capture_output=True, timeout=30)

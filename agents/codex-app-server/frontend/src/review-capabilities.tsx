@@ -1,12 +1,11 @@
 import { useCallback, useState } from "react";
 import { Button } from "./components/ui/button";
-import { Field, Feedback, Facts, useAction, useResource } from "./capability-controls";
-import { native, type Obj } from "./native";
+import { Feedback, Facts, useAction, useResource } from "./capability-controls";
+import { type Obj } from "./native";
 import { api, consoleStore as store, type ConsoleState } from "./store";
-import { NativeMutation, sharedMutation } from "./native-mutation";
+import { sharedMutation } from "./native-mutation";
 
 const approvedReviews = new Set<string>();
-const reviewRuns = new Map<string, { create: NativeMutation; review: NativeMutation; created?: Obj }>();
 
 export function guardianEvent(notification: Obj) {
   const snake = (value: any): any => Array.isArray(value) ? value.map(snake) : value && typeof value === "object"
@@ -33,40 +32,9 @@ export function GuardianReview({ notification }: { notification: Obj }) {
     <Feedback error={action.error} status={action.status} />
   </section>;
 }
-export function ReviewSettings({ state }: { state: ConsoleState }) {
+export function ApprovalRecords({ state }: { state: ConsoleState }) {
   const session = state.sessions.find((s) => s.id === state.active);
-  const [target, setTarget] = useState("uncommittedChanges"); const [branch, setBranch] = useState("");
-  const [commit, setCommit] = useState(""); const [title, setTitle] = useState(""); const [instructions, setInstructions] = useState("");
-  const [separate, setSeparate] = useState(false); const action = useAction();
-  return <section className="capability-page"><h3>代码审查</h3><p>{session ? `当前项目 · ${session.cwd || store.cwd}` : "请先选择会话"}</p>
-    <form onSubmit={(e) => { e.preventDefault(); void action.run(async () => {
-      let threadId = session!.thread_id;
-      const reviewTarget = target === "baseBranch" ? { type: target, branch } : target === "commit" ? { type: target, sha: commit, title: title || null }
-        : target === "custom" ? { type: target, instructions } : { type: target };
-      const identity = JSON.stringify([session!.id, separate, reviewTarget]);
-      if (!reviewRuns.has(identity)) reviewRuns.set(identity, { create: new NativeMutation(), review: new NativeMutation() });
-      const run = reviewRuns.get(identity)!;
-      if (separate) {
-        const s = session!.settings || {};
-        const sandbox = ({ readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" } as Obj)[s.sandboxPolicy?.type] || s.sandbox;
-        const result = run.created || await run.create.run("thread/start", { cwd: session!.cwd || store.cwd, ...(s.projectId ? { projectId: s.projectId } : {}),
-          ...(s.model ? { model: s.model } : {}), ...(s.permissions ? { permissions: s.permissions } : sandbox ? { sandbox } : {}),
-          ...(s.approvalsReviewer ? { approvalsReviewer: s.approvalsReviewer } : {}), ...(s.approvalPolicy ? { approvalPolicy: s.approvalPolicy } : {}) });
-        run.created = result; threadId = result.session.thread_id;
-        if (!s.permissions && s.sandboxPolicy) await native("thread/settings/update", { threadId, sandboxPolicy: s.sandboxPolicy });
-      }
-      await run.review.run("review/start", { threadId, target: reviewTarget, delivery: "inline" });
-      reviewRuns.delete(identity); await store.refreshSessions();
-      if (run.created && store.state.active === session!.id) await store.select(run.created.session.id);
-      store.schedule();
-      window.dispatchEvent(new CustomEvent("codex-panel", { detail: "" }));
-    }, "审查已启动"); }}><Field label="审查目标"><select value={target} onChange={(e) => setTarget(e.target.value)}><option value="uncommittedChanges">未提交的更改</option><option value="baseBranch">与基准分支比较</option><option value="commit">指定提交</option><option value="custom">自定义审查要求</option></select></Field>
-      {target === "baseBranch" && <Field label="基准分支"><input required value={branch} onChange={(e) => setBranch(e.target.value)} /></Field>}
-      {target === "commit" && <><Field label="提交 SHA"><input required value={commit} onChange={(e) => setCommit(e.target.value)} /></Field><Field label="提交标题（可选）"><input value={title} onChange={(e) => setTitle(e.target.value)} /></Field></>}
-      {target === "custom" && <Field label="审查要求"><textarea required value={instructions} onChange={(e) => setInstructions(e.target.value)} /></Field>}
-      <label className="native-checkbox"><input type="checkbox" checked={separate} onChange={(e) => setSeparate(e.target.checked)} />在新会话中审查</label>
-      <Button disabled={action.busy || !session?.thread_id || (!separate && session.status !== "ready")}>开始审查</Button>
-    </form><Feedback error={action.error} status={action.status} />
+  return <section className="capability-page"><h3>审批记录</h3><p>{session ? `当前项目 · ${session.cwd || store.cwd}` : "请先选择会话"}</p>
     {session && <ApprovalHistory key={session.id} sessionId={session.id} />}
     <h4>当前会话的自动审批记录</h4>{state.snapshot?.steps?.filter((s) => s.type === "guardian").map((s) => <GuardianReview key={s.id} notification={s.detail as Obj} />)}
   </section>;

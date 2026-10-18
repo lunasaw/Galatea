@@ -27,7 +27,7 @@ class GenericNativeTests(unittest.IsolatedAsyncioTestCase):
             package = Path(os.environ['CODEX_TEST_RUNTIME_PACKAGE'])
             config = AgentConfig.from_dict({'schema_version': 'codex-agent/v2',
                 'paths': {'codex_home': 'home', 'runtime_dir': str(package), 'state_dir': 'state', 'workspace_dir': 'workspace'},
-                'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.154.0'},
+                'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.163.0'},
                 'tools': {'catalog_dir': str(ROOT / 'examples/echo'),
                           'providers': [{'path': str(ROOT / 'examples/echo/provider.py'), 'options': {'prefix': 'provider-receipt:'}}]}}, root)
 
@@ -116,7 +116,7 @@ class GenericNativeTests(unittest.IsolatedAsyncioTestCase):
                 package = Path(os.environ['CODEX_TEST_RUNTIME_PACKAGE'])
                 config = AgentConfig.from_dict({'schema_version': 'codex-agent/v2',
                     'paths': {'codex_home': 'home', 'runtime_dir': str(package), 'state_dir': 'state', 'workspace_dir': 'workspace'},
-                    'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.154.0'},
+                    'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.163.0'},
                     'skills': {'roots': ['skills']}}, root)
                 host, _ = build_host(config, development=True)
                 try:
@@ -128,7 +128,7 @@ class GenericNativeTests(unittest.IsolatedAsyncioTestCase):
                         result = await host.native.call('skills/config/write', {'path': str(skill), 'enabled': enabled},
                             'skill-' + str(enabled))
                         self.assertEqual(result['effectiveEnabled'], enabled)
-                    # This request takes JSON null in the fixed 0.154.0 protocol.
+                    # This request takes JSON null in the fixed 0.163.0 protocol.
                     self.assertEqual(await host.native.call('config/mcpServer/reload', None, 'reload-mcp'), {})
                     session = await host.create_session('generic', options={'approvalPolicy': 'on-request', 'sandbox': 'read-only'})
                     inventory = await host.client.peer.request('mcpServerStatus/list', {'threadId': session['thread_id']})

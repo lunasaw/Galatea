@@ -146,11 +146,17 @@ class AgentHost:
     def _session_for_thread(self, thread_id):
         return next((s for s in self._sessions.values() if s['thread_id'] == thread_id), None)
 
+    def _count_active_turns(self):
+        # A native acknowledgement can precede turn/started. Reservations still
+        # consume a slot while their turn identity is unknown.
+        return sum(bool(s.get('active_turn_id') or s.get('active_request_id'))
+                   for key in self._attached for s in [self._sessions[key]])
+
     def mark_deleted(self, session):
         session.update(deleted=True, archived=True, status='closed', active_turn_id=None, active_request_id=None)
         self.native.cancel(session['thread_id'])
         self._attached.discard(session['id'])
-        self._active_turns = sum(bool(self._sessions[s].get('active_turn_id')) for s in self._attached)
+        self._active_turns = self._count_active_turns()
         self._save(session)
         self.events.append(session['id'], {'kind': 'session', 'public': {'status': 'deleted'}})
 
@@ -183,6 +189,15 @@ class AgentHost:
             if self.configuration_changed:
                 # Native thread creation records workspace trust in user config.
                 await self.configuration_changed()
+            # Keep the effective native settings, including inherited defaults,
+            # so the console does not display a different permission or model.
+            settings.update({key: result[key] for key in ('model', 'modelProvider', 'approvalPolicy',
+                            'approvalsReviewer', 'permissions', 'cwd') if key in result})
+            if isinstance(result.get('sandbox'), dict):
+                settings['sandboxPolicy'] = result['sandbox']
+                settings.pop('sandbox', None)
+            if 'reasoningEffort' in result:
+                settings['effort'] = result['reasoningEffort']
             session = {'id': session_id, 'thread_id': result['thread']['id'], 'principal_id': self.principal_id,
                        'status': 'ready', **self.bindings, 'active_turn_id': None, 'active_request_id': None,
                        'settings': settings, 'cwd': result.get('cwd', settings['cwd'])}
@@ -306,12 +321,59 @@ class AgentHost:
 
     async def handle_notification(self, message):
         method, params = message.get('method'), message.get('params', {})
+        if method == 'account/gatewayOAuth/changed':
+            self.native.gateway_changed(params)
+            return
         if method == 'serverRequest/resolved':
             for row, future in self.native.pending.values():
                 if row['rpc_id'] == params.get('requestId') and not future.done():
                     future.cancel()
             return
         session = self._session_for_thread(params.get('threadId'))
+        if session and method == 'thread/name/updated':
+            session['name'] = params.get('threadName')
+            self._save(session)
+            return
+        if session and method in {'thread/readState/changed', 'thread/prediction/updated',
+                                   'thread/environment/connected', 'thread/environment/disconnected',
+                                   'thread/project/updated', 'thread/status/changed'}:
+            if method == 'thread/readState/changed':
+                session['read_state'] = params.get('readState')
+            elif method == 'thread/prediction/updated':
+                session['prediction'] = params
+            elif method == 'thread/project/updated':
+                session['settings'] = {**session.get('settings', {}), 'projectId': params.get('projectId') or ''}
+            elif method == 'thread/status/changed':
+                session['native_status'] = params.get('status')
+            else:
+                session['environment_status'] = {'connected': method.endswith('/connected'), **params}
+            self._save(session)
+            return
+        if session and method == 'thread/settings/updated':
+            updated = params.get('threadSettings', {})
+            settings = dict(session.get('settings', {}))
+            settings.update({key: updated[key] for key in ('model', 'modelProvider', 'effort', 'summary',
+                'serviceTier', 'personality', 'approvalPolicy', 'approvalsReviewer', 'sandboxPolicy', 'cwd')
+                if key in updated})
+            if 'activePermissionProfile' in updated:
+                profile = updated['activePermissionProfile'] or {}
+                if profile.get('id'):
+                    settings['permissions'] = profile['id']
+                else:
+                    settings.pop('permissions', None)
+            if 'collaborationMode' in updated:
+                mode = updated['collaborationMode']
+                values = mode.get('settings', {})
+                settings['collaborationMode'] = {'mode': mode['mode'], 'settings': {
+                    'model': values.get('model'), 'reasoning_effort': values.get('reasoning_effort'),
+                    'developer_instructions': None}}
+            if 'sandboxPolicy' in updated:
+                settings.pop('sandbox', None)
+            session['settings'] = settings
+            if updated.get('cwd'):
+                session['cwd'] = updated['cwd']
+            self._save(session)
+            return
         if session and method == 'thread/deleted':
             self.mark_deleted(session)
             return
@@ -319,7 +381,7 @@ class AgentHost:
             session['archived'] = method == 'thread/archived'
             if session['archived']:
                 self._attached.discard(session['id'])
-                self._active_turns = sum(bool(self._sessions[s].get('active_turn_id')) for s in self._attached)
+                self._active_turns = self._count_active_turns()
                 if session['status'] != 'closed':
                     session['status'] = 'recovery_required'
             self._save(session)
@@ -356,6 +418,7 @@ class AgentHost:
 
     async def runtime_failed(self, exc):
         self.ready = False
+        self.native.auth_handoffs.clear()
         self.native.cancel()
         for session_id in self._attached:
             session = self._sessions[session_id]
@@ -419,7 +482,7 @@ class AgentHost:
             self._save(session)
             self._attached.add(session_id)
             self._cancels.pop(session_id, None)
-            self._active_turns = sum(bool(self._sessions[s].get('active_turn_id')) for s in self._attached)
+            self._active_turns = self._count_active_turns()
             self.events.append(session_id, {'kind': 'session', 'public': {'status': 'resumed'}})
             return dict(session)
 

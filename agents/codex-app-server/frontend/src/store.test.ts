@@ -844,3 +844,45 @@ test("removing a shared-folder project preserves chats without rediscovery or re
   assert.equal(s.projects.length, 1);
   assert.equal(s.projectForSession("a"), undefined);
 });
+
+test("new chats inherit native project defaults unless the user explicitly chose an override", async () => {
+  const s = make();
+  let configured = { model: "user-model", model_reasoning_effort: "medium" };
+  const creates: any[] = [];
+  globalThis.fetch = async (path, init) => {
+    if (String(path) === "/api/native/call") return json({ config: configured });
+    if (String(path) === "/api/sessions" && init?.method === "POST") {
+      creates.push(JSON.parse(init.body as string).options);
+      return json({ id: "a", thread_id: "native-a", status: "ready", settings: { model: configured.model, effort: configured.model_reasoning_effort } });
+    }
+    return json([]);
+  };
+  s.refreshSessions = async () => {};
+  s.select = async () => {};
+  await s.refreshRuntimeDefaults("/project");
+  await s.create();
+  assert.equal(creates[0].model, undefined);
+  assert.equal(creates[0].config, undefined);
+  assert.equal(creates[0].approvalPolicy, undefined);
+  assert.equal(creates[0].sandbox, undefined);
+  // Choosing the current default explicitly must survive later defaults changes.
+  await s.updateComposerSettings({ model: "user-model", effort: "medium" });
+  configured = { model: "project-model", model_reasoning_effort: "high" };
+  await s.refreshRuntimeDefaults("/other-project");
+  assert.equal(s.state.preferences.model, "user-model");
+  await s.create();
+  assert.equal(creates[1].model, "user-model");
+  assert.equal(creates[1].config.model_reasoning_effort, "medium");
+});
+
+test("late config reads cannot overwrite newer saved defaults", async () => {
+  const s = make();
+  const first = deferred<Response>(); let count = 0;
+  globalThis.fetch = async () => ++count === 1 ? first.promise : json({ config: { model: "saved", model_reasoning_effort: "high" } });
+  const old = s.refreshRuntimeDefaults("/old");
+  await s.refreshRuntimeDefaults("/new");
+  first.resolve(json({ config: { model: "stale", model_reasoning_effort: "low" } }));
+  await old;
+  assert.equal(s.state.runtimeDefaults.model, "saved");
+  assert.equal(s.state.preferences.model, "saved");
+});

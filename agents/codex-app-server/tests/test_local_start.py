@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 from codex_agent.config import AgentConfig
 from codex_agent.local import prepare, source_manifest
 from codex_agent.stage0 import GateError
+from codex_agent.runtime_version import RUNTIME_VERSION
 
 spec = importlib.util.spec_from_file_location('local_process', ROOT / 'scripts/local_process.py')
 process = importlib.util.module_from_spec(spec)
@@ -40,7 +41,8 @@ class SourceStartupTests(unittest.TestCase):
         self.addCleanup(self.env.stop)
         self.binary = Path('/usr/bin/true').resolve()
         bundled = patch('codex_agent.local.subprocess.check_output',
-            return_value=json.dumps({'models': [{'slug': 'fixture', 'tool_mode': 'code_mode'}]}))
+            side_effect=lambda args, **kwargs: RUNTIME_VERSION if args[1:] == ['--version'] else
+                json.dumps({'models': [{'slug': 'fixture', 'tool_mode': 'code_mode'}]}))
         bundled.start()
         self.addCleanup(bundled.stop)
 
@@ -72,8 +74,36 @@ class SourceStartupTests(unittest.TestCase):
         self.assertEqual(config.providers, ())
         self.assertNotIn('galatea', config.raw)
         self.assertFalse((config.config_dir / 'platform-state').exists())
-        with self.assertRaises(GateError):
-            source_manifest(config)
+        self.assertIn('runtime_compatibility_sha256', source_manifest(config))
+
+    def test_upgrade_preserves_state_settings_and_backs_up_previous_config(self):
+        config = self.config()
+        path = config.config_dir / 'agent.json'
+        raw = json.loads(path.read_text())
+        raw['codex'].update(runtime_version='codex-cli 0.154.0', binary='/old/runtime/bin/codex')
+        raw['paths'].update(runtime_dir='/old/runtime', codex_home='custom-home', state_dir='custom-state')
+        raw['agent']['max_active_turns'] = 7
+        path.write_text(json.dumps(raw))
+        updated = self.config()
+        self.assertEqual(updated.runtime_version, RUNTIME_VERSION)
+        self.assertEqual(updated.binary, self.binary)
+        self.assertEqual(updated.codex_home, config.config_dir / 'custom-home')
+        self.assertEqual(updated.state_dir, config.config_dir / 'custom-state')
+        self.assertEqual(updated.raw['agent'], raw['agent'])
+        backup = config.config_dir / 'agent.before-runtime-0.163.0.json'
+        self.assertEqual(json.loads(backup.read_text()), raw)
+        self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+        self.config()
+        self.assertEqual(json.loads(backup.read_text()), raw)
+
+    def test_unsupported_binary_does_not_change_existing_config(self):
+        config = self.config()
+        path = config.config_dir / 'agent.json'
+        previous = path.read_bytes()
+        with patch('codex_agent.local.subprocess.check_output', return_value='codex-cli 0.154.0'):
+            with self.assertRaises(GateError):
+                prepare(self.project, self.binary)
+        self.assertEqual(path.read_bytes(), previous)
 
     def test_source_rejects_a_runtime_outside_the_supported_protocol(self):
         config = replace(self.config(), runtime_version='codex-cli 0.153.4')

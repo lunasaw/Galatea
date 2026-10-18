@@ -58,6 +58,7 @@ export function NativeToolActivity({ step, running = false, result, threadId: sc
     const status = d.status === "inProgress" && ["interrupted", "failed"].includes(turnStatus || "") ? turnStatus : d.status;
     return <section className="native-rich-item"><strong>{d.appContext?.appName || d.server} · {d.appContext?.actionName || d.tool}</strong>
       {d.status === "inProgress" && <p role="status">执行中…</p>}
+      {step.text && <pre className="whitespace-pre-wrap" aria-label="工具进度">{step.text}</pre>}
       {d.error && <p role="alert">{d.error.message || pretty(d.error)}</p>}
       {d.result && <McpContent content={d.result.content || []} />}
       {typeof uri === "string" && uri.startsWith("ui://") && threadId && <McpAppView server={d.server} threadId={threadId} uri={uri} instanceId={step.id} toolName={d.tool} args={d.arguments} result={d.result} status={status} toolError={d.error?.message} />}
@@ -100,7 +101,8 @@ export function NativeToolActivity({ step, running = false, result, threadId: sc
               : step.type === "contextCompaction"
                 ? Layers
                 : Wrench;
-  const title =
+  const statusTitles: Record<string, string> = { sleep: "原生等待", enteredReviewMode: "进入代码审查", exitedReviewMode: "退出代码审查", turnDiff: "轮次文件差异" };
+  const title = statusTitles[step.type] || (
     step.type === "commandExecution"
       ? d.command || "运行命令"
       : step.type === "fileChange"
@@ -117,7 +119,7 @@ export function NativeToolActivity({ step, running = false, result, threadId: sc
                   ? "运行提示"
                   : step.type === "error"
                     ? "执行错误"
-                    : d.tool || step.tool || step.type;
+                    : d.tool || step.tool || step.type);
   const output = d.aggregatedOutput ?? step.text;
   return (
     <details

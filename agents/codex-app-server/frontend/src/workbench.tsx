@@ -33,7 +33,7 @@ import {
 } from "./components/ui/dialog";
 import { NativeControl } from "./native-ui";
 
-import { ReviewSettings } from "./review-capabilities";
+import { ApprovalRecords } from "./review-capabilities";
 import { BackgroundTerminals } from "./thread-capabilities";
 import { native } from "./native";
 import { useFileWatch, FileCapabilities } from "./file-capabilities";
@@ -48,7 +48,7 @@ export type WorkbenchTab =
   | "files"
   | "summary"
   | "background"
-  | "codeReview"
+  | "approvals"
   | "agents"
   | "preview";
 const titles = {
@@ -57,7 +57,7 @@ const titles = {
   files: "文件",
   summary: "摘要",
   background: "后台终端",
-  codeReview: "代码审查与审批记录",
+  approvals: "审批记录",
   agents: "子 Agent",
   preview: "文件预览",
 };
@@ -505,7 +505,7 @@ export function WorkbenchPanel({
             tabs[index]?.click();
           }}
         >
-          {(["launcher", "review", "files", "summary", "background", "codeReview", "agents"] as const).map((item) => (
+          {(["launcher", "review", "files", "summary", "background", "approvals", "agents"] as const).map((item) => (
             <button
               role="tab"
               key={item}
@@ -599,7 +599,7 @@ export function WorkbenchPanel({
           </div>
         )}
         {tab === "summary" && <Summary state={state} />}
-        {(visited.has("codeReview") || tab === "codeReview") && <div hidden={tab !== "codeReview"} className="conversation-tool-panel"><ReviewSettings key={state.active || "new"} state={state} /></div>}
+        {(visited.has("approvals") || tab === "approvals") && <div hidden={tab !== "approvals"} className="conversation-tool-panel"><ApprovalRecords key={state.active || "new"} state={state} /></div>}
         {tab === "agents" && <Subagents key={state.active || "new"} state={state} selectedId={selectedAgent} onSelect={setSelectedAgent} />}
         {tab === "background" && <div className="conversation-tool-panel">{state.sessions.find((s) => s.id === state.active)?.thread_id
           ? <BackgroundTerminals key={state.active} threadId={state.sessions.find((s) => s.id === state.active)!.thread_id!} />

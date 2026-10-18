@@ -1,3 +1,4 @@
+import { contextUsage } from "./context-usage";
 import type { Snapshot } from "./types";
 
 export const effortNames: Record<string, string> = {
@@ -27,11 +28,22 @@ export const slashCommands: SlashCommand[] = [
   { name: "permissions", label: "权限", description: "设置文件与命令权限", idle: true },
   { name: "skills", label: "Skills", description: "浏览可用 Skills" },
   { name: "apps", label: "Apps", description: "浏览 Apps" },
-  { name: "plugins", label: "插件", description: "管理插件" },
+  { name: "plugins", label: "插件", description: "选择当前聊天使用的插件", thread: true },
   { name: "resume", label: "恢复聊天", description: "查看历史聊天" },
-  { name: "review", label: "审查", description: "审查未提交的修改", thread: true, idle: true },
+  { name: "review", label: "审查", description: "选择范围并审查代码更改", thread: true, idle: true },
   { name: "undo", label: "回退", description: "回退上一轮上下文", thread: true, idle: true },
-  { name: "status", label: "状态", description: "查看聊天状态" },
+  { name: "status", label: "状态", description: "显示聊天 ID、上下文用量和速率限制" },
+  { name: "settings", label: "会话设置", description: "修改当前聊天或本轮的模型与权限" },
+  { name: "resources", label: "聊天资源", description: "持久附件、阅读状态、输入预测和 Shell", thread: true },
+  { name: "memory", label: "会话记忆", description: "启用或停用此聊天的记忆", thread: true },
+  { name: "hooks", label: "Hooks 执行记录", description: "查看此聊天触发的 Hooks", thread: true },
+  { name: "advanced", label: "高级会话操作", description: "创建、恢复、分支、轮次输入和结构化输出" },
+  { name: "loop", label: "执行流程", description: "查看当前聊天的运行步骤和工具回执", thread: true },
+  { name: "native", label: "原生事件", description: "查看当前聊天的完整事件记录", thread: true },
+  { name: "voice", label: "语音上下文", description: "设置此聊天的语音指令、上下文与 Handoff", thread: true },
+  { name: "agents", label: "子 Agent", description: "查看当前聊天派生的 Agent", thread: true },
+  { name: "approvals", label: "审批记录", description: "查看当前聊天的审批请求与决定", thread: true },
+  { name: "background", label: "后台终端", description: "管理当前聊天的后台命令", thread: true },
   { name: "help", label: "帮助", description: "快捷命令与帮助" },
 ];
 export function filterSlashCommands(text: string) {
@@ -43,12 +55,7 @@ export function exactSlashCommand(text: string) {
   return slashCommands.find((row) => text.trim().toLowerCase() === `/${row.name}`);
 }
 export function contextUsedPercent(snapshot: Snapshot | null): number | null {
-  const usage = snapshot?.turns?.slice().reverse().find((turn) => turn.usage)?.usage as {
-    last?: { totalTokens?: number }; modelContextWindow?: number;
-  } | undefined;
-  const used = usage?.last?.totalTokens, limit = usage?.modelContextWindow;
-  if (typeof used !== "number" || typeof limit !== "number" || !Number.isFinite(used) || !Number.isFinite(limit) || used < 0 || limit <= 0) return null;
-  return Math.min(100, Math.round(used / limit * 100));
+  return contextUsage(snapshot).percent;
 }
 // Like the native CLI's /init, this starts an ordinary agent turn. Filesystem
 // access continues through the thread's native permission and approval policy.

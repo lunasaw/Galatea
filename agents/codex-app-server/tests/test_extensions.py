@@ -25,7 +25,7 @@ def configuration():
     return {'schema_version': 'codex-agent/v2',
             'paths': {'codex_home': 'home', 'runtime_dir': 'runtime',
                       'state_dir': 'state', 'workspace_dir': 'workspace'},
-            'codex': {'binary': 'runtime/bin/codex', 'runtime_version': 'codex-cli 0.154.0'}}
+            'codex': {'binary': 'runtime/bin/codex', 'runtime_version': 'codex-cli 0.163.0'}}
 
 
 class ExtensionTests(unittest.TestCase):

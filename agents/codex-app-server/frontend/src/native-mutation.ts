@@ -3,8 +3,8 @@ import { ApiError, requestKey } from "./store";
 
 /** Keep the exact request identity after an uncertain HTTP response. */
 export class NativeMutation {
-  private pending?: { identity: string; method: string; params: Obj; key: string };
-  async run(method: string, params: Obj, identity = JSON.stringify([method, params])) {
+  private pending?: { identity: string; method: string; params: Obj | null; key: string };
+  async run(method: string, params: Obj | null, identity = JSON.stringify([method, params])) {
     if (!this.pending || this.pending.identity !== identity)
       this.pending = { identity, method, params: structuredClone(params), key: requestKey() };
     const request = this.pending;

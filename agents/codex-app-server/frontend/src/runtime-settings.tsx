@@ -4,17 +4,17 @@ import { allPages, Facts, Feedback, Field, useAction, useResource } from "./capa
 import { native, type Obj } from "./native";
 import { consoleStore as store, type ConsoleState } from "./store";
 import { WorkspaceLink } from "./workspace-file";
+import { CompleteConfigSettings } from "./complete-config-settings";
 import { observeNative } from "./native-events";
+import { SettingRow } from "./model-settings";
 
 export function MemoryPanel({ state }: { state: ConsoleState }) {
-  const session = state.sessions.find((s) => s.id === state.active);
-  const [mode, setMode] = useState(session?.settings?.memoryMode || "");
+  const memoryStatus = useResource(useCallback(() => native("memory/status", null), []), 5000);
   const [confirm, setConfirm] = useState(false); const action = useAction();
-  return <section className="capability-page"><h3>Memory</h3><p>控制当前会话是否使用记忆。</p>
-    <Field label="会话记忆模式"><select value={mode} disabled={!session?.thread_id || action.busy} onChange={(e) => {
-      const value = e.target.value; if (!value) return;
-      void action.run(async () => { await native("thread/memoryMode/set", { threadId: session!.thread_id, mode: value }); setMode(value); await store.refreshSessions(); });
-    }}><option value="" disabled>选择模式</option><option value="enabled">启用记忆</option><option value="disabled">停用记忆</option></select></Field>
+  return <section className="capability-page"><h3>Memory</h3><p className="muted">管理此实例共享的记忆数据和默认配置。</p>
+    <div className="desktop-settings-group"><SettingRow label="记忆服务" description="由当前运行实例提供。"><span>{memoryStatus.loading ? "读取中…" : memoryStatus.data?.v2Ready === true ? "已就绪" : memoryStatus.data?.v2Ready === false ? "尚未就绪" : "未提供状态"}</span></SettingRow>
+      {typeof memoryStatus.data?.v2ConsolidatedThreads === "number" && <SettingRow label="已整理的聊天"><span>{memoryStatus.data.v2ConsolidatedThreads}</span></SettingRow>}</div><Feedback error={memoryStatus.error} />
+    <details><summary>记忆、目标与智能体配置</summary><CompleteConfigSettings state={state} only={["memories", "goals", "agents"]} /></details>
     <div><h4>重置所有记忆</h4><p className="muted">清除运行实例的记忆数据，影响此实例下的所有会话。</p></div>
     {confirm ? <div className="native-options"><Button variant="destructive" disabled={action.busy} onClick={() => void action.run(async () => {
       await native("memory/reset", null); setConfirm(false);
@@ -27,7 +27,7 @@ export function MemoryPanel({ state }: { state: ConsoleState }) {
 export function HooksPanel({ state }: { state: ConsoleState }) {
   const cwd = store.cwd; const load = useCallback(() => native("hooks/list", { cwds: cwd ? [cwd] : [] }), [cwd]);
   const resource = useResource(load);
-  return <section className="capability-page"><h3>Hooks</h3><Button variant="outline" onClick={() => void resource.refresh()}>刷新配置</Button>
+  return <section className="capability-page"><h3>Hooks</h3><p className="muted">查看事件触发的命令、信任状态和共享配置。</p><Button variant="outline" onClick={() => void resource.refresh()}>刷新配置</Button>
     {resource.data?.data?.map((entry: Obj, index: number) => <section key={index}><p className="muted">{entry.cwd}</p>
       {entry.errors?.map((error: Obj, i: number) => <p role="alert" key={i}>{error.path}: {error.message}</p>)}
       {entry.warnings?.map((warning: string, i: number) => <p key={i}>{warning}</p>)}
@@ -37,7 +37,8 @@ export function HooksPanel({ state }: { state: ConsoleState }) {
         <WorkspaceLink href={hook.sourcePath}>{hook.sourcePath}</WorkspaceLink><p className="muted">匹配：{hook.matcher || "全部"} · 超时 {hook.timeoutSec} 秒</p>
         {hook.statusMessage && <p>{hook.statusMessage}</p>}
       </li>)}</ul>{!entry.hooks?.length && <p>此目录没有 Hooks</p>}</section>)}
-    <h4>当前会话执行记录</h4><ul className="capability-list">{state.snapshot?.steps?.filter((s) => s.type === "hook").map((step) => <li key={step.id}><Facts value={step.detail} /></li>)}</ul>
+    <CompleteConfigSettings state={state} only={["hooks"]} />
+
     <Feedback error={resource.error} status={resource.loading ? "读取中…" : ""} />
   </section>;
 }
@@ -65,7 +66,7 @@ export function RemotePanel() {
     return () => { alive = false; clearTimeout(timer); };
   }, [pairing, claimed, clients.refresh]);
   const labels: Obj = { disabled: "未启用", connecting: "连接中", connected: "已连接", errored: "连接失败" };
-  return <section className="capability-page"><h3>远程控制</h3>
+  return <section className="capability-page"><h3>远程控制</h3><p className="muted">连接其他设备，并管理已配对客户端的访问权限。</p>
     <dl className="capability-facts"><div><dt>状态</dt><dd>{labels[resource.data?.status] || "读取中"}</dd></div><div><dt>服务器</dt><dd>{resource.data?.serverName || "—"}</dd></div><div><dt>环境</dt><dd>{environmentId || "—"}</dd></div></dl>
     <div className="native-options"><Button disabled={action.busy || !resource.data} onClick={() => void action.run(async () => {
       await native(resource.data?.status === "disabled" ? "remoteControl/enable" : "remoteControl/disable", null); await resource.refresh();
@@ -108,7 +109,7 @@ export function ImportPanel({ state }: { state: ConsoleState }) {
   useEffect(() => {
     if (importId && history.data?.data?.some((row: Obj) => row.importId === importId)) setImportId("");
   }, [importId, history.data]);
-  return <section className="capability-page"><h3>导入外部配置</h3>
+  return <section className="capability-page"><h3>导入外部配置</h3><p className="muted">发现其他工具的配置，选择要导入的内容并查看导入结果。</p>
     <Field label="迁移来源（留空使用运行时默认来源）"><input value={source} onChange={(e) => setSource(e.target.value)} /></Field>
     <label className="native-checkbox"><input type="checkbox" checked={home} onChange={(e) => setHome(e.target.checked)} />包含用户主目录</label>
     <Button disabled={action.busy} onClick={() => void action.run(async () => {
@@ -130,13 +131,13 @@ export function ImportPanel({ state }: { state: ConsoleState }) {
   </section>;
 }
 
-export function DiagnosticsPanel({ state }: { state: ConsoleState }) {
+export function DiagnosticsPanel({ state, thread = false }: { state: ConsoleState; thread?: boolean }) {
   const load = useCallback(() => native("server/diagnostics"), []); const resource = useResource(load); const action = useAction();
   const [reason, setReason] = useState(""); const [logs, setLogs] = useState(false); const [classification, setClassification] = useState("bug");
-  return <section className="capability-page"><h3>诊断与反馈</h3><Button variant="outline" onClick={() => void resource.refresh()}>刷新诊断</Button>
+  return <section className="capability-page"><h3>{thread ? "会话反馈" : "诊断与反馈"}</h3><p className="muted">{thread ? "针对当前聊天提交问题与使用反馈。" : "查看运行实例状态，或提交不关联聊天的反馈。"}</p><Button variant="outline" onClick={() => void resource.refresh()}>刷新诊断</Button>
     {resource.data && <><h4>原生服务进程</h4><Facts value={resource.data.process} /><h4>运行指标</h4><Facts value={resource.data.gauges} /></>}
     <form onSubmit={(e) => { e.preventDefault(); void action.run(async () => {
-      const result = await native("feedback/upload", { classification, reason, includeLogs: logs, threadId: state.sessions.find((s) => s.id === state.active)?.thread_id || null });
+      const result = await native("feedback/upload", { classification, reason, includeLogs: logs, threadId: thread ? state.sessions.find((s) => s.id === state.active)?.thread_id || null : null });
       if (result.threadId) setReason("");
     }, "反馈已上传"); }}><h4>发送反馈</h4><Field label="反馈类型"><select value={classification} onChange={(e) => setClassification(e.target.value)}><option value="bug">问题报告</option><option value="feedback">使用反馈</option></select></Field>
       <Field label="问题描述"><textarea required value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
@@ -175,4 +176,20 @@ export function RuntimeSettings({ tab, state }: { tab: string; state: ConsoleSta
   return tab === "memory" ? <MemoryPanel key={state.active || "new"} state={state} /> : tab === "hooks" ? <HooksPanel state={state} />
     : tab === "remote" ? <RemotePanel /> : tab === "environments" ? <EnvironmentPanel state={state} /> : tab === "import" ? <ImportPanel state={state} />
     : tab === "windows" ? <WindowsSandboxPanel /> : <DiagnosticsPanel state={state} />;
+}
+
+export function ThreadMemory({ state }: { state: ConsoleState }) {
+  const session = state.sessions.find((s) => s.id === state.active);
+  const [mode, setMode] = useState(session?.settings?.memoryMode || "");
+  const action = useAction();
+  return <section className="capability-page"><h3>会话记忆</h3><p className="muted">仅修改当前聊天是否使用记忆。</p>
+    <Field label="会话记忆模式"><select value={mode} disabled={!session?.thread_id || action.busy} onChange={(e) => {
+      const value = e.target.value; if (!value) return;
+      void action.run(async () => { await native("thread/memoryMode/set", { threadId: session!.thread_id, mode: value }); setMode(value); await store.refreshSessions(); });
+    }}><option value="" disabled>选择模式</option><option value="enabled">启用记忆</option><option value="disabled">停用记忆</option></select></Field>
+    <Feedback error={action.error} status={action.status} /></section>;
+}
+export function ThreadHooks({ state }: { state: ConsoleState }) {
+  return <section className="capability-page"><h3>Hooks 执行记录</h3><p className="muted">当前聊天已加载的 Hooks 运行记录。</p>
+    <h4>当前会话执行记录</h4><ul className="capability-list">{state.snapshot?.steps?.filter((s) => s.type === "hook").map((step) => <li key={step.id}><Facts value={step.detail} /></li>)}</ul>    {!state.snapshot?.steps?.some((s) => s.type === "hook") && <p className="muted">暂无执行记录。</p>}</section>;
 }

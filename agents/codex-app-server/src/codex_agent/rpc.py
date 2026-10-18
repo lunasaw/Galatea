@@ -195,11 +195,14 @@ class AppServerClient:
         self.initialized = True
         return result
 
-    async def start_thread(self, *, cwd: str, dynamic_tools: list[dict], approval_policy="on-request", sandbox="workspace-write", **options):
+    async def start_thread(self, *, cwd: str, dynamic_tools: list[dict], approval_policy=None, sandbox=None, **options):
         if not self.initialized:
             raise ProtocolError("initialize is required")
-        return await self.peer.request("thread/start", {"cwd": cwd, "approvalPolicy": approval_policy,
-            **({"sandbox": sandbox} if not options.get('permissions') else {}), **options, "dynamicTools": dynamic_tools})
+        # Omitted settings must inherit the native effective configuration.
+        return await self.peer.request("thread/start", {"cwd": cwd,
+            **({"approvalPolicy": approval_policy} if approval_policy is not None else {}),
+            **({"sandbox": sandbox} if sandbox is not None and not options.get('permissions') else {}),
+            **options, "dynamicTools": dynamic_tools})
 
     async def start_turn(self, thread_id: str, text: str, *, input_items=None, options=None):
         return await self.peer.request("turn/start", {"threadId": thread_id,

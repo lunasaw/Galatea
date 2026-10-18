@@ -1,6 +1,6 @@
 # 原生 app-server 协议
 
-目标运行时固定为 `codex-cli 0.154.0`。`src/codex_agent/protocol/0.154.0.json` 来自实际二进制的 `app-server generate-json-schema --experimental`。
+目标运行时固定为 `codex-cli 0.163.0`。`src/codex_agent/protocol/0.163.0.json` 来自实际二进制的 `app-server generate-json-schema --experimental`。
 
 Host 完成 `initialize` / `initialized` 后才允许请求，启用原生 experimental API。线程、轮次、文件、进程、Skill、MCP 和配置等方法均按固定版本 JSON Schema 校验，通过原生协议桥转发。
 

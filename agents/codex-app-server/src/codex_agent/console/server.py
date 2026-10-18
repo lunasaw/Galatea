@@ -297,6 +297,16 @@ class ConsoleApp:
                                                    'skill_roots': getattr(self.host, 'skill_roots', []),
                                                    'platform': sys.platform,
                                                    'configuration_editable': bool(self.host.configuration_changed)})
+            if path == '/api/native/config-schema' and method == 'GET':
+                from ..runtime_version import PROTOCOL_PATH
+                schema = json.loads(PROTOCOL_PATH.with_name('config.schema.json').read_text())
+                return await self._send(send, 200, schema)
+            if path == '/api/native/auth-handoffs' and method == 'GET':
+                return await self._send(send, 200, self.host.native.list_auth_handoffs())
+            if path.startswith('/api/native/receipts/') and method == 'GET':
+                key = identifier(path.rsplit('/', 1)[1])
+                receipt = self.host.store.read(f'native-requests/{key}.json')
+                return await self._send(send, 200 if receipt else 404, receipt or {'error': 'receipt-not-found'})
             if path == '/api/sidebar-groups' and method == 'GET':
                 return await self._send(send, 200, self.host.store.read('console/sidebar-groups.json') or {'sections': [], 'revision': 0})
             if path == '/api/sidebar-groups' and method == 'POST':

@@ -28,7 +28,7 @@ const { chromium } = require('../frontend/node_modules/playwright');
     await root.waitFor();
     assert.deepEqual(await root.locator('.slash-command-label').allTextContents(), [
       'MCP', '使用情况和计费', '侧边', '分享聊天', '创建聊天分支', '初始化', '压缩', '反馈', '归档', '推理', '模型',
-      '新聊天', '计划模式', '目标', '输入队列', '搜索', '权限', 'Skills', 'Apps', '插件', '恢复聊天', '审查', '回退', '状态', '帮助',
+      '新聊天', '计划模式', '目标', '输入队列', '搜索', '权限', 'Skills', 'Apps', '插件', '恢复聊天', '审查', '回退', '状态', '会话设置', '聊天资源', '会话记忆', 'Hooks 执行记录', '高级会话操作', '执行流程', '原生事件', '语音上下文', '子 Agent', '审批记录', '后台终端', '帮助',
     ]);
     assert.match(await root.getByRole('option', { name: /^侧边/ }).getAttribute('title'), /尚未接入/);
     assert.equal(await root.getByRole('option', { name: /^分享聊天/ }).getAttribute('aria-disabled'), 'true');
@@ -43,7 +43,7 @@ const { chromium } = require('../frontend/node_modules/playwright');
     await input.press('ArrowRight');
     const mcp = options('MCP选项');
     await mcp.getByRole('option', { name: /fixture-app/ }).waitFor();
-    assert.match(await mcp.textContent(), /2 个工具/);
+    assert.match(await mcp.textContent(), /3 个工具/);
     await input.press('ArrowLeft');
     await root.waitFor();
     await input.press('Escape');
@@ -73,16 +73,18 @@ const { chromium } = require('../frontend/node_modules/playwright');
     await input.press('Escape');
     await input.fill('/usage');
     await page.locator('#send').click();
-    const settings = page.getByRole('region', { name: '设置', exact: true });
+    const settings = page.getByRole('dialog', { name: '设置', exact: true });
     await settings.getByText('fixture@example.test · pro', { exact: true }).waitFor();
     await settings.getByText('已使用 24%', { exact: true }).waitFor();
     await settings.getByText('12.50', { exact: true }).waitFor();
     await page.getByRole('button', { name: '返回聊天', exact: true }).click();
+    await page.locator('.settings-page').waitFor({state:'hidden'});
     await input.fill('/feedback');
     await input.press('Enter');
-    await settings.getByRole('heading', { name: '诊断与反馈', exact: true }).waitFor();
+    await page.getByRole('dialog', { name: '会话反馈', exact: true }).waitFor();
     assert.equal(calls.filter((call) => call.method === 'feedback/upload').length, 0, 'opening feedback never submits a report');
     await page.getByRole('button', { name: '返回聊天', exact: true }).click();
+    await page.locator('.settings-page').waitFor({state:'hidden'});
 
     // Init follows the native CLI's prompt flow, including safe handling of an existing guide.
     await input.fill('/init');

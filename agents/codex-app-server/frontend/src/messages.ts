@@ -53,6 +53,9 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
     },
   }));
   for (const step of snapshot.steps || []) {
+    // Existing Hosts may have projected moderation metadata as warnings. Keep
+    // their raw history inspectable without turning it into chat activity.
+    if (step.type === "warning" && object(step.detail).method === "turn/moderationMetadata") continue;
     if (
       step.type !== "tool" &&
       ![
@@ -69,6 +72,10 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
         "plan",
         "turn/plan/updated",
         "contextCompaction",
+        "sleep",
+        "enteredReviewMode",
+        "exitedReviewMode",
+        "turnDiff",
         "warning",
         "error",
       ].includes(step.type)
@@ -334,13 +341,25 @@ export function toConversationMessages(
   }
   const lastActivity = new Map<string, number>();
   const lastItem = new Map<string, number>();
+  const changesAnchor = new Map<string, number>();
   result.forEach((row, index) => {
     const meta = row.metadata?.custom;
     if (meta?.turnId) lastItem.set(String(meta.turnId), index);
     if (meta?.activity) lastActivity.set(String(meta.turnId), index);
+    if (row.role === "assistant" && meta?.turnId && meta.delivery !== "async") {
+      const id = String(meta.turnId);
+      const previous = changesAnchor.get(id);
+      if (meta.final || previous === undefined || !result[previous].metadata?.custom?.final)
+        changesAnchor.set(id, index);
+    }
   });
   return result.map((row, index) => {
-    const meta = row.metadata?.custom;
+    let meta = row.metadata?.custom;
+    const id = String(meta?.turnId || "");
+    if (changesAnchor.get(id) === index && ["completed", "failed", "interrupted"].includes(turns.get(id)?.status || "")) {
+      meta = { ...meta, fileChangesTurnId: id };
+      row = { ...row, metadata: { ...row.metadata, custom: meta } };
+    }
     if (!meta?.activity) return row;
     const turnId = String(meta.turnId);
     const active =

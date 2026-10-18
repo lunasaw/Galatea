@@ -16,11 +16,12 @@ const icons = { mcp: Paperclip, usage: Gauge, aside: MessageCirclePlus, share: S
   init: File, compact: CircleDashed, feedback: MessageSquare, archive: Archive, reasoning: Brain,
   model: Box, new: Plus, plan: Lightbulb, goal: Target, queue: ListOrdered, search: Search,
   permissions: Shield, skills: BookOpen, apps: Puzzle, plugins: Puzzle, resume: History,
-  review: FileDiff, undo: Undo2, status: Info, help: CircleHelp };
+  review: FileDiff, undo: Undo2, status: Gauge, help: CircleHelp, settings: Settings2, resources: Paperclip, memory: Brain, hooks: ListOrdered, advanced: Settings2, loop: ListOrdered, native: File, voice: MessageSquare, agents: Box, approvals: Shield, background: Box };
 type Row = { id: string; label: string; description?: string; icon: typeof Check; checked?: boolean; submenu?: boolean; disabled?: string; run: () => void | Promise<void> };
 export function useSlashCommands({ text, state, disabled }: { text: string; state: ConsoleState; disabled: boolean }) {
   const aui = useAui();
   const [focused, setFocused] = useState(false);
+  const [invoked, setInvoked] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [submenu, setSubmenu] = useState("");
   const [selected, setSelected] = useState(0);
@@ -32,7 +33,7 @@ export function useSlashCommands({ text, state, disabled }: { text: string; stat
   const lock = useRef(false);
   const id = useId();
   const session = state.sessions.find((row) => row.id === state.active);
-  const matches = disabled ? [] : filterSlashCommands(text);
+  const matches = disabled ? [] : filterSlashCommands(invoked ? "/" : text);
   const open = !dismissed && focused && matches.length > 0;
   const settings = store.composerSettings;
   const model = state.models.find((row) => row.model === settings.model);
@@ -41,7 +42,12 @@ export function useSlashCommands({ text, state, disabled }: { text: string; stat
     || (command.thread && !session?.thread_id ? "请先开始聊天" : "")
     || (state.creating || state.submitting || state.settingsBusy ? "正在处理，请稍候" : "")
     || (command.idle && (session?.active_turn_id || busyStatuses.has(session?.status || "")) ? "请先停止当前回复" : "");
-  useEffect(() => { setDismissed(false); setSubmenu(""); setSelected(0); }, [text, state.active]);
+  useEffect(() => { setDismissed(false); setSubmenu(""); setSelected(0); setInvoked(false); }, [text, state.active]);
+  useEffect(() => {
+    const show = () => { setInvoked(true); setDismissed(false); setSubmenu(""); setSelected(0); setFocused(true); };
+    window.addEventListener("codex-slash", show);
+    return () => window.removeEventListener("codex-slash", show);
+  }, []);
   useEffect(() => {
     if (!open || submenu !== "mcp") return;
     let disposed = false;
@@ -51,8 +57,8 @@ export function useSlashCommands({ text, state, disabled }: { text: string; stat
     return () => { disposed = true; };
   }, [open, submenu, session?.thread_id]);
   const close = () => {
-    setDismissed(true); setSubmenu("");
-    if (aui.composer().getState().text === text) aui.composer().setText("");
+    setDismissed(true); setSubmenu(""); setInvoked(false);
+    if (!invoked && aui.composer().getState().text === text) aui.composer().setText("");
   };
   const showPanel = (name: string) => { close(); window.dispatchEvent(new CustomEvent("codex-panel", { detail: name })); };
   const execute = async (command: SlashCommand) => {
@@ -72,13 +78,14 @@ export function useSlashCommands({ text, state, disabled }: { text: string; stat
       const efforts = item.supportedReasoningEfforts?.map((row) => row.reasoningEffort) || [];
       return changeSetting({ model: item.model, effort: efforts.includes(settings.effort) ? settings.effort : item.defaultReasoningEffort || "" });
     },
-  })) : submenu === "reasoning" ? (model?.supportedReasoningEfforts || []).map(({ reasoningEffort }) => ({
+  })) : submenu === "reasoning" ? store.reasoningEfforts(model, settings.effort).map((reasoningEffort) => ({
     id: reasoningEffort, label: effortNames[reasoningEffort] || reasoningEffort, icon: Brain,
     checked: reasoningEffort === settings.effort, disabled: settingDisabled, run: () => changeSetting({ effort: reasoningEffort }),
   })) : submenu === "mcp" ? [
     ...(servers || []).map((server) => ({ id: server.name, label: server.name,
       description: `${Object.keys(server.tools || {}).length} 个工具 · ${{ oAuth: "已授权", bearerToken: "令牌认证", notLoggedIn: "未登录", unsupported: "无需登录" }[server.authStatus as string] || server.authStatus || "状态未知"}`,
-      icon: Paperclip, run: () => showPanel("mcp") })),
+      icon: Paperclip, run: () => showPanel("session:mcp") })),
+    { id: "mcp-tools", label: "会话工具与资源", description: "调用工具、读取资源或订阅事件", icon: Paperclip, run: () => showPanel("session:mcp") },
     { id: "mcp-settings", label: "MCP 设置", description: "管理服务器、工具和授权", icon: Settings2, run: () => showPanel("mcp") },
   ] : submenu === "fork" ? [
     { id: "fork-current", label: "从当前聊天创建分支", description: "包含完整聊天上下文", icon: Split, run: () => { close(); requestThreadAction({ action: "fork", sessionId: session?.id }); } },

@@ -52,3 +52,26 @@ test("review tolerates incomplete observations and does not borrow another turn"
   assert.deepEqual(reviewFiles(data, "one"), []);
   assert.deepEqual(reviewFiles(null, undefined), []);
 });
+
+test("uses the last aggregate diff as net changes, including a reverted empty turn", () => {
+  const data = snapshot([
+    step("one", "a", { changes: [{ path: "a.ts", diff: "-old\n+middle" }] }),
+    step("one", "b", { changes: [{ path: "a.ts", diff: "-middle\n+new" }] }),
+    { ...step("one", "diff", { diff: "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n" }), type: "turnDiff" },
+  ]);
+  assert.equal(reviewFiles(data, "one")[0].additions, 1);
+  assert.equal(reviewFiles(data, "one")[0].removals, 1);
+  data.steps!.push({ ...step("one", "empty", { diff: "" }), type: "turnDiff", last_seq: "10" });
+  assert.deepEqual(reviewFiles(data, "one"), []);
+});
+
+test("excludes rejected patches and counts native add/delete content", () => {
+  const data = snapshot([
+    { ...step("one", "fail", { changes: [{ path: "a", diff: "-a\n+b" }] }), status: "failed" },
+    step("one", "add", { status: "completed", changes: [{ path: "added", kind: { type: "add" }, diff: "hello\nworld\n" }] }),
+    step("one", "delete", { status: "completed", changes: [{ path: "deleted", kind: { type: "delete" }, diff: "gone\n" }] }),
+  ]);
+  assert.deepEqual(reviewFiles(data, "one").map(({path, additions, removals}) => ({path, additions, removals})), [
+    {path: "added", additions: 2, removals: 0}, {path: "deleted", additions: 0, removals: 1},
+  ]);
+});

@@ -9,7 +9,7 @@
   },
   "codex": {
     "binary": "./runtime/bin/codex",
-    "runtime_version": "codex-cli 0.154.0",
+    "runtime_version": "codex-cli 0.163.0",
     "inherit_env": []
   },
   "skills": {"roots": []},

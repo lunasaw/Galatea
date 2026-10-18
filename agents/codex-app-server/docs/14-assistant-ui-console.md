@@ -80,7 +80,7 @@ Markdown HTML/MDX 不执行，远程图片不自动加载，网页链接在新�
 浏览器脚本使用 `console_browser_fixture.py` 的合成服务，不触发模型或训练。设置
 `CONSOLE_TEST_URL` 和 `CHROMIUM_EXECUTABLE` 后运行；`CONSOLE_SCREENSHOTS` 可保存截图。
 
-这是基于 Codex 0.154.0 原生协议的 Web 会话实现，不是桌面应用 UI 源码的复制。
+这是基于 Codex 0.163.0 原生协议的 Web 会话实现，不是桌面应用 UI 源码的复制。
 本轮按用户提供的官方 Desktop 截图实现布局、输入菜单、目标/计划模式与推理滑块，
 增加交互终端、原生语音、子 Agent 导航、异步问题和 MCP App 视图。
 完整能力表与平台限制见 [Web 能力对齐](17-web-capability-parity.md)。

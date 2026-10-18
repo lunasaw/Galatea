@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
-from pathlib import Path
 import time
 import uuid
 
@@ -19,11 +18,12 @@ from .console.projection import redact
 from .state import payload_digest
 from .rpc import RpcError
 from .mcp_app_context import with_app_context
+from .runtime_version import PROTOCOL_PATH
 
 
 class NativeProtocol:
     def __init__(self):
-        self.bundle = json.loads((Path(__file__).parent / 'protocol/0.154.0.json').read_text())
+        self.bundle = json.loads(PROTOCOL_PATH.read_text())
         self.methods = {row['properties']['method']['enum'][0]: row
                         for row in self.bundle['client']['oneOf']}
 
@@ -57,6 +57,23 @@ class NativeBridge:
         self.host = host
         self.pending = {}
         self.completed = {}
+        self.auth_handoffs = {}
+
+    def gateway_changed(self, params):
+        provider = params.get('providerId')
+        if not isinstance(provider, str):
+            return
+        url = params.get('authUrl')
+        if params.get('status') == 'started' and isinstance(url, str) and url.startswith(('https://', 'http://')):
+            self.auth_handoffs[provider] = {'providerId': provider, 'authUrl': url,
+                                            'expiresAt': time.time() + 600}
+        elif params.get('status') != 'started':
+            self.auth_handoffs.pop(provider, None)
+
+    def list_auth_handoffs(self):
+        now = time.time()
+        self.auth_handoffs = {key: row for key, row in self.auth_handoffs.items() if row['expiresAt'] > now}
+        return copy.deepcopy(list(self.auth_handoffs.values()))
 
     async def request(self, message):
         method, params = message['method'], message.get('params', {})
@@ -132,7 +149,7 @@ class NativeBridge:
                 future.set_result({'error': {'code': -32000, 'message': 'Request cancelled'}})
 
     async def call(self, method, params, request_id):
-        if method in {'thread/fork', 'thread/archive', 'thread/unarchive', 'thread/delete', 'thread/rollback', 'thread/revert'}:
+        if method in {'thread/fork', 'thread/archive', 'thread/unarchive', 'thread/delete', 'thread/revert'}:
             async with self.host._admission:
                 return await self._call(method, params, request_id)
         return await self._call(method, params, request_id)
@@ -183,16 +200,19 @@ class NativeBridge:
             options = {k: v for k, v in params.items() if k != 'threadId'}
             return {'session': await host.resume(session['id'], options=options)}
         if session and (session.get('active_turn_id') or session['status'] in {'starting', 'running', 'interrupting', 'closing'}) and method in {
-                'thread/resume', 'thread/fork', 'thread/archive', 'thread/delete', 'thread/rollback', 'thread/revert', 'review/start'}:
+                'thread/resume', 'thread/fork', 'thread/archive', 'thread/delete', 'thread/revert', 'review/start'}:
             raise ValueError('stop the active turn first')
+        auxiliary_shell = (method == 'thread/shellCommand' and session
+                           and session['status'] == 'running' and session.get('active_turn_id'))
+        if method == 'thread/shellCommand' and not auxiliary_shell and session and session['status'] != 'ready':
+            raise ValueError('wait for the active turn identity before running a shell command')
         context = {'thread_id': thread_id, 'session_id': session['id'] if session else None,
                    'host_request_id': request_id}
         # Reviews and queued submissions start agent turns, so reserve their
         # admission slot before the native notification can arrive.
-        starts_turn = method in {'review/start', 'thread/queue/start'}
+        starts_turn = method in {'review/start', 'thread/queue/start', 'thread/shellCommand'} and not auxiliary_shell
+        detached = method == 'review/start' and params.get('delivery') == 'detached'
         if starts_turn:
-            if method == 'review/start' and params.get('delivery') == 'detached':
-                raise ValueError('start an inline review on a ready session')
             async with host._admission:
                 await host._check_admission()
                 if not session or session['id'] not in host._attached or session['status'] != 'ready':
@@ -223,14 +243,56 @@ class NativeBridge:
                     session['status'] = 'recovery_required'
                 host._save(session)
             raise
-        if starts_turn:
+        if detached:
+            # Native detached review forks and starts a different thread. Transfer
+            # the reserved slot to that identity before reading its current state;
+            # early notifications are reconciled from the native transcript.
+            child_id = result['reviewThreadId']
+            if child_id == thread_id:
+                session['status'] = 'recovery_required'
+                host._save(session)
+                raise ValueError('detached review returned the source thread')
+            child = {'id': 'session-' + request_id, 'thread_id': child_id,
+                     'principal_id': host.principal_id, **host.bindings,
+                     'status': 'running', 'active_turn_id': result['turn']['id'],
+                     'active_request_id': request_id, 'cwd': session.get('cwd', str(host.workspace_dir)),
+                     'settings': dict(session.get('settings', {}))}
+            async with host._admission:
+                session.update(status='ready', active_request_id=None, active_turn_id=None)
+                host._save(session)
+                host._save(child)
+                host._attached.add(child['id'])
+                host.events.bind(child['id'], child_id)
+                host.store.write(f'requests/{request_id}.json', {'request_id': request_id,
+                    'session_id': child['id'], 'thread_id': child_id, 'turn_id': result['turn']['id'], 'status': 'accepted'})
+            try:
+                thread = (await host.client.read_thread(child_id))['thread']
+                host.restore_thread(child['id'], thread)
+                active = next((t for t in reversed(thread.get('turns', [])) if t.get('status') == 'inProgress'), None)
+                record = host.store.read(f'requests/{request_id}.json')
+                # Completion may arrive while read_thread is in flight. Its
+                # newer event must win over an already captured transcript.
+                if record['status'] not in {'completed', 'failed', 'interrupted'}:
+                    child.update(status='running' if active else 'ready', active_turn_id=active['id'] if active else None,
+                                 active_request_id=request_id if active else None)
+                    if not active:
+                        record['status'] = next((t.get('status', 'completed') for t in thread.get('turns', []) if t['id'] == result['turn']['id']), 'completed')
+                        host.store.write(f'requests/{request_id}.json', record)
+            except BaseException:
+                child['status'] = 'recovery_required'
+                raise
+            finally:
+                host._save(child)
+                host._active_turns = host._count_active_turns()
+            result['session'] = dict(child)
+        elif starts_turn:
             path = f'requests/{request_id}.json'
             record = host.store.read(path)
             if record['status'] not in {'completed', 'failed', 'interrupted'}:
-                turn_id = result['turn']['id']
+                turn_id = result.get('turn', {}).get('id') or session.get('active_turn_id')
                 record.update(turn_id=turn_id, status='accepted')
                 host.store.write(path, record)
-                session.update(status='running', active_turn_id=turn_id)
+                session.update(status='running' if turn_id else 'starting', active_turn_id=turn_id)
                 host._save(session)
         if changes_config:
             await host.configuration_changed()
@@ -259,9 +321,12 @@ class NativeBridge:
                    'sandboxPolicy', 'permissions', 'cwd') if key in result}}
             if 'reasoningEffort' in result:
                 session['settings']['effort'] = result['reasoningEffort']
+            if isinstance(result.get('sandbox'), dict):
+                session['settings']['sandboxPolicy'] = result['sandbox']
+                session['settings'].pop('sandbox', None)
             host._save(session)
             host._attached.add(session['id'])
-            host._active_turns = sum(bool(host._sessions[s].get('active_turn_id')) for s in host._attached)
+            host._active_turns = host._count_active_turns()
             host.events.bind(session['id'], thread['id'])
             host.restore_thread(session['id'], thread)
             result['session'] = dict(session)
@@ -274,14 +339,12 @@ class NativeBridge:
                     host.mark_deleted(session)
                 elif method == 'thread/archive':
                     host._attached.discard(session['id'])
-                    host._active_turns = sum(bool(host._sessions[s].get('active_turn_id')) for s in host._attached)
+                    host._active_turns = host._count_active_turns()
                     if session['status'] != 'closed':
                         session['status'] = 'recovery_required'
             host._save(session)
-        if session and method in {'thread/rollback', 'thread/revert'}:
-            thread = result.get('thread')
-            if method == 'thread/revert' or not thread:
-                thread = (await host.client.read_thread(thread_id))['thread']
+        if session and method == 'thread/revert':
+            thread = (await host.client.read_thread(thread_id))['thread']
             host.restore_thread(session['id'], thread)
         if session and method in {'thread/settings/update', 'turn/settings/update'}:
             key = 'turn_settings' if method == 'turn/settings/update' else 'settings'
@@ -308,12 +371,20 @@ class NativeBridge:
             session['settings'] = {**session.get('settings', {}), 'projectId': result['thread']['projectId'] or ''}
             session['section_id'] = (result['thread'].get('section') or {}).get('id')
             host._save(session)
+        if session and method in {'thread/read', 'thread/readState/update'}:
+            read_state = result.get('readState')
+            if read_state is not None:
+                session['read_state'] = read_state
+                host._save(session)
         if method == 'thread/list':
             for thread in result.get('data', []):
                 member = host._session_for_thread(thread['id'])
                 if member and 'projectId' in thread:
                     member['settings'] = {**member.get('settings', {}), 'projectId': thread['projectId'] or ''}
                     member['section_id'] = (thread.get('section') or {}).get('id')
+                    host._save(member)
+                if member and thread['id'] in (result.get('readStates') or {}):
+                    member['read_state'] = result['readStates'][thread['id']]
                     host._save(member)
         if session and method == 'thread/section/move':
             session['section_id'] = params['sectionId']
@@ -323,7 +394,9 @@ class NativeBridge:
                 if member.get('settings', {}).get('projectId') == params['projectId']:
                     member['settings']['projectId'] = ''
                     host._save(member)
-        public = redact(result)[0]
+        if method in {'account/gatewayOAuth/cancel', 'account/logout'}:
+            self.auth_handoffs.clear()
+        public = redact(result, method=method)[0]
         if method in {'userVerification/status', 'userVerification/enroll', 'userVerification/delete'} and 'credentialId' in result:
             # This is a public key identifier, not a secret credential. In
             # particular, null must remain null so the UI can detect enrollment.
@@ -333,10 +406,10 @@ class NativeBridge:
             # Preserve only the protocol's public proof fields; audit redaction
             # still applies independently to the underlying RPC observation.
             public['proof'] = {key: result['proof'][key] for key in ('credentialId', 'signature')}
-        if method in {'account/login/start', 'mcpServer/oauth/login'}:
+        if method in {'account/login/start', 'mcpServer/oauth/login', 'account/gatewayOAuth/read', 'account/gatewayOAuth/login'}:
             # OAuth authorization URLs are user-facing protocol output, not
             # bearer credentials. Keep them usable while audit logs redact.
-            for key in ('authorizationUrl', 'authUrl', 'url'):
+            for key in ('authorizationUrl', 'authUrl', 'verificationUrl', 'url'):
                 value = result.get(key)
                 if isinstance(value, str) and value.startswith(('https://', 'http://')):
                     public[key] = value

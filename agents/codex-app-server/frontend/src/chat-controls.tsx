@@ -54,7 +54,7 @@ import {
 import { busyStatuses } from "./store";
 import { Hand, Shield, ShieldAlert } from "lucide-react";
 
-export const openSettings = (tab = "settings") =>
+export const openSettings = (tab = "configuration") =>
   window.dispatchEvent(new CustomEvent("codex-panel", { detail: tab }));
 
 export function ComposerAddMenu() {
@@ -133,12 +133,12 @@ export function ComposerOptions() {
   const settings = store.composerSettings;
   const session = state.sessions.find((s) => s.id === state.active);
   const model = state.models.find((m) => m.model === settings.model);
-  const efforts = model?.supportedReasoningEfforts?.map((e) => e.reasoningEffort) || [];
+  const efforts = store.reasoningEfforts(model, settings.effort);
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const disabled = state.settingsBusy || state.submitting;
   const label = model?.displayName || settings.model || "默认模型";
-  useEffect(() => setIndex(Math.max(0, efforts.indexOf(settings.effort))), [settings.model, settings.effort, open]);
+  useEffect(() => setIndex(Math.max(0, efforts.indexOf(settings.effort))), [settings.model, settings.effort, open, efforts.join(",")]);
   useEffect(() => {
     const show = () => setOpen(true);
     window.addEventListener("codex-model", show);
@@ -163,7 +163,7 @@ export function ComposerOptions() {
               const effort = options.includes(settings.effort) ? settings.effort : item.defaultReasoningEffort;
               void store.updateComposerSettings({ model: item.model, ...(effort ? { effort } : {}) });
             }}>{item.displayName || item.model}{item.model === settings.model && <Check className="ml-auto" />}</DropdownMenuItem>)}
-            <DropdownMenuSeparator /><DropdownMenuItem onSelect={() => { setOpen(false); openSettings(); }}>模型设置…</DropdownMenuItem>
+            <DropdownMenuSeparator /><DropdownMenuItem onSelect={() => { setOpen(false); openSettings("session:settings"); }}>模型设置…</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         {efforts.length > 0 ? <Slider.Root className="reasoning-slider" min={0} max={Math.max(1, efforts.length - 1)} step={1} value={[index]}

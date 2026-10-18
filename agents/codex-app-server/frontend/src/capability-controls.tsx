@@ -1,11 +1,11 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { native, type Obj } from "./native";
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, displayLabel, description, children }: { label: string; displayLabel?: string; description?: string; children: ReactNode }) {
   const id = useId();
   const control = isValidElement(children) ? children as ReactElement<{ id?: string }> : null;
   const target = control?.props.id || id;
-  return <div className="capability-field"><label htmlFor={target}>{label}</label>{control ? cloneElement(control, { id: target }) : children}</div>;
+  return <div className="capability-field"><div className="capability-field-label"><label htmlFor={target}>{displayLabel || label}</label>{description && <p>{description}</p>}</div><div className="capability-field-control">{control ? cloneElement(control, { id: target }) : children}</div></div>;
 }
 export function Feedback({ error, status }: { error?: string; status?: string }) {
   return <>{error && <p role="alert" className="text-destructive">{error}</p>}{status && <p role="status" className="text-muted-foreground">{status}</p>}</>;
@@ -46,17 +46,26 @@ export function useResource<T>(load: () => Promise<T>, poll = 0) {
   const [data, setData] = useState<T>(); const [error, setError] = useState("");
   const [loading, setLoading] = useState(true); const generation = useRef(0);
   const inFlight = useRef(false);
-  const refresh = useCallback(async () => {
+  const queued = useRef(false);
+  const refresh = useCallback(async (): Promise<void> => {
     const id = ++generation.current; setLoading(true);
     inFlight.current = true;
     try { const value = await load(); if (id === generation.current) { setData(value); setError(""); } }
     catch (error) { if (id === generation.current) setError(String(error)); }
-    finally { if (id === generation.current) { setLoading(false); inFlight.current = false; } }
+    finally { if (id === generation.current) { setLoading(false); inFlight.current = false;
+      if (queued.current) { queued.current = false; void refresh(); }
+    } }
   }, [load]);
   useEffect(() => {
     setData(undefined); void refresh();
     const timer = poll ? setInterval(() => { if (!document.hidden && !inFlight.current) void refresh(); }, poll) : undefined;
-    return () => { generation.current++; clearInterval(timer); };
+    return () => { generation.current++; queued.current = false; clearInterval(timer); };
   }, [refresh, poll]);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const changed = () => { clearTimeout(timer); timer = setTimeout(() => { if (inFlight.current) queued.current = true; else void refresh(); }, 200); };
+    window.addEventListener("codex-native-resources-changed", changed);
+    return () => { clearTimeout(timer); window.removeEventListener("codex-native-resources-changed", changed); };
+  }, [refresh]);
   return { data, error, loading, refresh };
 }

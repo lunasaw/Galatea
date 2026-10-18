@@ -1,4 +1,6 @@
+import { nativeNotice, invalidatesNativeResources, type NativeNotice } from "./native-notifications";
 import { exactSlashCommand, initPrompt } from "./slash-commands";
+import { visibleEfforts } from "./configuration-data";
 import type {
   Capabilities,
   EventPage,
@@ -111,6 +113,7 @@ export type ConsoleState = {
   submitting: boolean;
   error: string;
   streamError: string;
+  nativeNotices: NativeNotice[];
   reset: boolean;
   titles: Record<string, string>;
   history: boolean;
@@ -137,6 +140,7 @@ export type ConsoleState = {
   draftProjectId: string;
   draftPermission: PermissionPreset | null;
   runtimeDefaults: Record<string, any>;
+  hiddenReasoningEfforts: string[];
 };
 
 export class ConsoleStore {
@@ -146,6 +150,7 @@ export class ConsoleStore {
   private projectWrites: Promise<boolean> = Promise.resolve(true);
   private pendingProjectWrites = 0;
   private defaults = { model: "", effort: "medium", mode: "default" };
+  private draftModelOverrides = new Set<string>();
   private listeners = new Set<() => void>();
   private controller?: AbortController;
   private initController?: AbortController;
@@ -183,6 +188,7 @@ export class ConsoleStore {
     submitting: false,
     error: "",
     streamError: "",
+    nativeNotices: [],
     reset: false,
     titles: {},
     history: false,
@@ -204,6 +210,7 @@ export class ConsoleStore {
     draftProjectId: "",
     draftPermission: null,
     runtimeDefaults: {},
+    hiddenReasoningEfforts: [],
   };
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -226,9 +233,12 @@ export class ConsoleStore {
     this.initController = controller;
     const { signal } = controller;
     const selectionVersion = this.generation;
-    const previous = localStorage.getItem("codex-agent.active");
+    const linkedSession = typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("session");
+    const previous = linkedSession || localStorage.getItem("codex-agent.active");
     const report = (error: unknown) => { if (!signal.aborted) this.fail(error); };
     try {
+      const hidden = JSON.parse(localStorage.getItem("codex-agent.hidden-efforts") || "[]");
+      if (Array.isArray(hidden)) this.patch({ hiddenReasoningEfforts: hidden.filter((v): v is string => typeof v === "string") });
       const permission = localStorage.getItem("codex-agent.draft-permission");
       this.patch({
         projectLayout: parseProjectLayout(
@@ -258,6 +268,8 @@ export class ConsoleStore {
         return nativeProtocol;
       });
     const restore = sessionsReady.then(async (sessions) => {
+      if (!signal.aborted && selectionVersion === this.generation && linkedSession && !sessions.some(s => s.id === linkedSession))
+        report(new Error("链接中的会话不存在或无法访问"));
       if (!signal.aborted && selectionVersion === this.generation && previous && sessions.some((s) => s.id === previous))
         await this.select(previous, false, { refreshMetadata: false, clearError: false });
     });
@@ -295,12 +307,13 @@ export class ConsoleStore {
   }
   private async loadDefaults(signal: AbortSignal) {
     const preferences = this.state.preferences;
+    const revision = ++this.defaultsRevision;
     await Promise.all([
       (this.nativeCall("model/list", {}, signal) as Promise<any>).then((models) => {
         if (!signal.aborted) this.patch({ models: models.data || [] });
       }),
-      (this.nativeCall("config/read", { includeLayers: false }, signal) as Promise<any>).then((config) => {
-        if (signal.aborted) return;
+      (this.nativeCall("config/read", { includeLayers: false, ...(this.cwd ? { cwd: this.cwd } : {}) }, signal) as Promise<any>).then((config) => {
+        if (signal.aborted || revision !== this.defaultsRevision) return;
         this.defaults = {
           model: config.config?.model || "",
           effort: config.config?.model_reasoning_effort || "medium",
@@ -310,6 +323,26 @@ export class ConsoleStore {
           ...(this.state.preferences === preferences ? { preferences: this.defaults } : {}) });
       }),
     ]);
+  }
+  private defaultsRevision = 0;
+  async refreshRuntimeDefaults(cwd = this.cwd) {
+    const revision = ++this.defaultsRevision;
+    const previous = this.defaults;
+    const result = await this.nativeCall("config/read", { includeLayers: false, ...(cwd ? { cwd } : {}) }) as any;
+    if (revision !== this.defaultsRevision) return;
+    this.defaults = { model: result.config?.model || "", effort: result.config?.model_reasoning_effort || "medium", mode: "default" };
+    const preferences = this.state.preferences;
+    this.patch({ runtimeDefaults: result.config || {}, preferences: { ...preferences,
+      ...(!this.draftModelOverrides.has("model") && preferences.model === previous.model ? { model: this.defaults.model } : {}),
+      ...(!this.draftModelOverrides.has("effort") && preferences.effort === previous.effort ? { effort: this.defaults.effort } : {}),
+    } });
+  }
+  setHiddenReasoningEfforts(hidden: string[]) {
+    localStorage.setItem("codex-agent.hidden-efforts", JSON.stringify(hidden));
+    this.patch({ hiddenReasoningEfforts: hidden });
+  }
+  reasoningEfforts(model: ConsoleState["models"][number] | undefined, current?: string) {
+    return visibleEfforts(model?.supportedReasoningEfforts?.map((row) => row.reasoningEffort) || [], this.state.hiddenReasoningEfforts, current);
   }
   async refreshNativeRequests() {
     try {
@@ -639,6 +672,7 @@ export class ConsoleStore {
     const next = { ...this.composerSettings, ...update };
     const session = this.state.sessions.find((s) => s.id === this.state.active);
     if (!session) {
+      for (const key of ["model", "effort"]) if (key in update) this.draftModelOverrides.add(key);
       this.patch({ preferences: next, ...(update.mode === "plan" ? { goalInputs: { ...this.state.goalInputs, new: false } } : {}) });
       return true;
     }
@@ -654,6 +688,10 @@ export class ConsoleStore {
     }
     this.patch({ settingsBusy: true });
     try {
+      if (update.mode === "plan" && update.effort === undefined && this.state.nativeProtocol?.methods.includes("config/read")) {
+        const config = await this.nativeCall("config/read", { includeLayers: false, cwd: session.cwd || this.cwd }) as any;
+        if (config.config?.plan_mode_reasoning_effort) next.effort = config.config.plan_mode_reasoning_effort;
+      }
       const settings = this.turnOptions(next);
       await this.nativeCall("thread/settings/update", {
         threadId: session.thread_id,
@@ -825,6 +863,12 @@ export class ConsoleStore {
     });
     if (id) localStorage.setItem("codex-agent.active", id);
     else localStorage.removeItem("codex-agent.active");
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (id) url.searchParams.set("session", id);
+      else url.searchParams.delete("session");
+      window.history.replaceState(window.history.state, "", url);
+    }
     if (!id && !global) return;
     const report = (error: unknown) => { if (version === this.generation) this.fail(error); };
     if (refreshMetadata) {
@@ -876,7 +920,11 @@ export class ConsoleStore {
     const key = this.actions.get("create") || requestKey();
     this.actions.set("create", key);
     try {
-      const { model, effort } = this.state.preferences;
+      if (this.state.nativeProtocol?.methods.includes("config/read")) await this.refreshRuntimeDefaults(this.currentProject?.path || this.state.draftCwd || this.state.nativeProtocol.cwd);
+      const { model, effort, mode } = this.state.preferences;
+      // Only explicit draft changes override project/native defaults.
+      const modelOverride = model && (this.draftModelOverrides.has("model") || model !== this.defaults.model);
+      const effortOverride = this.draftModelOverrides.has("effort") || effort !== this.defaults.effort;
       const project = this.currentProject;
       const options = {
         ...(this.nativeProjectMode && project ? { projectId: project.id } : {}),
@@ -884,7 +932,8 @@ export class ConsoleStore {
         ...(this.state.draftPermission
           ? permissionSettings(this.state.draftPermission, true)
           : {}),
-        ...(model ? { model, config: { model_reasoning_effort: effort } } : {}),
+        ...(modelOverride ? { model } : {}),
+        ...(effortOverride ? { config: { model_reasoning_effort: effort } } : {}),
       };
       const session = await api<Session>("/api/sessions", { options }, key);
       if (project)
@@ -894,9 +943,14 @@ export class ConsoleStore {
       await this.refreshSessions();
       if (activate) {
         await this.select(session.id);
-        if (model && !(await this.updateComposerSettings(this.state.preferences))) return null;
-      } else if (model) {
-        await this.nativeCall("thread/settings/update", { threadId: session.thread_id, ...this.turnOptions(this.state.preferences) });
+        if (mode === "plan" && !(await this.updateComposerSettings({ mode,
+          effort: effortOverride ? effort : this.state.runtimeDefaults.plan_mode_reasoning_effort || this.composerSettings.effort,
+        }))) return null;
+      } else if (mode === "plan") {
+        const inherited = session.settings || {};
+        await this.nativeCall("thread/settings/update", { threadId: session.thread_id, ...this.turnOptions({
+          model: inherited.model || model, effort: effortOverride ? effort : this.state.runtimeDefaults.plan_mode_reasoning_effort || inherited.effort || effort, mode,
+        }) });
       }
       this.actions.delete("create");
       return session.id;
@@ -990,9 +1044,10 @@ export class ConsoleStore {
           "goal",
           "queue",
           "search",
+          "settings", "resources", "memory", "hooks", "advanced", "loop", "native", "voice", "agents", "approvals", "background",
         ].includes(name)
       ) {
-        window.dispatchEvent(new CustomEvent("codex-panel", { detail: name }));
+        window.dispatchEvent(new CustomEvent("codex-panel", { detail: ["settings", "resources", "memory", "hooks", "advanced", "loop", "native", "voice", "skills", "mcp", "apps", "plugins", "feedback"].includes(name) ? `session:${name}` : name }));
         return;
       }
       if (["compact", "fork", "review", "undo", "archive"].includes(name)) {
@@ -1151,6 +1206,13 @@ export class ConsoleStore {
               )
             ) {
               this.patch({ events: [...this.state.events, data].slice(-200) });
+            }
+            const notice = nativeNotice(data);
+            if (notice && !this.state.nativeNotices.some((n) => n.id === notice.id)) this.patch({ nativeNotices: [...this.state.nativeNotices, notice].slice(-30) });
+            if (invalidatesNativeResources(data)) {
+              if (typeof window !== "undefined") window.dispatchEvent(new Event("codex-native-resources-changed"));
+              if (["project/changed", "thread/project/updated"].includes(data.method)) void this.refreshProjects().catch(this.fail);
+              if (["account/updated", "account/login/completed"].includes(data.method)) void this.refreshRuntimeDefaults().catch(this.fail);
             }
             cursor = data.event_id;
             if (data.method === "thread/queue/changed")

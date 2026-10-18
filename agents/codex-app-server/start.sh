@@ -36,14 +36,17 @@ if [ ! -f "$LOCAL_DIR/dependencies.stamp" ] || [ "$(cat "$LOCAL_DIR/dependencies
     printf '%s\n' "$DEPS_HASH" > "$LOCAL_DIR/dependencies.stamp"
 fi
 
+export PYTHONPATH="$PROJECT_DIR/src"
+RUNTIME_VERSION=$("$PYTHON" -c 'from codex_agent.runtime_version import VERSION; print(VERSION)')
 case "$(uname -s):$(uname -m)" in
-    Linux:x86_64) TARGET=x86_64-unknown-linux-musl; PACKAGE_VERSION=0.154.0-linux-x64 ;;
+    Linux:x86_64) TARGET=x86_64-unknown-linux-musl; PACKAGE_VERSION=$RUNTIME_VERSION-linux-x64 ;;
     *) echo "This startup script currently supports Linux x86_64." >&2; exit 1 ;;
 esac
-RUNTIME="$LOCAL_DIR/npm/node_modules/@openai/codex/vendor/$TARGET/bin/codex"
-if [ ! -x "$RUNTIME" ] || [ "$("$RUNTIME" --version)" != 'codex-cli 0.154.0' ]; then
+RUNTIME_PREFIX="$LOCAL_DIR/npm-$RUNTIME_VERSION"
+RUNTIME="$RUNTIME_PREFIX/node_modules/@openai/codex/vendor/$TARGET/bin/codex"
+if [ ! -x "$RUNTIME" ] || [ "$("$RUNTIME" --version)" != "codex-cli $RUNTIME_VERSION" ]; then
     echo "Installing Codex dependency..."
-    npm install --prefix "$LOCAL_DIR/npm" --no-audit --no-fund --no-save --package-lock=false \
+    npm install --prefix "$RUNTIME_PREFIX" --ignore-scripts --no-audit --no-fund --no-save --package-lock=false \
         "@openai/codex@$PACKAGE_VERSION"
 fi
 

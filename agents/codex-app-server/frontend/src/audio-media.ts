@@ -34,9 +34,9 @@ export class MicrophoneCapture {
     this.context = new AudioContext({ sampleRate: INPUT_RATE });
     void this.context.resume();
   }
-  async start(receive: (samples: Float32Array) => void) {
+  async start(receive: (samples: Float32Array) => void, deviceId = "") {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
       if (this.closed) { this.stream.getTracks().forEach((t) => t.stop()); return false; }
       await this.context.audioWorklet.addModule("/audio-capture-worklet.js");
       if (this.closed) return false;

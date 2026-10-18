@@ -54,6 +54,9 @@ def build_host(config, *, development=False):
             host.bindings['effective_config_sha256'] = manifest['effective_config_sha256']
         if digest(observed) != manifest["effective_config_sha256"]:
             raise GateError("effective runtime config or config sources changed")
+        if development:
+            from .runtime_upgrade import migrate_source_sessions
+            await asyncio.to_thread(migrate_source_sessions, config, store, host.bindings)
         return client
 
     async def check_admission():

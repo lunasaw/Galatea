@@ -7,6 +7,11 @@ SECRET = re.compile(r'password|secret|api.?key|authorization|cookie|credential|p
 PRIVATE = {'systeminstructions', 'developerinstructions', 'baseinstructions', 'instructions',
            'systemprompt', 'developerprompt', 'reasoning', 'privatereasoning',
            'testsample', 'testlabel', 'rawlog', 'artifactcontent', 'signedurl'}
+PUBLIC_CREDENTIAL_STORE_MODES = {
+    'cli_auth_credentials_store': {'file', 'keyring', 'auto', 'ephemeral'},
+    'cliAuthCredentialsStore': {'file', 'keyring', 'auto', 'ephemeral'},
+    'mcp_oauth_credentials_store': {'file', 'keyring', 'auto'},
+}
 
 
 def redact(value, *, method=None):
@@ -21,8 +26,23 @@ def redact(value, *, method=None):
                 pointer = path + '/' + key.replace('~', '~0').replace('/', '~1')
                 normalized = re.sub(r'[_-]', '', key).lower()
                 reason = None
-                if SECRET.search(key):
+                # Config origin keys name settings; their values are source
+                # metadata, not those settings' contents. Still walk metadata
+                # recursively so any nested private fields remain protected.
+                config_origin = (method == 'config/read' and path in {'/origins', '/result/origins'}
+                                 and isinstance(child, dict) and isinstance(child.get('name'), dict)
+                                 and isinstance(child['name'].get('type'), str)
+                                 and isinstance(child.get('version'), str))
+                store_mode = (method in {'config/read', 'configRequirements/read'}
+                              and key in PUBLIC_CREDENTIAL_STORE_MODES
+                              and (child is None or isinstance(child, str)
+                                   and child in PUBLIC_CREDENTIAL_STORE_MODES[key]))
+                if config_origin or store_mode:
+                    pass
+                elif SECRET.search(key):
                     reason = 'credential'
+                elif method == 'account/gatewayOAuth/changed' and key == 'authUrl' and child is not None:
+                    reason = 'authorization_handoff'
                 elif method == 'item/tool/requestUserInput' and key == 'answers':
                     reason = 'user_input'
                 elif normalized in PRIVATE or normalized.rstrip('s') in PRIVATE:
@@ -166,10 +186,23 @@ class Projector:
         if method == 'item/plan/delta' and item_id:
             change('steps', f'item:{thread}:{turn}:{item_id}', {**common, 'type': 'plan'},
                    {'text': params['delta']} if isinstance(params.get('delta'), str) else None)
+        if method == 'item/mcpToolCall/progress' and item_id and isinstance(params.get('message'), str):
+            change('steps', f'item:{thread}:{turn}:{item_id}', {**common, 'type': 'mcpToolCall'},
+                   {'text': params['message'] + '\n'})
         if method in {'turn/plan/updated', 'warning', 'error'}:
             key = f'{method}:{turn}:{item_id}'
             values = {**common, 'type': method, 'detail': params}
             change('steps', key, values, {'text': params['delta']} if isinstance(params.get('delta'), str) else None)
+        if method == 'item/fileChange/patchUpdated' and item_id:
+            change('steps', f'item:{thread}:{turn}:{item_id}', {**common, 'type': 'fileChange',
+                   'detail': {'type': 'fileChange', 'id': item_id, 'changes': params.get('changes', [])}})
+        if method == 'turn/diff/updated':
+            change('steps', f'diff:{thread}:{turn}', {**common, 'type': 'turnDiff', 'detail': params})
+        if method in {'guardianWarning', 'autoApprovalReview/strictReviewRequired', 'model/rerouted',
+                      'model/verification', 'modelProvider/authRecoveryStarted', 'modelProvider/authRecoveryCompleted',
+                      'model/safetyBuffering/updated'}:
+            change('steps', 'notice:' + event['event_id'], {**common, 'type': 'warning',
+                   'detail': {'method': method, **params}})
         if method in {'hook/started', 'hook/completed'}:
             run = params.get('run', {})
             change('steps', f"hook:{thread}:{run.get('id', event['event_id'])}",

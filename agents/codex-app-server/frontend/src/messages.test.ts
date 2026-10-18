@@ -64,6 +64,19 @@ test("unknown tool observations never imply successful completion", () => {
   assert.equal(toolState(step({ success: true })), "complete");
 });
 
+test("legacy moderation warning projections stay out of chat while real warnings and errors remain", () => {
+  const snapshot: Snapshot = { epoch: "e", watermark: "e:12", next_page: null, coverage: { status: "complete" },
+    steps: [
+      ...Array.from({ length: 8 }, (_, index) => step({ id: `moderation-${index}`, type: "warning",
+        detail: { method: "turn/moderationMetadata", metadata: { sequence: index } } })),
+      step({ id: "warning", type: "warning", detail: { message: "Action needs attention" } }),
+      step({ id: "guardian", type: "warning", detail: { method: "guardianWarning", message: "Approval unavailable" } }),
+      step({ id: "error", type: "error", detail: { message: "Command failed" } }),
+    ] };
+  assert.deepEqual(toMessages(snapshot).map((message) => message.id), ["warning", "guardian", "error"]);
+  assert.equal(snapshot.steps?.length, 11, "presentation filtering preserves diagnostic history");
+});
+
 const reasoningSnapshot = (steps: Step[], status = "inProgress"): Snapshot => ({
   epoch: "e",
   watermark: "e:30",

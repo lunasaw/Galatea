@@ -2,7 +2,7 @@
 
 本次对照 `codex-webui` 的设计，将扩展管理接入通用 Host 的设置页面。
 Codex 继续负责发现、配置、认证、安装和执行；前端负责列表、筛选、操作与反馈。
-所有请求复用 `/api/native/call`、幂等记录和固定 `0.154.0` JSON Schema 校验。
+所有请求复用 `/api/native/call`、幂等记录和固定 `0.163.0` JSON Schema 校验。
 
 ## 设计对照
 

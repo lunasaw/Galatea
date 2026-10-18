@@ -1,5 +1,11 @@
+import { SessionPanel, sessionPanelNames } from "./session-panels";
+const ModelDefaults = deferred(() => import("./model-settings").then(m => ({ default: m.ModelDefaults })));
+import { NativeNoticeCenter } from "./native-notice-center";
+const AccountManagement = deferred(() => import("./account-management").then(m => ({ default: m.AccountManagement })));
+const AdvancedNativeSettings = deferred(() => import("./advanced-native-settings").then(m => ({ default: m.AdvancedNativeSettings })));
 import { deferred } from "./deferred";
 const RuntimeSettings = deferred(() => import("./runtime-settings").then(m => ({ default: m.RuntimeSettings })));
+const ConfigurationSettings = deferred(() => import("./configuration-settings").then(m => ({ default: m.ConfigurationSettings })));
 const VoiceSettings = deferred(() => import("./voice-settings").then(m => ({ default: m.VoiceSettings })));
 const AccountUsage = deferred(() => import("./account-usage").then(m => ({ default: m.AccountUsage })));
 import "./csp-config";
@@ -8,7 +14,7 @@ import {
   ThreadActionDialog,
   type ThreadAction,
 } from "./thread-actions";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { BRAND_NAME } from "./brand";
 import {
@@ -38,6 +44,7 @@ import {
   PanelRight,
   Info,
   FileDiff,
+  ListChecks,
   Home,
   Search,
   Target,
@@ -54,6 +61,8 @@ import {
 } from "./components/ui/dialog";
 import { openSettings } from "./chat-controls";
 import { ChatSearch } from "./chat-search";
+import { ReviewPicker } from "./review-picker";
+import { useThreadExport } from "./thread-export-menu";
 import { attachments, nativeParts } from "./composer-input";
 import { Thread } from "./components/assistant-ui/elements/thread.aui";
 import { ThreadListSidebar } from "./components/assistant-ui/elements/threadlist-sidebar.aui";
@@ -73,7 +82,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "./components/ui/dropdown-menu";
-import { Capabilities, Execution, NativeEvents } from "./inspector";
+import { Capabilities } from "./inspector";
 import {
   NativeControl,
   NativeRequests,
@@ -93,6 +102,8 @@ import { BottomPanel, WorkbenchPanel, type WorkbenchTab } from "./workbench";
 import "./style.css";
 import "./workbench.css";
 import "./desktop.css";
+import "./settings-shell.css";
+import "./settings-content.css";
 
 const suggestions = [
   {
@@ -112,7 +123,10 @@ const suggestions = [
   },
 ];
 const settingsSections = [
-  { id: "settings", label: "模型与权限", icon: Settings2 },
+  { id: "configuration", label: "配置", icon: Settings2 },
+  { id: "defaults", label: "模型与实验功能", icon: Settings2 },
+  { id: "account", label: "账户与登录", icon: Info },
+  { id: "advanced", label: "高级原生能力", icon: Wrench },
   { id: "usage", label: "使用情况和计费", icon: Info },
   { id: "skills", label: "Skills", icon: BookOpen },
   { id: "mcp", label: "MCP", icon: Wrench },
@@ -126,21 +140,28 @@ const settingsSections = [
   { id: "import", label: "导入外部配置", icon: Folder },
   { id: "windows", label: "Windows sandbox", icon: Settings2 },
   { id: "diagnostics", label: "诊断与反馈", icon: Info },
-  { id: "terminal", label: "终端", icon: Terminal },
   { id: "help", label: "快捷命令", icon: CircleHelp },
   { id: "capabilities", label: "能力", icon: Wrench },
-  { id: "loop", label: "执行流程", icon: Workflow },
-  { id: "native", label: "原生事件", icon: Code2 },
   { id: "protocol", label: "开发者工具", icon: Code2 },
 ];
 const threadComponents = { ToolFallback: CodexToolFallback };
+const settingsGroups = [
+  { label: "偏好设置", ids: ["configuration", "defaults", "account", "usage", "voice"] },
+  { label: "扩展与连接", ids: ["skills", "mcp", "apps", "plugins", "memory", "hooks"] },
+  { label: "高级", ids: ["remote", "environments", "import", "windows", "advanced", "diagnostics", "help", "capabilities", "protocol"] },
+];
 
 function Workspace() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { isMobile, setOpenMobile, state: sidebarState } = useSidebar();
   const [panel, setPanel] = useState("");
+  const [sessionPanel, setSessionPanel] = useState("");
+  useEffect(() => setSessionPanel(""), [state.active]);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  useEffect(() => setReviewOpen(false), [state.active]);
   const [settingsSearch, setSettingsSearch] = useState("");
+  const settingsDialogRef = useRef<HTMLDivElement>(null);
   const [sidePanel, setSidePanel] = useState<WorkbenchTab | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
@@ -169,6 +190,7 @@ function Workspace() {
     localStorage.getItem("codex-agent.theme") || "light",
   );
   const session = state.sessions.find((s) => s.id === state.active);
+  const threadExport = useThreadExport(session, !state.loading && !state.sessionRefreshing && !!state.snapshot);
   const messages = useMemo(
     () => toConversationMessages(state.snapshot),
     [state.snapshot],
@@ -272,7 +294,7 @@ function Workspace() {
   }, [runtime]);
   const nativeAction = async (action: string) => {
     if (!session?.thread_id) return;
-    if (action === "review") { setPanel(""); setSidePanel("codeReview"); return; }
+    if (action === "review") { setPanel(""); setReviewOpen(true); return; }
     if (["fork", "archive", "delete", "undo", "rollback"].includes(action)) {
       requestThreadAction({
         action: action as ThreadAction,
@@ -284,14 +306,10 @@ function Workspace() {
       const method = (
         {
           compact: "thread/compact/start",
-          review: "review/start",
         } as Record<string, string>
       )[action];
       const result = await native(method, {
         threadId: session.thread_id,
-        ...(action === "review"
-          ? { target: { type: "uncommittedChanges" }, delivery: "inline" }
-          : {}),
       });
       await store.refreshSessions();
       if (result.session) await store.select(result.session.id);
@@ -302,7 +320,11 @@ function Workspace() {
   };
   useEffect(() => {
     const panel = (event: Event) => {
-      const name = (event as CustomEvent).detail;
+      const name = (event as CustomEvent).detail as string;
+      setSessionPanel("");
+      if (name === "status") { setPanel(""); window.dispatchEvent(new Event("codex-status")); return; }
+      const sessionTab = name.startsWith("session:") ? name.slice(8) : ["settings", "resources", "loop", "native", "feedback"].includes(name) ? name : "";
+      if (sessionTab && sessionPanelNames[sessionTab]) { setPanel(""); setSessionPanel(sessionTab); if (isMobile) setOpenMobile(false); return; }
       if (name === "search") { setPanel(""); setSearchOpen(true); return; }
       if (name === "model" || name === "reasoning") {
         setPanel(""); window.dispatchEvent(new Event("codex-model")); return;
@@ -322,7 +344,8 @@ function Workspace() {
         return;
       }
       if (name === "background") { setPanel(""); setSidePanel("background"); return; }
-      if (name === "review") { setPanel(""); setSidePanel("codeReview"); return; }
+      if (name === "review") { setPanel(""); setReviewOpen(true); if (isMobile) setOpenMobile(false); return; }
+      if (name === "approvals") { setPanel(""); setSidePanel("approvals"); return; }
       if (name === "agents") { setPanel(""); setSidePanel("agents"); return; }
       if (name === "terminal") {
         showTerminal(true);
@@ -335,9 +358,7 @@ function Workspace() {
             model: "settings",
             permissions: "settings",
             plan: "settings",
-            status: "loop",
             resume: "history",
-            feedback: "diagnostics",
           } as Record<string, string>
         )[name] || name,
       );
@@ -384,7 +405,7 @@ function Workspace() {
         <div className="desktop-rail-spacer" />
         <TooltipIconButton tooltip="打开设置" onClick={() => openSettings()}><Settings2 /></TooltipIconButton>
       </nav>
-      <div className="chat-surface" hidden={!!panel}>
+      <div className="chat-surface" hidden={panel === "history"}>
       <ThreadListSidebar
         headerActions={<TooltipIconButton tooltip="搜索聊天" onClick={() => openSettings("search")}><Search /></TooltipIconButton>}
         navigation={
@@ -515,16 +536,24 @@ function Workspace() {
                   <MoreHorizontal />
                 </TooltipIconButton>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className="thread-actions-menu" collisionPadding={8}
+                onCloseAutoFocus={(event) => {
+                  if (reviewOpen) {
+                    event.preventDefault();
+                    requestAnimationFrame(() => document.querySelector<HTMLElement>('.review-picker [role="listbox"]')?.focus());
+                  }
+                }}>
+                {threadExport.menu}
                 <DropdownMenuItem onSelect={() => openSettings("background")}><Terminal />Agent 后台终端</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => openSettings("review")}><FileDiff />代码审查与审批记录</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => openSettings("review")}><FileDiff />审查更改</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => openSettings("approvals")}><ListChecks />审批记录</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => openSettings("agents")}><Workflow />子 Agent</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => window.dispatchEvent(new CustomEvent("codex-voice", { detail: "history" }))}><History />语音记录</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setPanel("loop")}>
+                <DropdownMenuItem onSelect={() => openSettings("session:loop")}>
                   <Workflow />
                   执行流程
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setPanel("native")}>
+                <DropdownMenuItem onSelect={() => openSettings("session:native")}>
                   <Code2 />
                   原生事件
                 </DropdownMenuItem>
@@ -574,6 +603,7 @@ function Workspace() {
             </DropdownMenu>
           )}
         </header>
+        {threadExport.status}
         <div className="workbench-body">
           <div className="workbench-chat-column">
             <div className="shrink-0 space-y-1 px-4 text-xs">
@@ -592,6 +622,7 @@ function Workspace() {
                   </TooltipIconButton>
                 </div>
               )}
+              <NativeNoticeCenter state={state} />
               {state.streamError && (
                 <p role="status" className="p-2">
                   {state.streamError}
@@ -704,7 +735,7 @@ function Workspace() {
             )}
           </div>
           <WorkbenchPanel
-            tab={panel ? null : sidePanel}
+            tab={panel || sessionPanel ? null : sidePanel}
             state={state}
             mobile={isMobile}
             onTab={setSidePanel}
@@ -717,34 +748,51 @@ function Workspace() {
         <header><h1>会话历史</h1><Button variant="ghost" onClick={() => setPanel("")}><ArrowLeft />返回聊天</Button></header>
         <ConversationHistory state={state} onOpen={() => setPanel("")} />
       </section>}
-      {!!panel && panel !== "history" && <section className="settings-page" aria-label="设置">
+      <Dialog open={!!panel && panel !== "history"} onOpenChange={(open) => { if (!open) setPanel(""); }}>
+        <DialogContent
+          ref={settingsDialogRef}
+          className="settings-page"
+          showCloseButton={false}
+          aria-describedby={undefined}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            settingsDialogRef.current?.focus();
+          }}
+        >
+          <header className="settings-page-header">
+            <DialogTitle>设置</DialogTitle>
+            <TooltipIconButton tooltip="返回聊天" onClick={() => setPanel("")}><X /></TooltipIconButton>
+          </header>
           <div className="settings-layout">
             <nav className="settings-navigation" aria-label="设置分类">
-              <div className="settings-page-title"><h1>设置</h1><TooltipIconButton tooltip="返回聊天" onClick={() => setPanel("")}><ArrowLeft /></TooltipIconButton></div>
-              <label className="settings-search"><Search size={15} /><input type="search" aria-label="搜索设置" placeholder="搜索" value={settingsSearch} onChange={(event) => setSettingsSearch(event.target.value)} /></label>
-              {settingsSections.filter((section) =>
-                (section.id !== "windows" || state.nativeProtocol?.platform?.startsWith("win")) &&
-                section.label.toLowerCase().includes(settingsSearch.toLowerCase())
-              ).map(({ id, label, icon: Icon }) => (
-                <button type="button" key={id} data-active={panel === id} onClick={() => setPanel(id)}>
-                  <Icon />{label}
-                </button>
-              ))}
+              <label className="settings-search"><Search size={16} /><input type="search" aria-label="搜索设置" placeholder="搜索设置" value={settingsSearch} onChange={(event) => setSettingsSearch(event.target.value)} /></label>
+              <div className="settings-navigation-groups">
+                {settingsGroups.map((group) => {
+                  const sections = group.ids.flatMap((id) => settingsSections.filter((section) => section.id === id &&
+                    (id !== "windows" || state.nativeProtocol?.platform?.startsWith("win")) &&
+                    section.label.toLowerCase().includes(settingsSearch.trim().toLowerCase())));
+                  return sections.length ? <div className="settings-navigation-group" key={group.label}>
+                    <p>{group.label}</p>
+                    {sections.map(({ id, label, icon: Icon }) => <button type="button" key={id} data-active={panel === id} aria-current={panel === id ? "page" : undefined} onClick={() => setPanel(id)}>
+                      <Icon /><span>{label}</span>
+                    </button>)}
+                  </div> : null;
+                })}
+                {settingsSearch.trim() && !settingsSections.some((section) =>
+                  (section.id !== "windows" || state.nativeProtocol?.platform?.startsWith("win")) && section.label.toLowerCase().includes(settingsSearch.trim().toLowerCase())
+                ) && <p className="settings-search-empty" role="status">没有找到相关设置</p>}
+              </div>
             </nav>
             <div className="settings-body" key={panel}>
-              {panel === "usage" ? <AccountUsage state={state} /> : panel === "voice" ? <VoiceSettings /> : ["memory", "hooks", "remote", "environments", "import", "windows", "diagnostics"].includes(panel) ? (
+              {panel === "account" ? <AccountManagement state={state} /> : panel === "advanced" ? <AdvancedNativeSettings state={state} /> : panel === "defaults" ? <ModelDefaults state={state} /> : panel === "configuration" ? <ConfigurationSettings state={state} /> : panel === "usage" ? <AccountUsage state={state} /> : panel === "voice" ? <VoiceSettings state={state} /> : ["memory", "hooks", "remote", "environments", "import", "windows", "diagnostics"].includes(panel) ? (
                 <RuntimeSettings tab={panel} state={state} />
               ) : panel === "capabilities" ? (
-                <Capabilities state={state} />
-              ) : panel === "loop" ? (
-                <Execution state={state} />
-              ) : panel === "native" ? (
-                <NativeEvents state={state} />
+                <section className="capability-page"><h3>能力</h3><Capabilities state={state} /></section>
               ) : panel === "requests" ? (
                 <NativeRequests state={state} other />
               ) : panel === "help" ? (
-                <div className="command-help">
-                  <h3>在对话中直接操作</h3>
+                <div className="command-help capability-page">
+                  <h3>快捷命令</h3>
                   <p>输入 / 选择命令，可用中文或命令名筛选；↑ ↓ 选择，Enter / Tab 确认，→ 打开子菜单，← / Esc 返回。</p>
                   <dl>
                     {slashCommands.map((command) => (
@@ -767,8 +815,18 @@ function Workspace() {
               )}
             </div>
           </div>
-      </section>}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!sessionPanel} onOpenChange={open => { if (!open) setSessionPanel(""); }}>
+        <DialogContent className="settings-page session-page" showCloseButton={false} aria-describedby={undefined}
+          onOpenAutoFocus={event => { event.preventDefault(); (event.target as HTMLElement).focus(); }}
+          onCloseAutoFocus={event => { event.preventDefault(); document.querySelector<HTMLTextAreaElement>("#text")?.focus(); }}>
+          <header className="settings-page-header"><div><DialogTitle>{sessionPanelNames[sessionPanel]}</DialogTitle><p className="session-scope-label">{session ? `当前聊天 · ${store.title(session.id)}` : "新聊天"}</p></div><TooltipIconButton tooltip="返回聊天" onClick={() => setSessionPanel("")}><X /></TooltipIconButton></header>
+          <div className="settings-body" key={`${state.active}:${sessionPanel}`}><SessionPanel tab={sessionPanel} state={state} /></div>
+        </DialogContent>
+      </Dialog>
       <ChatSearch open={searchOpen} onOpenChange={setSearchOpen} state={state} />
+      {reviewOpen && <ReviewPicker key={state.active || "new"} state={state} onClose={() => setReviewOpen(false)} />}
     </AssistantRuntimeProvider>
   );
 }

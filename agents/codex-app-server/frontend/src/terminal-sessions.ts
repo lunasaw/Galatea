@@ -7,6 +7,7 @@ export type TerminalSession = {
   status: "starting" | "running" | "exited" | "unknown";
   chunks: Uint8Array[]; exitCode?: number; error: string;
   cursor: string; baseline: string; size: { cols: number; rows: number }; capReached: boolean;
+  options?: Obj; advancedRequest?: boolean; tty?: boolean;
 };
 const storageKey = "codex-agent.terminal-handles";
 const listeners = new Set<() => void>();
@@ -14,12 +15,19 @@ let sessions: TerminalSession[] = [];
 let version = 0; let restored = false;
 const emit = () => { version++; listeners.forEach((fn) => fn()); };
 const persist = () => {
-  try { sessionStorage.setItem(storageKey, JSON.stringify(sessions.map(({ chunks, ...row }) => row))); }
+  try { sessionStorage.setItem(storageKey, JSON.stringify(sessions.map(({ chunks, options, ...row }) => row))); }
   catch { /* Output is kept in the native event history; never evict a live handle. */ }
 };
 const requests = new Map<string, () => void>();
-const paramsFor = (row: TerminalSession) => ({ command: row.command, cwd: row.cwd, tty: true,
-  size: { cols: 100, rows: 24 }, outputBytesCap: 2 * 1024 * 1024 });
+const paramsFor = (row: TerminalSession) => {
+  const params: Obj = { tty: true, size: { cols: 100, rows: 24 }, outputBytesCap: 2 * 1024 * 1024,
+    ...row.options, command: row.command, cwd: row.cwd };
+  if (!params.tty) delete params.size;
+  if (params.disableOutputCap) delete params.outputBytesCap;
+  if (row.kind === "command" && !Object.hasOwn(params, "timeoutMs") && !Object.hasOwn(params, "disableTimeout")) params.disableTimeout = true;
+  if (row.kind === "process" && !Object.hasOwn(params, "timeoutMs")) params.timeoutMs = null;
+  return params;
+};
 
 function connect(row: TerminalSession, spawn: boolean) {
   let polling: Promise<void> | undefined; let timer: ReturnType<typeof setTimeout> | undefined;
@@ -50,7 +58,22 @@ function connect(row: TerminalSession, spawn: boolean) {
     }
   })().finally(() => { polling = undefined; });
   const poll = async () => {
-    try { await drain(); failures = 0; }
+    try {
+      await drain(); failures = 0;
+      if (!spawn && row.advancedRequest && row.status !== "exited") {
+        // Recover only the Host receipt; credentials from env overrides never
+        // enter browser storage and a reload cannot submit a new process.
+        const receipt = await api<Obj>("/api/native/receipts/" + encodeURIComponent(row.id));
+        if (receipt.error || receipt.rejected) {
+          row.status = "unknown"; stop(); persist();
+          throw new Error(JSON.stringify(receipt.error || receipt.rejected));
+        }
+        if (receipt.result) {
+          if (row.kind === "command") { await drain(); finish(receipt.result); stop(); }
+          else if (row.status === "starting") { row.status = "running"; persist(); emit(); }
+        }
+      }
+    }
     catch (error) {
       row.error = String(error); failures++;
       if (/EPOCH_MISMATCH|历史不完整/.test(row.error)) { row.status = "unknown"; stop(); persist(); }
@@ -59,17 +82,18 @@ function connect(row: TerminalSession, spawn: boolean) {
     if (!done) timer = setTimeout(poll, Math.min(10000, 250 * 2 ** Math.min(failures, 6)));
   };
   void poll();
+  if (!spawn && row.advancedRequest) { persist(); emit(); return; }
   if (row.kind === "command") {
     if (spawn) row.status = "running";
     // Replaying this exact request after a browser reload only retrieves the
     // Host's durable receipt. It cannot launch the command twice.
-    void native("command/exec", { ...paramsFor(row), processId: row.id, disableTimeout: true }, row.id).then(async (result) => {
+    void native("command/exec", { ...paramsFor(row), processId: row.id }, row.id).then(async (result) => {
       await drain(); await drain(); finish(result);
     }).catch((error) => { row.status = "unknown"; row.error = String(error); persist(); emit(); }).finally(stop);
   } else {
     // Resolve a possibly lost spawn response with the original receipt as well.
     // This also makes a reload during startup recover its running state.
-    void native("process/spawn", { ...paramsFor(row), processHandle: row.id, timeoutMs: null }, row.id).then(() => {
+    void native("process/spawn", { ...paramsFor(row), processHandle: row.id }, row.id).then(() => {
       if (row.status === "starting") row.status = "running"; persist(); emit();
     }).catch((error) => { stop(); row.status = "unknown"; row.error = String(error); persist(); emit(); });
   }
@@ -96,11 +120,12 @@ export const terminals = {
       emit();
     } catch { /* An invalid cache does not create or launch any process. */ }
   },
-  async start(kind: TerminalKind, cwd: string, command: string[]) {
+  async start(kind: TerminalKind, cwd: string, command: string[], options?: Obj) {
     if (!cwd.trim() || !command[0]?.trim()) throw new Error("请输入工作目录和可执行程序");
     const baseline = await api<Obj>("/api/events/history?limit=1");
     const row: TerminalSession = { id: requestKey(), kind, cwd, command, status: "starting", chunks: [], error: "",
-      cursor: baseline.watermark, baseline: baseline.watermark, size: { cols: 100, rows: 24 }, capReached: false };
+      cursor: baseline.watermark, baseline: baseline.watermark, size: { cols: 100, rows: 24 }, capReached: false,
+      options, tty: options?.tty !== false, advancedRequest: !!options && Object.keys(options).length > 0 };
     sessions = [...sessions, row]; connect(row, true); return row.id;
   },
   async input(row: TerminalSession, data: string) {
@@ -109,6 +134,7 @@ export const terminals = {
     });
   },
   async resize(row: TerminalSession, cols: number, rows: number) {
+    if (row.tty === false) return;
     if (row.size.cols === cols && row.size.rows === rows || row.status !== "running") return;
     await native(row.kind === "command" ? "command/exec/resize" : "process/resizePty", {
       [row.kind === "command" ? "processId" : "processHandle"]: row.id, size: { cols, rows },

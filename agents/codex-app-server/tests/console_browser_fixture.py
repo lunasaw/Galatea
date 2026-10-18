@@ -27,6 +27,8 @@ class FixtureNative(NativeBridge):
         if method == 'thread/compact/start': return {}
         if method == 'feedback/upload': return {'threadId': params.get('threadId')}
         if method == 'app/installed': return {'apps': [{'id': 'fixture-app', 'runtimeName': 'Fixture App', 'enabled': True, 'callable': True}]}
+        if method == 'app/list': return {'data': [{'id': 'fixture-app', 'name': 'Fixture App', 'description': 'Fixture Codex connector'}], 'nextCursor': None}
+        if method == 'app/read': return {'apps': [{'id': 'fixture-app', 'name': 'Fixture App', 'description': 'Fixture Codex connector', 'toolSummaries': [{'name': 'lookup', 'title': 'Lookup', 'description': 'Read fixture data', 'isReadOnly': True, 'isEnabled': True}]}], 'missingAppIds': []}
         if method == 'plugin/installed': return {'marketplaces': [{'name': 'fixture', 'plugins': [{'id': 'fixture-plugin@fixture', 'name': 'fixture-plugin', 'installed': True, 'enabled': True}]}], 'marketplaceLoadErrors': []}
         if method == 'thread/realtime/listVoices':
             return {'voices': {'defaultV1': 'alloy', 'defaultV2': 'marin', 'v1': ['alloy', 'ash'], 'v2': ['marin', 'cedar']}}
@@ -36,6 +38,8 @@ class FixtureNative(NativeBridge):
                     'params': {'threadId': params['threadId'], **fields}}, runtime_instance_id='fixture')
             if method.endswith('/start'):
                 emit('started', {'realtimeSessionId': params.get('realtimeSessionId'), 'version': params.get('version', 'v1')})
+                if params.get('transport', {}).get('type') == 'webrtc':
+                    emit('sdp', {'sdp': 'fixture-answer-sdp'})
             elif method.endswith('/appendText') or method.endswith('/appendSpeech'):
                 emit('transcript/delta', {'role': 'assistant', 'delta': '语音回复：'})
                 emit('transcript/done', {'role': 'assistant', 'text': '语音回复：' + params['text']})
@@ -192,7 +196,7 @@ class FixtureNative(NativeBridge):
             return {'data': rows, 'nextCursor': None}
         thread_id = params.get('threadId')
         if method == 'thread/read':
-            return {'thread': {'id': thread_id, 'historyMode': 'legacy', 'projectId': self.host.sessions.get(thread_id, {}).get('settings', {}).get('projectId'), 'section': self.host.thread_sections.get(self.host.sessions.get(thread_id, {}).get('section_id')), 'turns': copy.deepcopy(self.host.turns.get(thread_id, []))}}
+            return {'thread': {'id': thread_id, 'historyMode': 'paginated', 'projectId': self.host.sessions.get(thread_id, {}).get('settings', {}).get('projectId'), 'section': self.host.thread_sections.get(self.host.sessions.get(thread_id, {}).get('section_id')), 'turns': copy.deepcopy(self.host.turns.get(thread_id, []))}}
         if method in {'thread/archive', 'thread/unarchive'}:
             self.host.sessions[thread_id]['archived'] = method == 'thread/archive'
             return {}
@@ -210,11 +214,23 @@ class FixtureNative(NativeBridge):
             self.host.turns[session['id']] = turns
             self.host.restore_thread(session['id'])
             return {'session': session}
-        if method == 'thread/rollback':
-            self.host.turns[thread_id] = self.host.turns.get(thread_id, [])[:-params['numTurns']]
+        if method == 'thread/revert':
+            turns = self.host.turns.get(thread_id, [])
+            index = next(i for i, turn in enumerate(turns) if turn['id'] == params['beforeTurnId'])
+            self.host.turns[thread_id] = turns[:index]
             self.host.restore_thread(thread_id)
             return {'thread': {'id': thread_id, 'turns': self.host.turns[thread_id]}}
         if method == 'command/exec':
+            if params.get('command', [None])[0] == 'git':
+                output = {
+                    'for-each-ref': 'develop\nfeature/review\nmain\n',
+                    'branch': 'feature/review\n',
+                    'rev-parse': 'a' * 40 + '\n',
+                    'log': 'a' * 40 + '\0Fix review keyboard navigation\n' + 'b' * 40 + '\0支持中文提交标题\n',
+                }.get(params['command'][1])
+                if output is None:
+                    raise ValueError('unexpected Git fixture command')
+                return {'stdout': output, 'stderr': '', 'exitCode': 0}
             return {'stdout': 'fixture-command-output', 'stderr': '', 'exitCode': 0}
         if method == 'fs/readDirectory':
             return {'entries': [{'fileName': 'src', 'isDirectory': True, 'isFile': False},
@@ -311,6 +327,10 @@ class BrowserHost(test_console.FakeHost):
             self.events.observer('runtime_to_host', {'method': method, 'params': {'threadId': session_id, 'turnId': turn, **params}}, runtime_instance_id='browser-fixture')
         self.events.bind(session_id, session_id)
         wire('turn/started', {'turn': {'id': turn, 'status': 'inProgress'}})
+        if text == 'moderation-notice-fixture':
+            wire('guardianWarning', {'message': 'fixture approval warning'})
+            for index in range(8):
+                wire('turn/moderationMetadata', {'metadata': {'sequence': index}})
         wire('item/started', {'item': {'id': 'reasoning', 'type': 'reasoning', 'summary': [], 'content': []}})
         wire('item/reasoning/summaryTextDelta', {'itemId': 'reasoning', 'summaryIndex': 0, 'delta': '先检查当前可用能力。'})
         await asyncio.sleep(1.2)

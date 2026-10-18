@@ -27,7 +27,7 @@ python -m pip install -e '.[test]'
 codex-agent --config /absolute/path/agent.json serve --dev
 ```
 
-参考 [agent.example.json](config/agent.example.json) 和 [配置与部署](docs/06-config-deployment.md)。原生配置中的模型、权限和 MCP 继续由 Codex 管理，固定协议版本为 **0.154.0**。
+参考 [agent.example.json](config/agent.example.json) 和 [配置与部署](docs/06-config-deployment.md)。原生配置中的模型、权限和 MCP 继续由 Codex 管理，固定协议版本为 **0.163.0**。
 
 ## 接入能力
 
@@ -44,7 +44,7 @@ codex-agent --config /absolute/path/agent.json serve --dev
   "skills": {"roots": ["/absolute/path/skills"]},
   "codex": {
     "binary": "/absolute/path/runtime/bin/codex",
-    "runtime_version": "codex-cli 0.154.0",
+    "runtime_version": "codex-cli 0.163.0",
     "inherit_env": ["EXAMPLE_SERVICE_TOKEN"]
   },
   "tools": {
@@ -88,9 +88,18 @@ codex-agent --config /absolute/path/agent.json serve --dev
 待发送消息以窄条贴在主输入框上方，显示预览和删除按钮，点击消息可编辑，更多菜单可排序或立即发送。
 运行中 Enter 补充当前回复（steer），Tab 将内容加入队列；也可点击输入框内的队列按钮。
 快捷键沿用仓库原生 CLI 默认绑定，Skill 和斜杠菜单补全优先；队列由原生运行时在聊天空闲时依次发送。
-目标卡片在输入框上方，文件、代码审查、审批记录、后台终端和子 Agent 在聊天右侧。
+目标卡片在输入框上方，文件、审批记录、后台终端和子 Agent 在聊天右侧。
+`/review` 或「… → 审查更改」打开 CLI 风格的审查选择器：与基准分支比较、未提交更改、指定提交、自定义要求。
+支持 ↑/↓、Enter 和 Esc；分支可搜索，提交显示最近 100 条并支持标题或完整 SHA 搜索，可选择当前聊天或原生 detached 独立审查聊天。
 麦克风录音作为音频附件，蓝色语音按钮启动原生实时对话。终端提供沙箱命令与主机进程两个标签。
 完整功能位置、原生接口与验收边界见 [Web 能力对齐](docs/17-web-capability-parity.md)。
+设置现含全部 103 个原生配置域、账户与登录、聊天资源及高级原生参数；
+逐项能力清单、配置集上游限制和验证结果见 [原生能力补齐与验收](docs/20-native-capability-completion.md)。
+
+聊天右上角「… → 复制」提供深度链接、整段会话 Markdown 和工作目录复制；「导出 Markdown」
+将同一份会话内容下载为 `.md` 文件。导出会读取当前 Host 的全部历史分页，保留 Markdown 原文、
+公开思考摘要、工具记录与附件引用；附件二进制不打包。回复仍在进行或部分历史不可用时，文件中会注明。
+深度链接打开同一 Host 上的指定会话，仍需要原有访问权限。
 
 ## 验证
 

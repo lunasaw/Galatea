@@ -606,9 +606,6 @@ function ProtocolExplorer({ state }: { state: ConsoleState }) {
       protocol?.params[name] || {},
       protocol?.definitions || {},
     ) as Obj;
-    if (value && "threadId" in value)
-      value.threadId =
-        state.sessions.find((s) => s.id === state.active)?.thread_id || "";
     setParams(json(value));
   };
   return (
@@ -696,7 +693,7 @@ export function NativeControl({
       ) : tab === "files" ? (
         <FileCapabilities />
       ) : tab === "protocol" ? (
-        <ProtocolExplorer state={state} />
+        <section className="capability-page"><h3>开发者工具</h3><ProtocolExplorer state={state} /></section>
       ) : tab === "skills" ? (
         <SkillsPanel state={state} />
       ) : tab === "mcp" ? (

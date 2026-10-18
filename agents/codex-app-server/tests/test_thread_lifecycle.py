@@ -28,7 +28,7 @@ class ThreadLifecycleTests(unittest.IsolatedAsyncioTestCase):
             package = Path(os.environ['CODEX_TEST_RUNTIME_PACKAGE'])
             config = AgentConfig.from_dict({'schema_version': 'codex-agent/v2',
                 'paths': {'codex_home': 'home', 'runtime_dir': str(package), 'state_dir': 'state', 'workspace_dir': 'workspace'},
-                'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.154.0'}}, root)
+                'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.163.0'}}, root)
             host, _ = build_host(config, development=True)
             async def send(session_id, key):
                 await host.send_message(session_id, key, key)
@@ -53,12 +53,17 @@ class ThreadLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 await host.events.flush()
                 snapshot = await host.events.snapshot(SnapshotQuery(fork_session['id']))
                 self.assertEqual([m['text'] for m in snapshot['messages'] if m['role'] == 'user'], ['prompt-0', 'prompt-1'])
-                method, params = ('thread/revert', {'threadId': tid, 'beforeTurnId': turn_ids[1]}) if mode == 'paginated' else ('thread/rollback', {'threadId': tid, 'numTurns': 2})
-                await host.native.call(method, params, 'revert-1')
+                params = {'threadId': tid, 'beforeTurnId': turn_ids[1]}
+                if mode == 'paginated':
+                    await host.native.call('thread/revert', params, 'revert-1')
+                else:
+                    with self.assertRaisesRegex(RpcError, 'only supports paginated'):
+                        await host.native.call('thread/revert', params, 'revert-legacy')
                 await host.events.flush()
                 snapshot = await host.events.snapshot(SnapshotQuery('original'))
-                self.assertEqual([m['text'] for m in snapshot['messages'] if m['role'] == 'user'], ['prompt-0'])
-                self.assertEqual(len((await host.client.read_thread(tid))['thread']['turns']), 1)
+                expected = ['prompt-0'] if mode == 'paginated' else ['prompt-0', 'prompt-1', 'prompt-2']
+                self.assertEqual([m['text'] for m in snapshot['messages'] if m['role'] == 'user'], expected)
+                self.assertEqual(len((await host.client.read_thread(tid))['thread']['turns']), len(expected))
                 await send('original', 'after-rollback')
                 await host.native.call('thread/archive', {'threadId': tid}, 'archive-1')
                 self.assertTrue(host.get_session('original')['archived'])

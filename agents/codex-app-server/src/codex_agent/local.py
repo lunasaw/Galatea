@@ -11,6 +11,7 @@ import tomllib
 
 from .catalog import digest
 from .stage0 import GateError, file_sha256
+from .runtime_version import VERSION, RUNTIME_VERSION, PROTOCOL_PATH
 
 
 def toml_value(value):
@@ -25,15 +26,15 @@ def toml_value(value):
 
 def source_manifest(config):
     version = subprocess.check_output([str(config.binary), '--version'], text=True, timeout=15).strip()
-    if version != config.runtime_version or version != 'codex-cli 0.154.0':
-        raise GateError('runtime must match the supported Codex 0.154.0 protocol')
+    if version != config.runtime_version or version != RUNTIME_VERSION:
+        raise GateError(f'runtime must match the supported Codex {VERSION} protocol')
     catalog = config.catalog()
     catalog.dynamic_tools(config.actions)
     from .release import extension_manifest
     return {
         'extensions_sha256': extension_manifest(config),
         'runtime_binary_sha256': file_sha256(config.binary),
-        'runtime_compatibility_sha256': digest({'protocol': file_sha256(Path(__file__).parent / 'protocol/0.154.0.json'), 'catalog': catalog.digest}),
+        'runtime_compatibility_sha256': digest({'protocol': file_sha256(PROTOCOL_PATH), 'catalog': catalog.digest}),
         'effective_config_sha256': '',
         'agent_config_sha256': digest(config.raw),
         'codex_config_sha256': file_sha256(config.codex_home / 'config.toml'),
@@ -41,6 +42,9 @@ def source_manifest(config):
 
 
 def prepare(project: Path, binary: Path):
+    version = subprocess.check_output([str(binary), '--version'], text=True, timeout=15).strip()
+    if version != RUNTIME_VERSION:
+        raise GateError(f'runtime must match the supported Codex {VERSION} protocol')
     directory = project / '.local'
     directory.mkdir(exist_ok=True, mode=0o700)
     path = directory / 'agent.json'
@@ -106,9 +110,20 @@ def prepare(project: Path, binary: Path):
     raw = json.loads(path.read_text())
     from .config import AgentConfig
     AgentConfig.from_dict(raw, directory)
+    previous = json.loads(path.read_text())
+    raw['paths']['runtime_dir'] = str(binary.parent.parent)
+    raw['codex'].update(binary=str(binary), runtime_version=RUNTIME_VERSION)
     if key_file.exists():
         raw['codex']['model_api_key_file'] = str(key_file)
-        path.write_text(json.dumps(raw, indent=2) + '\n')
+    if raw != previous:
+        backup = directory / f'agent.before-runtime-{VERSION}.json'
+        if not backup.exists():
+            backup.write_text(json.dumps(previous, indent=2) + '\n')
+            backup.chmod(0o600)
+        temporary = path.with_suffix('.json.tmp')
+        temporary.write_text(json.dumps(raw, indent=2) + '\n')
+        temporary.chmod(0o600)
+        temporary.replace(path)
     if not auth_file.exists() and not raw['codex'].get('model_api_key_file'):
         raise SystemExit('Set OPENAI_API_KEY, or log in with Codex, then run start.sh again.')
 

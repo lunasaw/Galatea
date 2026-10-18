@@ -1,6 +1,7 @@
 """Ordered observation writer and queries, independent of execution state."""
 import asyncio
 import uuid
+from ..runtime_version import RUNTIME_VERSION
 
 from .adapters.memory import MemoryConsoleObservationStore
 from .correlation import Correlator
@@ -15,7 +16,7 @@ CAPABILITIES = {
     'storage': {'backend': 'memory', 'retention': 'process_lifetime'},
     'skill_integration': True, 'inference_endpoint': False, 'native_codex_comparison': 'versioned_protocol',
     'principal_scope': 'host_configured', 'network_access': 'trusted_network_required', 'interactive_requests': True,
-    'conversation_storage': 'native_rollout', 'native_protocol_version': 'codex-cli 0.154.0',
+    'conversation_storage': 'native_rollout', 'native_protocol_version': RUNTIME_VERSION,
 }
 
 

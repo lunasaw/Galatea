@@ -1,9 +1,12 @@
 # Web 能力对齐
 
-2026-10-16。基线为实际 `codex-cli 0.154.0` 二进制生成的 experimental JSON Schema，
-共 159 个客户端方法（含 Host 管理的 initialize），158 个方法由 Host 对外提供。
+2026-10-17。基线为实际 `codex-cli 0.163.0` 二进制生成的 experimental JSON Schema，
+共 172 个客户端方法（含 Host 管理的 initialize），171 个方法由 Host 对外提供。
 用户提供的官方 Desktop 截图是布局和交互依据；方法存在不等于账号、功能开关和平台条件已满足。
 开发者工具仅用于诊断，不计为专用功能页面。
+
+2026-10-17 完整补齐后的逐方法/设置清单和验收见
+[原生能力补齐与验收](20-native-capability-completion.md)。历史验收记录保留当时部署状态。
 
 ## 功能位置与实现
 
@@ -23,11 +26,14 @@
 | 左侧项目 | 项目 CRUD、多个根目录及排序、分组、移动聊天 | `project/*`、`thread/metadata/update`、创建时 `projectId`；首个根目录为新聊天默认目录 |
 | 左侧非项目分组 | 创建、重命名、删除及移动聊天 | `threadSection/*`、`thread/section/move`；与项目分组并存 |
 | 右侧文件 | 目录/文件预览、UTF-8 编辑、复制、删除、监听 | `fs/*`；保留 BOM，二进制禁用文本编辑，保存前核对外部变化，删除显式确认 |
-| 右侧审查 | 未提交、基准分支、提交、自定义要求；新聊天审查 | `review/start`；新聊天审查使用 `thread/start` + inline review，遵循原生推荐流程 |
+| 手动代码审查 | CLI 风格的四项选择器；基准分支、未提交更改、指定提交、自定义要求；键盘导航、搜索与逐级返回；当前/独立聊天 | `command/exec` 只读查询本地分支和最近 100 条提交；`review/start` inline/detached（后者原生已弃用） |
 | 右侧审批 | 命令/文件/权限审批记录、Guardian 状态及批准一次重试 | 原生双向事件关联，`thread/approveGuardianDeniedAction`；响应不确定时保留请求身份 |
 | 右侧 Agent | 当前聊天的子 Agent、后台终端查看/停止/清理 | `thread/list.ancestorThreadId`、`thread/backgroundTerminals/*` |
 | 底部终端、设置同一分类 | 沙箱命令 / 主机进程标签，PTY、输入、尺寸、停止、多标签 | `command/exec*` / `process/*`；后者按原生语义不经过 Codex sandbox；恢复复用原请求和进程身份 |
-| 设置：模型与权限 | 当前轮次 / 后续回复、服务等级、风格、摘要、权限配置、约束、协作模式、实验功能、服务商能力 | `turn/settings/update`、`thread/settings/update`、`permissionProfile/list`、`configRequirements/read` 等；保留未知权限设置 |
+| 设置：配置 | 常用默认字段与全部 103 个原生配置域；嵌套对象、命名权限继承/路径/网络、服务商全部字段、扩展策略与隐私；配置来源与文件预览 | `config/read`、`configRequirements/read`、`config/batchWrite`；用户层版本化叶字段写入与冲突草稿；2 个旧 profile 项仅查看/删除 |
+| 设置：账户与登录 | ChatGPT/设备码/API Key/Bedrock、Gateway OAuth、取消/退出、额度与工作区消息、显式 credits/提醒邮件 | `account/*`；内部 token 分支不开放；真实账号服务需独立环境验收 |
+| 设置：聊天资源、高级原生能力 | attachment/owner、已读版本、预测与聊天 Shell；高级创建/恢复/轮次/结构化输出/环境参数、插件共享更新和 rollout 压缩 | `thread/attachment*`、`thread/readState/update` 等；Host 管理身份和 dynamicTools，保留原生权限及接纳约束 |
+| 设置：模型与权限 | 当前轮次 / 后续回复、服务等级、摘要、权限配置、约束、协作模式、实验功能、服务商能力 | `turn/settings/update`、`thread/settings/update`、`permissionProfile/list`、`configRequirements/read` 等；保留未知权限设置，隐藏原生已弃用的风格设置 |
 | 设置：Memory、Hooks | 会话 Memory 模式、重置；Hooks 清单、来源和执行记录 | `thread/memoryMode/set`、`memory/reset`、`hooks/list`；不推导不存在的 Hooks CRUD |
 | 设置：Apps、插件、Skills | Apps 详情/已安装，插件原生搜索/安装/同步/共享/市场，Skills 扩展根目录 | `app/list|read|installed`、`plugin/*`、`marketplace/*`、`skills/*`；扩展根在 Host 重启后保留 |
 | 设置：MCP | 状态、授权、工具表单、资源读取、事件订阅/停止 | `mcpServer*`；嵌入视图使用官方 MCP Apps AppBridge、隔离 iframe、CSP、作用域工具和修改操作确认 |
@@ -42,15 +48,17 @@
 
 ## 明确边界
 
-- 不新增账号登录和管理页面；使用情况页面只读当前连接提供的账户及额度。当前固定协议没有聊天附件接口，不用聊天快照伪装。
-- `/aside` 尚缺少临时侧边聊天的生命周期管理，`/share` 缺少聊天快照分享服务；入口展示明确禁用原因，不创建持久分支或虚构分享链接。
+- 原生配置写入仅支持用户层；项目、系统和托管层展示值与来源，正式 Release 保持只读。版本冲突保留草稿，重新读取后再修改。
+- 默认配置供新聊天继承；Host 不再强加固定批准策略和沙箱。原生重载只刷新运行时支持的配置（如 MCP/插件），不会把已有聊天的模型和权限全部切换。已有聊天继续使用会话设置接口。
+- 账号与 attachment 已有独立页面；认证、credits 和邮件只在用户显式操作时调用。原生配置集切换在当前 app-server 有上游接口限制，见完整验收文档。
+- `/aside` 不在该 CLI 命令实现中；`/share` 缺少 app-server 快照分享服务；入口展示明确禁用原因，不创建持久分支或虚构分享链接。
 - `multiAgentMode` 在当前二进制中已弃用/忽略；页面不提供无效开关。只显示模型实际公布的推理强度。
 - 外部 ChatGPT token 刷新与 `attestation/generate` 缺少平台提供方，Host 返回不支持，不弹出凭据 JSON 表单。
 - 当前原生构建的用户验证接口返回 `providerUnavailable`；设置页和高级协议工具不展示用户验证操作。原生提供方可用后再按运行时能力开放。
 - 远程配对、共享插件、Apps 授权、实时模型语音、Windows 安装依赖实际服务或平台。
   已实现界面与原生调用，浏览器模拟验收不能证明对应外部环境可用。
-- 麦克风需要 HTTPS 或 localhost 以及浏览器许可。录音使用 WAV；实时对话使用原生 websocket transport，
-  Web Host 负责浏览器设备采集和播放。未用付费语音服务做实测。
+- 麦克风需要 HTTPS 或 localhost 以及浏览器许可。录音使用 WAV；实时对话支持原生 WebSocket/WebRTC，
+  Web Host 负责浏览器设备选择、采集和播放。未用付费语音服务做实测。
 - 目标及输入队列的自动续跑由原生运行时负责。Host 的显式发起并发限制不替代原生内部调度。
 - 文件保存前比较原文防止已观察到的外部修改；原生 `fs/writeFile` 没有原子比较并交换，不能保证消除极短的并发写入窗口。
 - 普通界面不为 initialize、测试方法、内部订阅和历史分页等编排接口各造一个操作按钮。
@@ -72,6 +80,7 @@
 - `test_skill_mentions_browser.cjs`：`$` 搜索、光标补全、键盘/鼠标、引用去重、原生发送/steer、输入法、失败恢复与手机布局。
 - `test_slash_commands_browser.cjs`：截图命令顺序、中英文筛选、键盘/输入法、子菜单、当前聊天 MCP 状态、上下文窗口占用、用量/反馈、初始化/压缩/指定轮次分支/归档、运行中拦截及深浅色/手机布局。
 - `test_file_editor_browser.cjs`：BOM、外部编辑冲突、草稿、保存、复制、监听清理和删除确认。
+- `test_settings_browser.cjs`：配置保存/重置、版本冲突与草稿、来源与覆盖提示、隐藏字段保留、高级字段、文件预览、推理档位偏好、只读实例和手机/深色布局。
 - `test_voice_browser.cjs`：合成麦克风 WAV、原生语音事件、播放、静音、结束、历史恢复和设备拒绝。
 - `test_terminal_recovery.cjs`：刷新复用进程身份，输出回放、继续输入和停止。
 - `test_mcp_app_browser.cjs`：资源/握手/工具结果、作用域与审批、消息/上下文桥、下载、显示模式、固定与折叠、手机布局、关闭重开。完整边界见 [MCP Apps Host](18-mcp-apps.md)。

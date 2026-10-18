@@ -1,7 +1,9 @@
+import { ComposerContextStatus } from "@/context-status";
 import { MessageTurnActions } from "@/thread-actions";
 import { MessageCopyButton } from "@/message-copy";
 import { BrandIcon } from "@/brand";
 import { NativeMessageExtras, NativeUserInputs } from "@/native-message-extras";
+import { TurnFileChanges } from "@/turn-file-changes";
 // Source: assistant-ui/assistant-ui @ 2bdd534a3d8da45e6c7a9ee6553862b83713059d (MIT). See UPSTREAM.md.
 // Layout, composer and message presentation adapted from the same commit's
 // apps/docs/components/pages/examples/chatgpt.tsx; runtime/grouping remain Thread.
@@ -212,7 +214,7 @@ const ThreadRoot: FC<{
   return (
     <ThreadPrimitive.Root
       data-empty={isEmpty}
-      className="aui-root aui-thread-root bg-background @container flex h-full flex-col"
+      className="aui-root aui-thread-root bg-background @container flex h-full min-h-0 flex-col overflow-hidden"
       style={{
         ["--thread-max-width" as string]: "52rem",
         ["--composer-bg" as string]: "var(--composer-background)",
@@ -221,9 +223,9 @@ const ThreadRoot: FC<{
       }}
     >
       <ThreadPrimitive.Viewport
-        turnAnchor="top"
+        turnAnchor="bottom"
         data-slot="aui_thread-viewport"
-        className="relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth"
+        className="relative min-h-0 flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth"
       >
         <div
           className={cn(
@@ -253,7 +255,7 @@ const ThreadRoot: FC<{
 
           <ThreadPrimitive.ViewportFooter
             className={cn(
-              "aui-thread-viewport-footer bg-background relative flex flex-col gap-3 overflow-visible pb-3",
+              "aui-thread-viewport-footer bg-background relative z-20 flex shrink-0 flex-col gap-3 overflow-visible pb-3",
               !isEmpty &&
                 "sticky bottom-0 mt-auto rounded-t-(--composer-radius)",
             )}
@@ -536,6 +538,7 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
           />
           <div className="composer-toolbar">
             <ComposerAddMenu />
+            <ComposerContextStatus />
             <WorkspaceContext />
             <ComposerOptions />
             <VoiceButtons />
@@ -804,6 +807,8 @@ const AssistantMessage: FC = () => {
         <MessageError />
         <NativeMessageExtras />
       </div>
+
+      {meta?.fileChangesTurnId ? <TurnFileChanges /> : null}
 
       {hasText && !activity && (
         <div

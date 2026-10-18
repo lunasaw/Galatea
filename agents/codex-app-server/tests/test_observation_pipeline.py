@@ -12,6 +12,34 @@ from codex_agent.console.projection import redact
 
 
 class RedactionTests(unittest.TestCase):
+    def test_config_sources_and_credential_storage_modes_are_public_but_secrets_are_not(self):
+        origin = {'name': {'type': 'user', 'file': '/fixture/config.toml'}, 'version': 'v1'}
+        config = {'cli_auth_credentials_store': 'file', 'mcp_oauth_credentials_store': 'keyring',
+                  'developer_instructions': 'private-instruction',
+                  'model_providers': {'fixture': {'api_key': 'private-key'}}}
+        source = {'config': config, 'origins': {key: origin for key in config},
+                  'layers': [{'name': origin['name'], 'version': 'v1', 'config': config}]}
+        for envelope in (source, {'result': source}):
+            value, marks = redact(envelope, method='config/read')
+            result = value.get('result', value)
+            self.assertEqual(result['origins'], source['origins'])
+            for public_config in (result['config'], result['layers'][0]['config']):
+                self.assertEqual(public_config['cli_auth_credentials_store'], 'file')
+                self.assertEqual(public_config['mcp_oauth_credentials_store'], 'keyring')
+            self.assertNotIn('private-instruction', json.dumps(value))
+            self.assertNotIn('private-key', json.dumps(value))
+            self.assertEqual(len(marks), 4)
+        requirements = {'requirements': {'cliAuthCredentialsStore': 'ephemeral'}}
+        self.assertEqual(redact(requirements, method='configRequirements/read')[0], requirements)
+        self.assertEqual(redact({'config': {'cli_auth_credentials_store': 'private-value'}}, method='config/read')[0]['config']['cli_auth_credentials_store'], '[redacted:credential]')
+        self.assertEqual(redact({'cli_auth_credentials_store': 'file'})[0]['cli_auth_credentials_store'], '[redacted:credential]')
+        self.assertEqual(redact({'origins': {'api_key': 'private-key'}}, method='config/read')[0]['origins']['api_key'], '[redacted:credential]')
+        nested = {'origins': {'api_key': {**origin, 'credential': 'private-nested'}}}
+        public, marks = redact(nested, method='config/read')
+        self.assertEqual(public['origins']['api_key']['name'], origin['name'])
+        self.assertEqual(public['origins']['api_key']['credential'], '[redacted:credential]')
+        self.assertEqual(marks, [{'path': '/origins/api_key/credential', 'reason': 'credential'}])
+
     def test_tool_schema_role_properties_are_not_message_roles(self):
         schema = {'type': 'object', 'properties': {
             'role': {'type': 'string', 'enum': ['system', 'user']},
@@ -67,6 +95,20 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         await self.service.flush()
         return (await self.service.read_events(EventQuery(limit=1000)))['events']
 
+    async def test_moderation_metadata_is_retained_without_projecting_chat_warnings(self):
+        self.service.bind('s', 'thread')
+        for index in range(8):
+            self.wire({'method': 'turn/moderationMetadata', 'params': {
+                'threadId': 'thread', 'turnId': 'turn', 'metadata': {'sequence': index}}})
+        self.wire({'method': 'warning', 'params': {
+            'threadId': 'thread', 'turnId': 'turn', 'message': 'Action needs attention'}})
+        rows = await self.rows()
+        metadata = [row for row in rows if row['method'] == 'turn/moderationMetadata']
+        self.assertEqual([row['payload']['params']['metadata']['sequence'] for row in metadata], list(range(8)))
+        snapshot = await self.service.snapshot(SnapshotQuery('s'))
+        self.assertEqual(len(snapshot['steps']), 1)
+        self.assertEqual(snapshot['steps'][0]['detail']['message'], 'Action needs attention')
+
     async def test_unknown_messages_and_typed_bidirectional_rpc_ids(self):
         for rpc_id, session in ((0, 'zero'), (1, 'number'), ('1', 'string')):
             self.wire({'id': rpc_id, 'method': 'future/request', 'params': {}}, direction='host_to_runtime', context={'session_id': session})
@@ -83,9 +125,9 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_every_target_server_method_is_captured_without_a_business_whitelist(self):
         expected = []
-        fixture = Path(__file__).parent / 'fixtures/codex-0.154.0/schema'
-        for name in ('ServerNotification', 'ServerRequest'):
-            schema = json.loads((fixture / (name + '.json')).read_text())
+        from codex_agent.native import PROTOCOL
+        for name, key in (('ServerNotification', 'notifications'), ('ServerRequest', 'server')):
+            schema = PROTOCOL.bundle[key]
             for index, variant in enumerate(schema['oneOf']):
                 method = variant['properties']['method']['enum'][0]
                 message = {'method': method, 'params': {}}
@@ -197,6 +239,35 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         await self.rows()
         snapshot = await self.service.snapshot(SnapshotQuery('s'))
         self.assertEqual([step['turn_id'] for step in snapshot['steps']], ['first', 'second'])
+
+    async def test_native_progress_patch_and_diff_keep_item_identity_and_final_results(self):
+        self.service.bind('s', 't')
+        def wire(method, params):
+            self.wire({'method': method, 'params': {'threadId': 't', 'turnId': 'u', **params}})
+        wire('item/started', {'item': {'id': 'mcp', 'type': 'mcpToolCall', 'server': 'fixture',
+             'tool': 'read', 'arguments': {}, 'status': 'inProgress'}})
+        wire('item/mcpToolCall/progress', {'itemId': 'mcp', 'message': 'Reading first page'})
+        wire('item/mcpToolCall/progress', {'itemId': 'mcp', 'message': 'Reading second page'})
+        changes = [{'path': '/fixture/a.txt', 'kind': {'type': 'update'}, 'diff': '+updated'}]
+        wire('item/fileChange/patchUpdated', {'itemId': 'patch', 'changes': changes})
+        wire('turn/diff/updated', {'diff': '+updated'})
+        await self.rows()
+        live = (await self.service.snapshot(SnapshotQuery('s')))['steps']
+        mcp = next(s for s in live if s['type'] == 'mcpToolCall')
+        self.assertEqual(mcp['detail']['server'], 'fixture')
+        self.assertEqual(mcp['text'], 'Reading first page\nReading second page\n')
+        self.assertEqual(next(s for s in live if s['type'] == 'fileChange')['detail']['changes'], changes)
+        self.assertEqual(next(s for s in live if s['type'] == 'turnDiff')['detail']['diff'], '+updated')
+        wire('item/completed', {'item': {'id': 'mcp', 'type': 'mcpToolCall', 'status': 'completed',
+             'server': 'fixture', 'tool': 'read', 'result': {'content': [{'type': 'text', 'text': 'Done'}]}}})
+        await self.rows()
+        final = (await self.service.snapshot(SnapshotQuery('s')))['steps']
+        tools = [s for s in final if s['type'] == 'mcpToolCall']
+        self.assertEqual(len(tools), 1)
+        self.assertEqual(tools[0]['id'], mcp['id'])
+        self.assertEqual(tools[0]['status'], 'completed')
+        self.assertEqual(tools[0]['detail']['result']['content'][0]['text'], 'Done')
+        self.assertEqual(tools[0]['text'], mcp['text'])
 
     async def test_store_failure_keeps_batch_and_later_messages_pending_then_retries_same_batch(self):
         original = self.service.store.commit

@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -85,6 +85,31 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         await self.events.flush()
         snapshot = await self.events.snapshot(SnapshotQuery('session-1'))
         self.assertEqual([m['text'] for m in snapshot['messages']], ['hello'])
+
+    async def test_created_session_exposes_effective_native_defaults(self):
+        self.client.start_thread = AsyncMock(return_value={
+            'thread': {'id': 'inherited'}, 'model': 'native-model', 'reasoningEffort': 'high',
+            'approvalPolicy': 'never', 'sandbox': {'type': 'readOnly', 'networkAccess': False}})
+        session = await self.host.create_session('defaults')
+        self.assertEqual(session['settings']['approvalPolicy'], 'never')
+        self.assertEqual(session['settings']['sandboxPolicy']['type'], 'readOnly')
+        self.assertEqual(session['settings']['model'], 'native-model')
+        self.assertEqual(session['settings']['effort'], 'high')
+        self.assertNotIn('approvalPolicy', self.client.start_thread.call_args.kwargs)
+
+    async def test_native_settings_notification_updates_visible_settings_without_private_instructions(self):
+        session = await self.host.create_session('reload')
+        await self.host.handle_notification({'method': 'thread/settings/updated', 'params': {
+            'threadId': session['thread_id'], 'threadSettings': {
+                'approvalPolicy': 'never', 'sandboxPolicy': {'type': 'readOnly'}, 'summary': 'none',
+                'collaborationMode': {'mode': 'plan', 'settings': {'model': 'native', 'reasoning_effort': 'high',
+                    'developer_instructions': 'private built-in instructions'}},
+                'activePermissionProfile': None}}})
+        current = self.host.get_session('reload')['settings']
+        self.assertEqual(current['approvalPolicy'], 'never')
+        self.assertEqual(current['sandboxPolicy']['type'], 'readOnly')
+        self.assertEqual(current['summary'], 'none')
+        self.assertIsNone(current['collaborationMode']['settings']['developer_instructions'])
 
     async def test_conflicting_request_id_is_rejected(self):
         await self.host.create_session("session-1")

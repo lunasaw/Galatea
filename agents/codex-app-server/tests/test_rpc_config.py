@@ -2,11 +2,12 @@ import asyncio
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import AsyncMock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from codex_agent.config import AgentConfig
-from codex_agent.rpc import JsonRpcPeer, ProtocolError
+from codex_agent.rpc import AppServerClient, JsonRpcPeer, ProtocolError
 
 
 class MemoryWriter:
@@ -21,6 +22,19 @@ class MemoryReader:
 
 
 class RPCConfigTests(unittest.IsolatedAsyncioTestCase):
+    async def test_thread_defaults_are_native_and_explicit_overrides_are_preserved(self):
+        peer = type('Peer', (), {'request': AsyncMock(return_value={})})()
+        client = AppServerClient(peer)
+        client.initialized = True
+        await client.start_thread(cwd='/workspace', dynamic_tools=[])
+        self.assertEqual(peer.request.call_args.args, ('thread/start', {'cwd': '/workspace', 'dynamicTools': []}))
+        await client.start_thread(cwd='/workspace', dynamic_tools=[], approvalPolicy='never', sandbox='read-only')
+        self.assertEqual(peer.request.call_args.args[1]['approvalPolicy'], 'never')
+        self.assertEqual(peer.request.call_args.args[1]['sandbox'], 'read-only')
+        await client.start_thread(cwd='/workspace', dynamic_tools=[], permissions='custom', sandbox='workspace-write')
+        self.assertNotIn('sandbox', peer.request.call_args.args[1])
+        self.assertEqual(peer.request.call_args.args[1]['permissions'], 'custom')
+
     async def test_server_request_is_dispatched_and_response_is_sent(self):
         writer = MemoryWriter()
         async def handler(message):

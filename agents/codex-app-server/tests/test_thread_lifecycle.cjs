@@ -8,9 +8,16 @@ const { chromium } = require('../frontend/node_modules/playwright');
   const errors=[], calls=[];
   page.on('pageerror', e=>errors.push(e.message));
   page.on('request', r=> { if(r.url().endsWith('/api/native/call')) calls.push(r.postDataJSON()); });
+  const base = process.env.CONSOLE_TEST_URL || 'http://127.0.0.1:18883';
+  const projectName = 'Lifecycle-' + Date.now();
+  const created = await page.request.post(base + '/api/native/call', {
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
+    data: { method: 'project/create', params: { idempotencyKey: crypto.randomUUID(), name: projectName, roots: [{ path: '/fixture/lifecycle' }] } },
+  });
+  assert.ok(created.ok(), await created.text());
   await page.goto(process.env.CONSOLE_TEST_URL || 'http://127.0.0.1:18883');
-  await page.waitForFunction(()=>document.body.textContent.includes('fixture-model'));
-  await page.getByRole('button',{name:'新建会话',exact:true}).click();
+  await page.waitForFunction(()=>document.body.textContent.includes('Fixture model'));
+  await page.getByRole('button',{name:'在 ' + projectName + ' 中新建会话',exact:true}).click();
   const send = async text => {
     await page.locator('#text').fill(text); await page.locator('#send').click();
     await page.waitForFunction(()=>!document.querySelector('#interrupt'));
@@ -34,13 +41,14 @@ const { chromium } = require('../frontend/node_modules/playwright');
   // The sidebar action targets the selected row, not whichever chat is open.
   await menu(original,'回退到指定轮次');
   const select=page.getByRole('dialog').getByLabel('回退轮次');
+  await select.locator('option').nth(2).waitFor({state:'attached'});
   const options=await select.locator('option').evaluateAll(nodes=>nodes.map(n=>({value:n.value,text:n.textContent})));
   assert.equal(options.length,3);
   await select.selectOption(options[1].value);
   await page.screenshot({path:'/tmp/codex-thread-rollback.png'});
   await confirm('回退到指定轮次');
   assert.equal(await page.evaluate(()=>localStorage.getItem('codex-agent.active')),fork);
-  assert(calls.some(c=>c.method==='thread/rollback' && c.params.threadId===original && c.params.numTurns===2));
+  assert(calls.some(c=>c.method==='thread/revert' && c.params.threadId===original && c.params.beforeTurnId===options[1].value));
   await row(original).getByRole('button',{name:'lifecycle-one',exact:true}).click();
   await page.waitForFunction(()=>document.querySelectorAll('[data-slot="aui_user-message-root"]').length===1);
   await send('after-rollback');
@@ -48,14 +56,13 @@ const { chromium } = require('../frontend/node_modules/playwright');
   await page.waitForFunction(()=>document.querySelectorAll('[data-slot="aui_user-message-root"]').length===1);
   await menu(original,'归档会话'); await confirm('归档会话');
   await row(original).waitFor({state:'hidden'});
-  await page.getByRole('button',{name:'恢复会话',exact:true}).click();
+  await page.getByRole('button',{name:'会话历史',exact:true}).click();
   await page.getByLabel('已归档',{exact:true}).check();
   const card=page.locator('.native-card').filter({hasText:original});
   await card.getByRole('button',{name:'取消归档',exact:true}).click(); await confirm('取消归档');
+  // Return from the history page before interacting with the sidebar.
+  await page.getByRole('button',{name:'返回聊天',exact:true}).click();
   await row(original).waitFor();
-  // Close history before interacting with sidebar.
-  await page.getByRole('button',{name:'关闭详情',exact:true}).click();
-  await page.locator('.settings-dialog').waitFor({state:'hidden'});
   await menu(fork,'删除会话'); await confirm('删除会话');
   await row(fork).waitFor({state:'hidden'});
   // Removal keeps chats visible under other conversations, including after refresh.
@@ -66,7 +73,7 @@ const { chromium } = require('../frontend/node_modules/playwright');
   await page.locator(`[data-project-id="${pid}"]`).waitFor({state:'hidden'});
   await row(original).waitFor();
   await page.reload();
-  await page.waitForFunction(()=>document.body.textContent.includes('fixture-model'));
+  await page.waitForFunction(()=>document.body.textContent.includes('Fixture model'));
   assert.equal(await page.locator(`[data-project-id="${pid}"]`).count(),0);
   assert.equal(await row(fork).count(),0);
   await row(original).waitFor();

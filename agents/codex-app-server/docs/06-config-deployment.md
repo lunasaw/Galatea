@@ -2,7 +2,7 @@
 
 ## 配置文件
 
-仅支持 [agent.example.json](../config/agent.example.json) 中的 `codex-agent/v2`，不提供旧模式或自动迁移。相对路径以 agent.json 所在目录为基准，禁止 `..` 和符号链接。
+仅支持 [agent.example.json](../config/agent.example.json) 中的 `codex-agent/v2`，不提供旧配置格式的自动迁移。相对路径以 agent.json 所在目录为基准，禁止 `..` 和符号链接。
 
 | 配置 | 用途 |
 | --- | --- |
@@ -23,7 +23,7 @@
 
 ## 本地开发
 
-`sh start.sh` 只安装本项目，不安装业务服务。已有旧配置会明确拒绝；请备份原文件并按 v2 模板新建配置及状态目录。独立配置可直接运行 `codex-agent --config /absolute/path/agent.json serve --dev`，无需 start.sh。
+`sh start.sh` 只安装本项目，不安装业务服务。非 v2 配置会明确拒绝；请备份原文件并按 v2 模板新建配置及状态目录。已有 v2 的 0.154.0 配置会备份并更新运行时路径和版本，保留模型、认证及数据目录。独立配置可直接运行 `codex-agent --config /absolute/path/agent.json serve --dev`，无需 start.sh。
 
 首次 bootstrap 只复制模型连接与认证，不复制个人 MCP、插件或业务配置；这些能力应在该 Host 的 config.toml 中明确指定。
 
@@ -34,3 +34,21 @@
 使用 [systemd 模板](../deploy/codex-agent.service) 或 `render-unit` 为当前路径生成 unit。模板不包含任何业务数据目录；使用单独服务运行 MCP，按需要显式开放子进程的网络和目录权限。
 
 原生编码工具受 systemd 沙箱限制；模板的文件系统写目录为 codex-home、process-home、state 和 workspace，若需要设备或其他执行资源，应按实际部署修改。`0.0.0.0` 需要受控内网或带认证的反向代理。
+
+## 0.163.0 源码运行时升级
+
+版本集中在 `src/codex_agent/runtime_version.py`，`start.sh` 按版本分别安装至
+`.local/npm-<version>`，保留旧二进制。协议使用实际二进制导出：
+
+```sh
+python scripts/export_protocol.py --binary /absolute/path/runtime/bin/codex
+```
+
+切换前应停止活动回复并备份 Codex Home、Host state 和 agent.json。启动时保存
+`agent.before-runtime-0.163.0.json`，只迁移与该旧配置、旧二进制及旧协议摘要匹配、
+身份/工具/扩展不变且无未完成请求或工具操作的会话。迁移仅在开发 Host 生效；
+原会话记录保存到 state/runtime-upgrades/0.163.0/，正式发布仍需重新接纳证据。
+原生历史由新版 Codex 自行读取，不重写对话内容；回滚时应同时恢复备份数据和旧版 Host。
+
+0.163.0 删除 thread/rollback；分页会话使用 thread/revert，legacy 会话可继续、恢复和分叉，
+不支持原地回退。新增协议方法可从通用桥调用，不代表相应外部服务或专用界面已验收。

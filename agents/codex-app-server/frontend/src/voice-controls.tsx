@@ -20,6 +20,7 @@ export function VoiceButtons() {
 
 export function VoiceConversationCard() {
   const aui = useAui(); const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const composer = useRef(aui); composer.current = aui;
   const [kind, setKind] = useState<"record" | "realtime" | "">(""); const [status, setStatus] = useState("");
   const [error, setError] = useState(""); const [seconds, setSeconds] = useState(0); const [muted, setMuted] = useState(false);
   const [text, setText] = useState(""); const [speech, setSpeech] = useState(false); const action = useAction();
@@ -41,7 +42,7 @@ export function VoiceConversationCard() {
       if (save) await capture.flush();
       await capture.close();
       if (save && store.state.active === origin.current && bytes.current > 0 && !store.goalInputMode) {
-        await aui.composer().addAttachment(new File([pcmWav(chunks.current)], `录音-${new Date().toISOString().replaceAll(":", "-")}.wav`, { type: "audio/wav" }));
+        await composer.current.composer().addAttachment(new File([pcmWav(chunks.current)], `录音-${new Date().toISOString().replaceAll(":", "-")}.wav`, { type: "audio/wav" }));
       }
       recording.current = undefined; chunks.current = []; bytes.current = 0;
     }
@@ -89,7 +90,7 @@ export function VoiceConversationCard() {
     const listener = (event: Event) => { void start(event); };
     window.addEventListener("codex-voice", listener);
     return () => { window.removeEventListener("codex-voice", listener); owner.current++; void recording.current?.close(); void realtime.current?.stop().catch(store.fail); };
-  }, [aui]);
+  }, []);
   useEffect(() => {
     if (origin.current === state.active) return;
     const threadId = state.sessions.find((s) => s.id === state.active)?.thread_id;

@@ -46,12 +46,14 @@ function useInventory<T>(load: (fresh: boolean) => Promise<T>, poll = false) {
     void refresh();
     const changed = () => void refresh(true);
     window.addEventListener(changedEvent, changed);
+    window.addEventListener("codex-native-resources-changed", changed);
     const timer = poll ? window.setInterval(() => {
       if (!document.hidden && !inFlight.current) void refresh();
     }, 5000) : undefined;
     return () => {
       sequence.current++;
       window.removeEventListener(changedEvent, changed);
+      window.removeEventListener("codex-native-resources-changed", changed);
       window.clearInterval(timer);
     };
   }, [refresh, poll]);
@@ -85,7 +87,7 @@ function ReadonlyNotice({ editable }: { editable: boolean }) {
   return editable ? null : <p className="integration-muted">当前部署的配置只读；修改扩展需要使用开发 Host。</p>;
 }
 
-export function SkillsPanel({ state }: { state: ConsoleState }) {
+export function SkillsPanel({ state, scope = "global" }: { state: ConsoleState; scope?: "global" | "thread" }) {
   const cwd = store.cwd;
   const load = useCallback((fresh: boolean) => client.skills(cwd, fresh), [cwd]);
   const inventory = useInventory(load);
@@ -98,8 +100,8 @@ export function SkillsPanel({ state }: { state: ConsoleState }) {
     `${skill.name} ${skill.description} ${skill.interface?.displayName || ""}`.toLowerCase().includes(search.toLowerCase()));
   const session = state.sessions.find((session) => session.id === state.active);
   const canUse = !state.global && !state.loading && !state.creating && !state.submitting && !state.settingsBusy && (!session || session.status === "ready");
-  return <div className="native-form integration-panel">
-    <p className="integration-muted">Skills 为 Agent 提供任务流程和知识。选择后可在对话中明确调用。</p>
+  return <div className="native-form integration-panel"><h3>Skills</h3>
+    <p className="integration-muted">{scope === "thread" ? "选择 Skill，在当前聊天中调用。" : "管理 Skills 的可用范围、启用状态和配置来源。"}</p>
     <code className="integration-path">{cwd}</code>
     <div className="integration-toolbar">
       <Search label="搜索 Skills" value={search} onChange={setSearch} />
@@ -117,19 +119,19 @@ export function SkillsPanel({ state }: { state: ConsoleState }) {
       <p>{skill.description}</p><code>{skill.path}</code>
       {skill.pluginId && <small>来自插件 {skill.pluginId}</small>}
       <div className="native-options">
-        <Button disabled={!skill.enabled || !canUse || action.busy} onClick={() => void action.run(async () => {
+        {scope === "thread" && <Button disabled={!skill.enabled || !canUse || action.busy} onClick={() => void action.run(async () => {
           await store.send(`请使用 ${skill.name} 技能。`, [{ type: "skill", name: skill.name, path: skill.path }]);
           if (store.state.error) throw new Error(store.state.error);
           window.dispatchEvent(new CustomEvent("codex-panel", { detail: "" }));
-        })}>在对话中使用</Button>
-        <Button variant="outline" disabled={!editable || action.busy} onClick={() => void action.run(async () => {
+        })}>在对话中使用</Button>}
+        {scope === "global" && <Button variant="outline" disabled={!editable || action.busy} onClick={() => void action.run(async () => {
           const result = await client.setSkill(skill, !skill.enabled);
           action.setStatus(result.effectiveEnabled ? "Skill 已启用" : "Skill 已停用");
           integrationsChanged();
-        })}>{skill.enabled ? "停用" : "启用"}</Button>
+        })}>{skill.enabled ? "停用" : "启用"}</Button>}
       </div>
     </article>)}
-    <SkillRoots state={state} />
+    {scope === "global" && <SkillRoots state={state} />}
     {inventory.data && !filtered.length && <p className="integration-empty">{skills.length ? "没有匹配的 Skills" : "当前目录没有可用 Skills"}</p>}
   </div>;
 }
@@ -182,14 +184,14 @@ function McpRow({ server, threadId, run, busy, refresh }: {
         if (!navigator.clipboard) setCopyStatus("请使用授权链接打开页面");
       }}>复制授权链接</Button><span role="status">{copyStatus}</span>
     </div>}
-    <details><summary>工具与资源</summary>
+    {threadId && <details><summary>工具与资源</summary>
       <McpCapabilities key={`${server.name}:${threadId || "global"}`} server={server} threadId={threadId} />
-    </details>
+    </details>}
   </article>;
 }
 
-export function McpPanel({ state }: { state: ConsoleState }) {
-  const threadId = state.sessions.find((session) => session.id === state.active)?.thread_id;
+export function McpPanel({ state, scope = "global" }: { state: ConsoleState; scope?: "global" | "thread" }) {
+  const threadId = scope === "thread" ? state.sessions.find((session) => session.id === state.active)?.thread_id : undefined;
   const load = useCallback(() => client.mcps(threadId), [threadId, state.active]);
   const inventory = useInventory(load, true);
   const action = useAction();
@@ -198,14 +200,14 @@ export function McpPanel({ state }: { state: ConsoleState }) {
   const [config, setConfig] = useState('{"command":"","args":[]}');
   const editable = !!state.nativeProtocol?.configuration_editable;
   const rows = inventory.data || [];
-  return <div className="native-form integration-panel">
+  return <div className="native-form integration-panel"><h3>MCP</h3>
     <p className="integration-muted">MCP 连接外部工具与资源。连接状态每 5 秒更新。</p>
     <div className="integration-toolbar">
       <Search label="搜索 MCP 服务" value={search} onChange={setSearch} />
       <Button variant="outline" disabled={inventory.loading || action.busy} onClick={() => void inventory.refresh()}>刷新列表</Button>
-      <Button variant="outline" disabled={action.busy} onClick={() => void action.run(async () => {
+      {scope === "global" && <Button variant="outline" disabled={action.busy} onClick={() => void action.run(async () => {
         await client.reloadMcps(); action.setStatus("已请求重新加载 MCP 服务"); integrationsChanged();
-      })}>重新加载全部</Button>
+      })}>重新加载全部</Button>}
     </div>
     <p className="integration-muted">{rows.filter((row) => row.runtimeStatus === "connected").length}/{rows.length} 个服务已连接</p>
     <Feedback loading={inventory.loading} error={action.error || inventory.error} status={action.status} />
@@ -213,7 +215,7 @@ export function McpPanel({ state }: { state: ConsoleState }) {
       <McpRow key={`${threadId || "global"}:${server.name}`} server={server} threadId={threadId}
         run={action.run} busy={action.busy} refresh={inventory.refresh} />)}
     {inventory.data && !rows.length && <p className="integration-empty">当前没有 MCP 服务，请添加服务配置。</p>}
-    <details><summary>添加或更新 MCP 服务</summary>
+    {scope === "global" && <details><summary>添加或更新 MCP 服务</summary>
       <ReadonlyNotice editable={editable} />
       <label className="native-field">MCP 服务名称<input aria-label="MCP 服务名称" value={name} onChange={(e) => setName(e.target.value)} /></label>
       <label className="native-field">服务配置<textarea aria-label="服务配置" value={config} onChange={(e) => setConfig(e.target.value)} /></label>
@@ -228,7 +230,7 @@ export function McpPanel({ state }: { state: ConsoleState }) {
         action.setStatus("配置已保存；正在重新加载 MCP 服务");
         await client.reloadMcps(); integrationsChanged();
       })}>保存并重新加载</Button>
-    </details>
+    </details>}
   </div>;
 }
 
@@ -281,7 +283,7 @@ export function PluginsPanel({ state }: { state: ConsoleState }) {
   const featured = new Set(inventory.data?.featuredPluginIds || []);
   const total = (inventory.data?.marketplaces || []).reduce((sum, marketplace) => sum + marketplace.plugins.length, 0);
   let visible = 0;
-  return <div className="native-form integration-panel">
+  return <div className="native-form integration-panel"><h3>插件</h3>
     <p className="integration-muted">插件可同时提供 Skills、MCP 服务和应用。安装后相关能力列表会自动刷新。</p>
     <div className="integration-toolbar">
       <Search label="搜索插件" value={search} onChange={(value) => { setSearch(value); setSearchRows(null); }} />

@@ -17,7 +17,14 @@ export type McpServer = {
   runtimeStatus?: string | null;
   toolsError?: string | null;
   pluginId?: string | null;
-  tools: Record<string, { name?: string; description?: string; inputSchema?: unknown }>;
+  tools: Record<string, {
+    name?: string;
+    title?: string;
+    description?: string;
+    inputSchema?: unknown;
+    annotations?: Record<string, unknown>;
+    _meta?: Record<string, unknown>;
+  }>;
   resources?: Array<{ name: string; uri: string }>;
   resourceTemplates?: Array<{ name: string; uriTemplate: string }>;
 };

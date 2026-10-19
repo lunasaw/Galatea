@@ -28,6 +28,15 @@ export type Message = {
     threadIds: string[];
   } | null;
   status?: string;
+  sendStatus?: PendingMessage["status"];
+};
+export type PendingMessage = {
+  id: string | null;
+  key: string;
+  text: string;
+  input?: Record<string, unknown>[];
+  options?: Record<string, unknown>;
+  status: "sending" | "sent" | "failed";
 };
 export type Step = {
   id: string;

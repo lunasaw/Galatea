@@ -195,8 +195,8 @@ function Workspace() {
   const session = state.sessions.find((s) => s.id === state.active);
   const threadExport = useThreadExport(session, !state.loading && !state.sessionRefreshing && !!state.snapshot);
   const messages = useMemo(
-    () => toConversationMessages(state.snapshot),
-    [state.snapshot],
+    () => toConversationMessages(state.snapshot, state.global ? [] : state.pendingMessages.filter((row) => row.id === state.active)),
+    [state.snapshot, state.pendingMessages, state.active, state.global],
   );
   const threads = useMemo(
     () =>
@@ -221,13 +221,15 @@ function Workspace() {
     await store.select(id);
   };
   const running =
-    state.submitting ||
+    (state.submitting && (!state.pendingMessages.some((row) => row.status === "sending") ||
+      state.pendingMessages.some((row) => row.status === "sending" && row.id === state.active))) ||
     (!!session && busyStatuses.has(session.status)) ||
     state.snapshot?.turns?.at(-1)?.status === "inProgress";
   const runtime = useExternalStoreRuntime({
     messages,
     convertMessage: (message) => message,
     isRunning: !!running,
+    isSendDisabled: state.submitting || state.creating,
     isDisabled:
       state.global ||
       state.loading ||
@@ -679,7 +681,7 @@ function Workspace() {
               {!!messages.length &&
                 (state.older ||
                   state.history ||
-                  state.snapshot?.coverage.status !== "complete") && (
+                  (state.snapshot && state.snapshot.coverage.status !== "complete")) && (
                   <div className="flex items-center justify-center gap-2 pt-1 text-muted-foreground">
                     <Button
                       id="older-messages"

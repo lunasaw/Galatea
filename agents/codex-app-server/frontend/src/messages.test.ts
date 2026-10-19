@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toMessages, toolState } from "./messages.ts";
-import type { Snapshot, Step } from "./types.ts";
+import type { PendingMessage, Snapshot, Step } from "./types.ts";
 const step = (values: Partial<Step>): Step => ({
   id: "tool",
   type: "tool",
@@ -9,6 +9,21 @@ const step = (values: Partial<Step>): Step => ({
   last_seq: "9007199254740994",
   tool: "query",
   ...values,
+});
+test("local messages retain attachments and reconcile by request identity, never text", () => {
+  const input = [{ type: "image", url: "data:image/png;base64,AAAA" }, { type: "skill", name: "example", path: "/example/SKILL.md" }];
+  const pending: PendingMessage[] = [{ id: "chat", key: "new", text: "same text", status: "sending", input }];
+  const snapshot: Snapshot = { epoch: "e", watermark: "e:12", next_page: null, coverage: { status: "complete" },
+    messages: [{ id: "request:old", role: "user", text: "same text", first_seq: "1", last_seq: "1" }],
+    steps: [step({ id: "tool", last_seq: "9007199254740999" })],
+  };
+  const rows = toMessages(snapshot, pending);
+  assert.deepEqual(rows.map((row) => row.id), ["request:old", "tool", "request:new"]);
+  assert.deepEqual(rows.at(-1)?.content, [{ type: "text", text: "same text" }, { type: "image", image: input[0].url }]);
+  assert.deepEqual(rows.at(-1)?.metadata?.custom?.nativeContent, input);
+  snapshot.messages!.push({ id: "request:new", role: "user", text: "same text", first_seq: "9007199254741000", last_seq: "9007199254741000" });
+  assert.deepEqual(toMessages(snapshot, pending).map((row) => row.id), ["request:old", "tool", "request:new"]);
+  assert.equal(toMessages(snapshot, pending).at(-1)?.metadata?.custom?.sendStatus, undefined);
 });
 test("preserves decimal cursor ordering above Number precision and stable native identities", () => {
   const snapshot: Snapshot = {

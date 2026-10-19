@@ -1,0 +1,195 @@
+{
+  "schema_version": "galatea-task-snapshot/v1",
+  "task": {
+    "id": "task_replanned_demo",
+    "title": "CSV 清洗与质量报告",
+    "goal": "检查并清洗 CSV，去重后输出数据与报告，不训练模型。",
+    "status": "running",
+    "version": 6,
+    "plan_revision": 2,
+    "control_epoch": 0,
+    "binding_id": "binding_demo",
+    "workspace_ref": "workspace_demo",
+    "constraints": {
+      "scope": "data_processing",
+      "allow_training": false,
+      "max_auto_continuations": 20,
+      "deadline_at": "2026-10-20T03:00:00Z"
+    },
+    "completion_conditions": [
+      {
+        "id": "goal_dataset",
+        "type": "artifact_exists",
+        "parameters": {
+          "artifact_role": "clean_dataset"
+        },
+        "state": "pending",
+        "evidence_refs": []
+      },
+      {
+        "id": "goal_report",
+        "type": "artifact_exists",
+        "parameters": {
+          "artifact_role": "quality_report"
+        },
+        "state": "pending",
+        "evidence_refs": []
+      }
+    ],
+    "plan_summary": "检查发现编码混杂；插入统一编码阶段，清洗依赖调整为该阶段。",
+    "created_at": "2026-10-19T03:00:00Z",
+    "updated_at": "2026-10-19T03:02:00Z"
+  },
+  "stages": [
+    {
+      "id": "stage_inspect",
+      "kind": "data.inspect",
+      "title": "检查数据",
+      "status": "completed",
+      "required": true,
+      "depends_on": [],
+      "input_refs": [
+        "dataset_input_v1"
+      ],
+      "acceptance": [
+        {
+          "id": "inspect_report",
+          "type": "artifact_exists",
+          "parameters": {
+            "artifact_role": "inspection_report"
+          },
+          "state": "passed",
+          "evidence_refs": [
+            "evidence_inspect"
+          ]
+        }
+      ],
+      "evidence_refs": [
+        "evidence_inspect"
+      ],
+      "artifact_refs": [
+        "artifact_inspection"
+      ],
+      "current_attempt": {
+        "id": "attempt_inspect_1",
+        "number": 1,
+        "status": "succeeded",
+        "execution_scope_id": "scope_attempt_inspect_1",
+        "started_at": "2026-10-19T03:00:00Z",
+        "ended_at": "2026-10-19T03:01:00Z"
+      },
+      "result": {
+        "rows": 10000,
+        "duplicate_rows": 120,
+        "encodings": [
+          "UTF-8",
+          "GB18030"
+        ]
+      }
+    },
+    {
+      "id": "stage_normalize",
+      "kind": "data.transform",
+      "title": "统一编码",
+      "status": "running",
+      "required": true,
+      "depends_on": [
+        "stage_inspect"
+      ],
+      "input_refs": [
+        "dataset_input_v1",
+        "artifact_inspection"
+      ],
+      "acceptance": [
+        {
+          "id": "normalize_output",
+          "type": "artifact_exists",
+          "parameters": {
+            "artifact_role": "normalized_dataset"
+          },
+          "state": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "evidence_refs": [],
+      "artifact_refs": [],
+      "current_attempt": {
+        "id": "attempt_normalize_1",
+        "number": 1,
+        "status": "running",
+        "execution_scope_id": "scope_attempt_normalize_1",
+        "started_at": "2026-10-19T03:01:00Z"
+      }
+    },
+    {
+      "id": "stage_clean",
+      "kind": "data.transform",
+      "title": "清洗并交付",
+      "status": "pending",
+      "required": true,
+      "depends_on": [
+        "stage_normalize"
+      ],
+      "input_refs": [
+        "output:stage_normalize:normalized_dataset"
+      ],
+      "acceptance": [
+        {
+          "id": "clean_dataset",
+          "type": "artifact_exists",
+          "parameters": {
+            "artifact_role": "clean_dataset"
+          },
+          "state": "pending",
+          "evidence_refs": []
+        },
+        {
+          "id": "clean_report",
+          "type": "artifact_exists",
+          "parameters": {
+            "artifact_role": "quality_report"
+          },
+          "state": "pending",
+          "evidence_refs": []
+        }
+      ],
+      "evidence_refs": [],
+      "artifact_refs": [],
+      "current_attempt": null
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact_inspection",
+      "kind": "inspection_report",
+      "display_name": "inspection.json",
+      "media_type": "application/json",
+      "size_bytes": 1024,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "locator_ref": "locator_artifact_inspection",
+      "created_at": "2026-10-19T03:01:00Z"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "evidence_inspect",
+      "source": "artifact_verifier",
+      "verification": "verified",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "observed_at": "2026-10-19T03:01:00Z",
+      "artifact_refs": [
+        "artifact_inspection"
+      ],
+      "operation_refs": [],
+      "summary": "示例：检查报告存在且符合登记 Schema。",
+      "verifier_version": "artifact-verifier/v1"
+    }
+  ],
+  "external_operations": [],
+  "allowed_actions": [
+    "pause",
+    "cancel",
+    "explain"
+  ],
+  "last_event_seq": 12
+}

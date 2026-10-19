@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { ConsoleStore } from "./store.ts";
 import { parseProjectLayout, moveProject } from "./project-state.ts";
 import type { Snapshot } from "./types.ts";
+import { toConversationMessages } from "./messages.ts";
 const originalFetch = globalThis.fetch;
 const memory = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
@@ -401,6 +402,109 @@ test("lost send response retries with identical request body and idempotency key
     body.request_id,
     (calls[0].headers as Record<string, string>)["Idempotency-Key"],
   );
+});
+
+test("sending publishes a local message before HTTP returns and reconciles either response order", async () => {
+  for (const snapshotFirst of [true, false]) {
+    const s = make();
+    s.patch({ active: "a", sessions: [{ id: "a", status: "ready" }], snapshot: snapshot("older") });
+    const response = deferred<Response>();
+    globalThis.fetch = async (path) => String(path).endsWith("/messages") ? response.promise : json([{ id: "a", status: "ready" }]);
+    const sent = s.send("immediate", [{ type: "image", url: "data:image/png;base64,AAAA" }]);
+    const pending = s.state.pendingMessages[0];
+    assert.equal(pending.status, "sending");
+    assert.equal(s.state.submitting, true);
+    assert.equal(toConversationMessages(s.state.snapshot, s.state.pendingMessages).at(-1)?.id, `request:${pending.key}`);
+    await s.send("duplicate click");
+    assert.equal(s.state.pendingMessages.length, 1);
+    const confirmed = { ...snapshot("older"), messages: [...snapshot("older").messages!, {
+      id: `request:${pending.key}`, role: "user" as const, text: "immediate", first_seq: "11", last_seq: "11",
+    }] };
+    if (snapshotFirst) s.patch({ snapshot: confirmed });
+    response.resolve(json({ status: "accepted" }));
+    await sent;
+    if (!snapshotFirst) {
+      assert.equal(s.state.pendingMessages[0].status, "sent", "HTTP success must not remove an unprojected message");
+      s.patch({ snapshot: confirmed });
+    }
+    assert.equal(s.state.pendingMessages.length, 0);
+    assert.equal(toConversationMessages(s.state.snapshot).filter((row) => row.id === `request:${pending.key}`).length, 1);
+  }
+});
+
+test("first send is visible during creation and dispatch does not await history or catalog", async () => {
+  const s = make();
+  const creation = deferred<Response>(), metadata = deferred<Response>(), history = deferred<Response>();
+  let dispatched = false;
+  globalThis.fetch = async (path, init) => {
+    const url = String(path);
+    if (url === "/api/sessions") return init?.method === "POST" ? creation.promise : metadata.promise;
+    if (url.endsWith("/snapshot")) return history.promise;
+    if (url.endsWith("/messages")) { dispatched = true; return json({ status: "accepted" }); }
+    if (url.includes("/events?")) return pendingStream(init);
+    return json({});
+  };
+  const sent = s.send("first");
+  assert.deepEqual(toConversationMessages(null, s.state.pendingMessages)[0].content, [{ type: "text", text: "first" }]);
+  assert.equal(s.state.pendingMessages[0].id, null);
+  assert.equal(dispatched, false);
+  creation.resolve(json({ id: "a", status: "ready", thread_id: "a" }));
+  await tick();
+  assert.equal(dispatched, true);
+  assert.equal(s.state.active, "a");
+  assert.equal(s.state.pendingMessages[0].id, "a");
+  history.resolve(json(snapshot("a")));
+  metadata.resolve(json([{ id: "a", status: "ready" }]));
+  await sent;
+});
+
+test("failed chat creation preserves the first message and retries creation with the same key", async () => {
+  const s = make();
+  const calls: RequestInit[] = [];
+  globalThis.fetch = async (path, init) => {
+    const url = String(path);
+    if (url === "/api/sessions" && init?.method === "POST") {
+      calls.push(init);
+      if (calls.length === 1) throw new Error("offline");
+      return json({ id: "a", status: "ready", thread_id: "a" });
+    }
+    if (url === "/api/sessions") return json([{ id: "a", status: "ready" }]);
+    if (url.endsWith("/snapshot")) return json(snapshot("a"));
+    if (url.includes("/events?")) return pendingStream(init);
+    return json({ status: "accepted" });
+  };
+  await s.send("first");
+  assert.equal(s.canRetry, true);
+  assert.equal(s.state.pendingMessages[0].status, "failed");
+  const key = s.state.pendingMessages[0].key;
+  await s.retrySend();
+  assert.equal(s.canRetry, false);
+  assert.equal(s.state.pendingMessages[0].key, key);
+  assert.deepEqual(calls[0].headers, calls[1].headers);
+});
+
+test("a late first send keeps its target and model when the user switches chats", async () => {
+  const s = make();
+  s.patch({ sessions: [{ id: "b", status: "ready", settings: { model: "other" } }] });
+  const creation = deferred<Response>();
+  let posted: any;
+  globalThis.fetch = async (path, init) => {
+    const url = String(path);
+    if (url === "/api/sessions" && init?.method === "POST") return creation.promise;
+    if (url === "/api/sessions") return json(s.state.sessions);
+    if (url.endsWith("/snapshot")) return json(snapshot("b"));
+    if (url.includes("/events?")) return pendingStream(init);
+    if (url.endsWith("/messages")) posted = { url, ...JSON.parse(init!.body as string) };
+    return json({ status: "accepted" });
+  };
+  const sent = s.send("first");
+  await s.select("b", false, { refreshMetadata: false });
+  creation.resolve(json({ id: "a", status: "ready", settings: { model: "original" } }));
+  await sent;
+  assert.equal(s.state.active, "b");
+  assert.equal(posted.url, "/api/sessions/a/messages");
+  assert.equal(posted.options.model, "original");
+  assert.equal(s.state.pendingMessages[0].id, "a");
 });
 test("slash commands reject missing capabilities and running mutations before model submission", async () => {
   const s = make();

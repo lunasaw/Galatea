@@ -10,6 +10,7 @@ import type {
   Snapshot,
   NativeRequest,
   NativeProtocol,
+  PendingMessage,
 } from "./types";
 import { NativeProjects, projectPages } from "./native-projects";
 import {
@@ -111,6 +112,7 @@ export type ConsoleState = {
   loading: boolean;
   creating: boolean;
   submitting: boolean;
+  pendingMessages: PendingMessage[];
   error: string;
   streamError: string;
   nativeNotices: NativeNotice[];
@@ -159,13 +161,6 @@ export class ConsoleStore {
   private refreshQueued = false;
   private refreshing = false;
   private actions = new Map<string, string>();
-  private pending?: {
-    id: string;
-    text: string;
-    key: string;
-    input?: Record<string, unknown>[];
-    options?: Record<string, unknown>;
-  };
   private goalSubmissions = new Map<string, { id?: string; objective: string; key: string }>();
   private historyPage: string | null = null;
   private historyDepth = 0;
@@ -186,6 +181,7 @@ export class ConsoleStore {
     loading: false,
     creating: false,
     submitting: false,
+    pendingMessages: [],
     error: "",
     streamError: "",
     nativeNotices: [],
@@ -219,6 +215,11 @@ export class ConsoleStore {
   getSnapshot = () => this.state;
   patch(update: Partial<ConsoleState>) {
     this.state = { ...this.state, ...update };
+    if (update.snapshot || update.pendingMessages) {
+      const ids = new Set(this.state.snapshot?.messages?.map((row) => row.id));
+      this.state.pendingMessages = this.state.pendingMessages.filter((row) =>
+        row.status !== "sent" || row.id !== this.state.active || !ids.has(`request:${row.key}`));
+    }
     this.listeners.forEach((fn) => fn());
   }
   fail = (error: unknown) => {
@@ -646,12 +647,15 @@ export class ConsoleStore {
     return true;
   }
   get composerSettings() {
+    return this.settingsForSession(this.state.active);
+  }
+  private settingsForSession(id: string | null) {
     const session = this.state.sessions.find(
-      (s) => s.id === this.state.active,
+      (s) => s.id === id,
     );
     const settings = session?.settings;
     const live = session?.active_turn_id ? session.turn_settings : undefined;
-    const fallback = this.state.active ? this.defaults : this.state.preferences;
+    const fallback = id ? this.defaults : this.state.preferences;
     return {
       model:
         live?.model ||
@@ -914,8 +918,9 @@ export class ConsoleStore {
       }
     }
   }
-  async create(activate = true) {
+  async create(activate = true, created?: (id: string) => void) {
     if (this.state.creating) return null;
+    const version = this.generation;
     this.patch({ creating: true });
     const key = this.actions.get("create") || requestKey();
     this.actions.set("create", key);
@@ -936,13 +941,18 @@ export class ConsoleStore {
         ...(effortOverride ? { config: { model_reasoning_effort: effort } } : {}),
       };
       const session = await api<Session>("/api/sessions", { options }, key);
+      this.patch({ sessions: [...this.state.sessions.filter((row) => row.id !== session.id), session] });
       if (project)
         this.saveProjectLayout({
           threadProjects: { [session.id]: project.id },
         });
-      await this.refreshSessions();
-      if (activate) {
-        await this.select(session.id);
+      created?.(session.id);
+      if (created) void this.refreshSessions().catch(this.fail);
+      else await this.refreshSessions();
+      if (activate && version === this.generation) {
+        const selected = this.select(session.id, false, { refreshMetadata: !created });
+        if (created) void selected;
+        else await selected;
         if (mode === "plan" && !(await this.updateComposerSettings({ mode,
           effort: effortOverride ? effort : this.state.runtimeDefaults.plan_mode_reasoning_effort || this.composerSettings.effort,
         }))) return null;
@@ -961,14 +971,23 @@ export class ConsoleStore {
       this.patch({ creating: false });
     }
   }
-  private async sendTo(
-    id: string,
-    text: string,
-    key: string,
-    input?: Record<string, unknown>[],
-    options?: Record<string, unknown>,
-  ) {
+  private updatePending(key: string, update: Partial<PendingMessage>) {
+    this.patch({ pendingMessages: this.state.pendingMessages.map((row) => row.key === key ? { ...row, ...update } : row) });
+  }
+  private async sendTo(submission: PendingMessage) {
+    let { id } = submission;
+    const { text, key, input } = submission;
+    this.updatePending(key, { status: "sending" });
     try {
+      if (!id) {
+        id = await this.create(true, (createdId) => this.updatePending(key, { id: createdId }));
+        if (!id) throw new Error(this.state.error || "无法创建聊天");
+      }
+      const options = submission.options || this.turnOptions(this.settingsForSession(id));
+      this.updatePending(key, { id, options });
+      const titles = { ...this.state.titles, [id]: this.state.titles[id] || text.trim().slice(0, 48) };
+      this.patch({ titles });
+      localStorage.setItem("codex-agent.titles", JSON.stringify(titles));
       await api(
         `/api/sessions/${encodeURIComponent(id)}/messages`,
         {
@@ -986,14 +1005,15 @@ export class ConsoleStore {
         },
         key,
       );
-      this.pending = undefined;
+      this.updatePending(key, { status: "sent" });
       if (this.state.active === id) this.patch({ error: "" });
     } catch (error) {
-      this.fail(error);
+      this.updatePending(key, { status: "failed" });
+      if (this.state.active === id) this.fail(error);
     } finally {
       this.patch({ submitting: false });
       this.schedule();
-      await this.refreshSessions().catch(this.fail);
+      void this.refreshSessions().catch(this.fail);
     }
   }
   async send(text: string, input?: Record<string, unknown>[]) {
@@ -1055,50 +1075,26 @@ export class ConsoleStore {
         return;
       }
     }
-    let id = this.state.active;
-    if (!id) id = await this.create();
-    if (!id) return;
+    const id = this.state.active;
     const active = this.state.sessions.find((s) => s.id === id);
     if (active && active.status !== "ready") {
       this.fail(new Error("当前会话尚未就绪，请先停止或核对并恢复。"));
       return;
     }
-    if (
-      !this.pending ||
-      this.pending.id !== id ||
-      this.pending.text !== text ||
-      JSON.stringify(this.pending.input) !== JSON.stringify(input)
-    )
-      this.pending = {
-        id,
-        text,
-        input,
-        options: this.turnOptions(),
-        key: requestKey(),
-      };
-    this.patch({ submitting: true, error: "" });
-    const titles = {
-      ...this.state.titles,
-      [id]: this.state.titles[id] || text.trim().slice(0, 48),
-    };
-    this.patch({ titles });
-    localStorage.setItem("codex-agent.titles", JSON.stringify(titles));
-    await this.sendTo(id, text, this.pending.key, input, this.pending.options);
+    const previous = this.state.pendingMessages.find((row) => row.status === "failed" && row.id === id && row.text === text && JSON.stringify(row.input) === JSON.stringify(input));
+    const submission: PendingMessage = previous || { id, text, input, key: requestKey(), status: "sending", ...(id ? { options: this.turnOptions() } : {}) };
+    this.patch({ submitting: true, error: "", pendingMessages: previous ? this.state.pendingMessages : [...this.state.pendingMessages, submission] });
+    await this.sendTo(submission);
   }
-  retrySend = async () => {
-    if (this.pending && !this.state.submitting) {
-      this.patch({ submitting: true });
-      await this.sendTo(
-        this.pending.id,
-        this.pending.text,
-        this.pending.key,
-        this.pending.input,
-        this.pending.options,
-      );
+  retrySend = async (key?: string) => {
+    const pending = this.state.pendingMessages.find((row) => row.status === "failed" && row.id === this.state.active && (!key || row.key === key));
+    if (pending && !this.state.submitting && !this.state.creating) {
+      this.patch({ submitting: true, error: "" });
+      await this.sendTo(pending);
     }
   };
   get canRetry() {
-    return !!this.pending && this.pending.id === this.state.active;
+    return this.state.pendingMessages.some((row) => row.status === "failed" && row.id === this.state.active);
   }
   async action(action: "interrupt" | "resume" | "close") {
     const id = this.state.active;

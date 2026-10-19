@@ -1,13 +1,21 @@
 import type { ThreadMessageLike } from "@assistant-ui/react";
-import type { Snapshot, Step } from "./types";
+import type { Message, PendingMessage, Snapshot, Step } from "./types";
 import { visibleUserText } from "./conversation-capabilities";
 
-export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
-  if (!snapshot) return [];
-  const turns = new Map(snapshot.turns?.map((turn) => [turn.id, turn.status]));
-  const rows: { seq: string; order?: number; message: ThreadMessageLike }[] = (
-    snapshot.messages || []
-  ).map((row) => ({
+export function toMessages(snapshot: Snapshot | null, pending: PendingMessage[] = []): ThreadMessageLike[] {
+  if (!snapshot && !pending.length) return [];
+  const confirmed = snapshot?.messages || [];
+  const ids = new Set(confirmed.map((row) => row.id));
+  let sequence = [...confirmed, ...(snapshot?.steps || [])].reduce(
+    (last, row) => BigInt(row.last_seq) > last ? BigInt(row.last_seq) : last, 0n,
+  );
+  const optimistic: Message[] = pending.filter((row) => !ids.has(`request:${row.key}`)).map((row) => ({
+    id: `request:${row.key}`, role: "user", text: row.text,
+    content: row.input as Message["content"], sendStatus: row.status,
+    first_seq: String(++sequence), last_seq: String(sequence),
+  }));
+  const turns = new Map(snapshot?.turns?.map((turn) => [turn.id, turn.status]));
+  const rows: { seq: string; order?: number; message: ThreadMessageLike }[] = [...confirmed, ...optimistic].map((row) => ({
     seq: row.first_seq,
     order: row.replay_order,
     message: {
@@ -48,11 +56,13 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
           delivery: row.delivery,
           questions: row.questions,
           memoryCitation: row.memoryCitation,
+          sendStatus: row.sendStatus,
+          sendKey: row.sendStatus ? row.id.slice("request:".length) : undefined,
         },
       },
     },
   }));
-  for (const step of snapshot.steps || []) {
+  for (const step of snapshot?.steps || []) {
     // Existing Hosts may have projected moderation metadata as warnings. Keep
     // their raw history inspectable without turning it into chat activity.
     if (step.type === "warning" && object(step.detail).method === "turn/moderationMetadata") continue;
@@ -113,7 +123,7 @@ export function toMessages(snapshot: Snapshot | null): ThreadMessageLike[] {
       },
     });
   }
-  rows.push(...reasoningMessages(snapshot));
+  if (snapshot) rows.push(...reasoningMessages(snapshot));
   return rows
     .sort((a, b) =>
       BigInt(a.seq) < BigInt(b.seq)
@@ -239,8 +249,9 @@ export function toolState(
 // projections lack phase: only infer a final answer after a completed turn.
 export function toConversationMessages(
   snapshot: Snapshot | null,
+  pending: PendingMessage[] = [],
 ): ThreadMessageLike[] {
-  const rows = toMessages(snapshot);
+  const rows = toMessages(snapshot, pending);
   const rawTurns = snapshot?.turns?.map((turn) => {
     const detail = object(turn.detail);
     return {

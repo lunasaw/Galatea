@@ -4,6 +4,7 @@ import {
   readFile,
   readdir,
   mkdir,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -219,3 +220,15 @@ for (const [filename, mime] of [
 await writeFile(`${out}/index.html`, html);
 await copyFile("src/audio-capture-worklet.js", `${out}/audio-capture-worklet.js`);
 await writeFile(`${out}/build-meta.json`, JSON.stringify(result.metafile));
+// Remove superseded bundles only after the current build has been written.
+const assetsDirectory = path.resolve(out, "assets");
+const currentAssets = new Set(
+  Object.keys(result.metafile.outputs)
+    .filter((filename) => path.dirname(path.resolve(filename)) === assetsDirectory)
+    .map((filename) => path.basename(filename)),
+);
+currentAssets.add(path.basename(transportUrl));
+for (const entry of await readdir(assetsDirectory, { withFileTypes: true })) {
+  if (entry.isFile() && !currentAssets.has(entry.name))
+    await unlink(path.join(assetsDirectory, entry.name));
+}

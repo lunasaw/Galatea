@@ -5,10 +5,10 @@
 | 组件 | 拥有的状态与职责 | 不承担的职责 |
 | --- | --- | --- |
 | Codex Runtime | 推理、规划、Skill 使用、原生工具执行与原生会话 | 业务事实数据库与独立后台 Job 观察 |
-| 通用 Host | 会话、权限、AppBridge、动态工具上下文、原生事件与请求收据 | Galatea 阶段、训练预算、Campaign 业务规则 |
-| Galatea MCP App | 动态阶段和产物渲染、输入、操作意图、选中项上下文 | Agent Loop、可信身份声明、任务最终状态裁决 |
+| 通用 Host | 会话创建/激活、权限、AppBridge、公开消息/事件导出、请求收据 | Galatea 阶段、训练预算、Campaign 业务规则 |
+| Galatea MCP App | 完整工作台：导航、同源对话、动态阶段/过程卡、预算、文件 diff、三类详情、输入 | Agent Loop、可信身份声明、任务最终状态裁决 |
 | App MCP 服务 | `ui://` 资源、App 工具、结果与快照序列化 | 第二个模型客户端 |
-| Task Service | Task/Stage/Attempt、版本、状态机、业务事件、证据索引 | 自行生成计划或改写训练治理事实 |
+| Task Service | 项目登记、Task/Stage/Attempt、方案待办、状态机、证据与 WorkbenchView 投影 | 自行生成计划或改写训练治理事实 |
 | Task Tool Provider | 将 Host 提供的可信 ToolContext 转为 Task Service 内部调用 | 读取任意模型参数作为身份或批准凭证 |
 | Integration Worker | 外部状态观察、证据验证、Outbox 投递、确定性恢复 | 推理下一阶段、自由调用模型、绕过原生 Host |
 | Governance Adapter | 显式选择治理路线，规范化查询、已授权操作与确定性恢复 | 混合两套治理系统、在线伪造授权 |
@@ -26,7 +26,10 @@ App 前端为独立 TypeScript 构建，HTML/脚本随 MCP 资源交付。
 | `ui/message`、`ui/update-model-context` | 已有 | 复用；前者触发/引导 Agent，后者只更新上下文 |
 | 原生 Codex 会话和动态工具 Provider | 已有 | 新增外置 Task Provider，显式配置工具目录 |
 | Task/Stage/Attempt 持久化与动态计划 | 没有 | 新增 Task Service |
-| 原生运行事件 | 已有 | 新增通用持久化导出与业务关联投影 |
+| 原生运行事件与公开消息 | 已有原生数据，App 无完整读取接口 | 新增通用持久化导出、消息去重及工作台时间线投影 |
+| App 项目导航与自动会话切换 | 无完整业务实现 | 项目登记、受限目录分配、可信 Host 激活与 iframe 重新挂载 |
+| 文件列表与面板内 diff | 有原生文件变更信息，缺 App 读取模型 | 新增不可变变更快照、受控分页读取与检查结果关联 |
+| 完整预算卡与三种决定 | 无工作台方案契约 | 新增 TrainingProposal/待办/digest；确认只消费既有治理授权 |
 | 浏览器关闭后的外部任务观察 | 没有业务实现 | 新增 Worker 和外部适配器 |
 | 可信后台接续入口 | 没有完整业务入口 | 新增通用 Host continuation API、去重与恢复 |
 | 训练 Campaign 治理 MCP | 已有独立服务 | 按能力集接入，保留授权与写锁边界 |
@@ -67,7 +70,7 @@ flowchart TB
 ```
 
 原生 `turn/plan/updated` 中只有文本步骤和状态，没有稳定业务阶段 ID。
-可以把它放入“Agent 当前思路”详情，但不能同步覆盖业务阶段。
+可以把其公开计划放入“Agent 当前计划”详情，但不能导出内部推理或同步覆盖业务阶段。
 原生 `turn/completed` 仅代表本轮 Agent 结束，可能仍有外部 Job 在运行。
 
 ## 5. 代码放置建议
@@ -83,9 +86,11 @@ agents/galatea-app/
     storage/                   # SQLite、迁移、事务与 Outbox
     mcp/                       # UI 资源、App 工具
     api/                       # Provider / Worker 内部接口
+    projections/               # 同源对话、过程卡、文件变更与 WorkbenchView
     integrations/
       codex_provider.py        # 管理员配置的 Host 插件
       host_events.py           # 可信运行事件 -> Task 事件
+      host_activation.py       # 目录/会话初始化与可信激活对账，不调用模型
       governance_mcp.py        # 外部 Campaign 路线
       project_governance.py    # 项目 YAML 路线
       evidence.py              # 受限证据与制品读取

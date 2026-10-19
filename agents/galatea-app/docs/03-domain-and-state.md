@@ -7,6 +7,7 @@
 
 | 对象 | 关键字段 | 约束 |
 | --- | --- | --- |
+| Project | id、owner、display_name、slug、workspace_ref、initialization_state | 项目导航与受限目录登记，不等同于 Task 或会话 |
 | Task | id、owner、goal、constraints、status、version、plan_revision、control_epoch | 任务聚合与最终交付条件 |
 | TaskBinding | task_id、host_id、session_id、thread_id、workspace_ref | 由可信 Host 上下文建立，不能由模型改绑 |
 | PlanRevision | task_id、revision、reason、actor、created_at、stage_specs | 追加式不可变计划；保留完整版本及差异 |
@@ -35,8 +36,8 @@
 | `draft` | 目标已保存，尚未开始 | planning、cancelled |
 | `planning` | Agent 正在规划或修订 | running、waiting_input、waiting_approval、paused、cancelling、failed |
 | `running` | 存在可执行或正在执行的阶段 | 各等待状态、paused、cancelling、completed、failed |
-| `waiting_input` | 缺少用户必须补充的信息 | planning、running、cancelling |
-| `waiting_approval` | 缺少权限或业务授权 | planning、running、cancelling |
+| `waiting_input` | 缺少用户必须补充的信息或执行决定 | planning、running、paused、cancelling |
+| `waiting_approval` | 缺少权限或业务授权 | planning、running、paused、cancelling |
 | `waiting_external` | 外部操作已受理，等待可验证事实 | running、paused、blocked、cancelling |
 | `paused` | 不启动新的阶段 | planning、running、cancelling |
 | `blocked` | 未知执行结果、接续失败或证据不足，需要对账 | running、planning、cancelling、failed |
@@ -238,3 +239,46 @@ Worker 领取 Outbox 时使用租约和递增 fencing token。过期 Worker 的�
 `stage.result_reported`、`evidence.verified`、`stage.completed`、`task.control_requested`、
 `external.observed`、`continuation.requested`、`continuation.accepted`、`task.completed`。
 事件按 `seq` 去重；回放不能触发新的外部写入。
+
+## 9. 工作台读取模型与交互对象
+
+第 06 章原型还需要项目导航、同源消息、文件差异、预算和会话绑定，不能仅靠 TaskSnapshot。
+新增 `galatea-workbench-view/v1` 读取契约；这是待实现的 DTO 定义，不声称现有 JSON Schema
+已经覆盖它。TaskSnapshot 保持纯业务快照，工作台组合该快照和以下独立投影。
+
+| 对象 / 字段 | 内容与来源 | 一致性与权限 |
+| --- | --- | --- |
+| WorkbenchView | schema_version、project、binding、task_snapshot、timeline_page、pending_requests、capabilities、source_cursors、observed_at | 每部分标注来源/更新时间；聚合不承诺跨系统同一时刻 |
+| ProjectView | project_id、name、slug、workspace_display_path、task_sessions、initialization_state | owner 范围查询；初始化为 validating/allocating/binding/ready/failed/unknown，不复用业务阶段 |
+| BindingView | binding_id、project_id、task_id、host/session/thread、workspace_ref、activation_state | 由可信 Host 激活收据核验；iframe 不可改绑 |
+| TimelineItem | id、seq、kind、source_ref、stage_id?、attempt_id?、occurred_at、content_revision | kind 为 public_message/process_card/plan_change/control_notice；按投影 seq 排序，源身份去重 |
+| PublicMessageView | message_id、turn_id、role、safe_content、delivery_state、content_revision | Host 的 user/assistant 公开内容；流式更新原 ID，不复制为新消息 |
+| ProcessCardView | card_id、stage_id、attempt_id、title、skill_refs、check_items、file_change_ids、progress、source_refs | Skill、进度、检查均有实际来源；未知值不可默认成功 |
+| FileChangeView | change_id、relative_path、operation、base/current_digest、revision?、stage/attempt、hunks_page、checks | 不可变内容快照；受控分页，二进制/已清理/越界有明确状态 |
+| TrainingProposal | proposal_id、revision、digest、task/stage、plan_revision、immutable_inputs、resources、hard_limits、estimate、readiness、expires_at | 提案不可变；估算不是授权，治理决定单独查询 |
+| PendingRequest | request_id、kind、subject_digest、status、allowed_decisions、created_at、expires_at | training_proposal 请求绑定精确 proposal；状态 open/accepted/deferred/superseded/expired |
+| UserDecision | request_id、decision、subject_digest、interaction_receipt、command_id、decided_at | 可信用户决定，仅用于该版本；不能由 Agent 自己确认 |
+
+TimelineItem 的 seq 是工作台投影追加顺序，不是 TaskEvent.seq；源事件晚到保留实际发生时间，
+不回写已有顺序。消息流式修改增加 content_revision，通过工作台增量中的 upsert 传播。
+get_workbench_events 使用独立更新游标，包含新增、更新和必要的脱敏移除事件，
+不能用最大时间线 seq 跳过旧消息内容更新。每项保留源序号，缺失覆盖度可见。
+
+TrainingProposal 至少绑定数据/split、Release、配置、角色、资源 profile、次数/重试上限、
+时长与内存硬限制、final-test 范围。Agent 提议方案，服务规范化并计算 digest；
+治理适配器校验授权，用户只确认本次使用该方案执行。任一执行条件变化使旧待办 superseded。
+提交外部操作时重检 proposal digest 与当前输入/授权，不能凭旧按钮回执执行新配置。
+
+有预授权但等待用户决定时 Task 为 waiting_input；缺治理授权时为 waiting_approval。
+未启动的训练 Stage 可从 ready 进入 waiting_input/waiting_approval；决定满足后回到 ready，
+实际 begin_stage 才创建 Attempt。defer 关闭待办并将 Task 置为 paused，不产生空的训练 Attempt。
+只读“重新查看方案”不新建待办；用户再次明确确认时服务以原请求为关联创建新请求并重新校验。
+如方案过期或变化，返回新卡片等待新确认，不能沿用旧 digest。
+
+Workbench 的 UI 动作从 Task.allowed_actions 与 Host 能力共同计算。
+interrupt_agent 是 pause 的增强控制语义：要求 Task 允许 pause 且 Host 支持 turn interrupt，
+不往现有 TaskSnapshot v1 枚举中偷偷加入未声明字段。
+项目初始化期间尚无可信会话绑定的草稿保存在初始化记录，不发布含假 session/thread 的 TaskSnapshot；
+get_workbench 此时返回初始化视图、task_snapshot=null，绑定完成后才发布符合现有 Schema 的快照。
+事件投影、消息、文件快照、项目初始化收据和方案/决定需要独立存储表与保留策略；
+原生消息以 Host 为源，投影丢失可以重建，不能反向覆盖 Host 历史。

@@ -16,6 +16,7 @@ import time
 from jsonschema import Draft202012Validator, ValidationError
 
 from .common import TaskError, canonical, digest, require, timestamp, uid, utc
+from .budgets import valid_limits
 from .storage import Storage
 
 TERMINAL = {"completed", "failed", "cancelled"}
@@ -440,6 +441,7 @@ class TaskService:
                 "capabilities": self.capabilities,
                 "pending_requests": list(a["requests"].values()),
                 "proposals": list(a["proposals"].values()),
+                "training_decisions": self.training_authorizations(a, ctx),
                 "external_intents": list(a["intents"].values()),
                 "observations": a.get("observations", []),
                 "workspace_roots": {
@@ -890,8 +892,9 @@ class TaskService:
         ]:
             proposals = [v for v in a["proposals"].values() if v["stage_id"] == s["id"]]
             require(proposals, "AUTHORIZATION_REQUIRED")
-            proposal = proposals[-1]
+            proposal = max(proposals, key=lambda p: p["revision"])
             self._authorized(a, proposal)
+            self._training_ready(proposal)
             require(
                 any(
                     d["subject_digest"] == proposal["digest"]
@@ -1545,10 +1548,103 @@ class TaskService:
             "Governance adapter unavailable",
         )
         require(
-            adapter.authorized(proposal),
+            adapter.authorized(proposal) or self._user_grant_valid(a, proposal, adapter),
             "AUTHORIZATION_REQUIRED",
             "Governance authorization missing, expired or mismatched",
         )
+
+    def _user_grant_valid(self, a, proposal, adapter):
+        can_authorize = getattr(adapter, "can_authorize", lambda *_: False)
+        return any(
+            g["proposal_digest"] == proposal["digest"]
+            and g["principal_id"] == a["owner_id"]
+            and g["binding_id"] == a["binding"]["binding_id"]
+            and g["plan_revision"] == proposal["plan_revision"]
+            and can_authorize(g["principal_id"], proposal)
+            for g in a.get("training_grants", [])
+        )
+
+    @staticmethod
+    def _training_ready(proposal):
+        require(
+            all(check.get("status") == "passed" for check in proposal["readiness"]),
+            "AUTHORIZATION_REQUIRED",
+            "Training readiness checks remain unresolved; update the proposal after verification",
+        )
+
+    def training_authorizations(self, a, ctx):
+        """Read-only availability; the command always repeats these checks."""
+        result = {}
+        task = a["snapshot"]["task"]
+        for proposal in a["proposals"].values():
+            adapter = self.governance.get(proposal["immutable_inputs"]["route"])
+            stage = self._stage(a, proposal["stage_id"])
+            request = max(
+                (r for r in a["requests"].values()
+                 if r["proposal_id"] == proposal["proposal_id"]),
+                key=lambda r: (r.get("parent_request_id") is not None, r["created_at"]),
+                default=None,
+            )
+            latest = max(
+                (p for p in a["proposals"].values() if p["stage_id"] == stage["id"]),
+                key=lambda p: p["revision"],
+            )
+            current = bool(
+                request and request["status"] in {"open", "deferred"}
+                and latest["proposal_id"] == proposal["proposal_id"]
+                and task["status"] not in TERMINAL | {"cancelling"}
+                and (not a.get("control_requested") or request["status"] == "deferred")
+                and proposal["plan_revision"] == task["plan_revision"]
+                and time.time() < timestamp(proposal["expires_at"])
+                and time.time() < timestamp(task["constraints"]["deadline_at"])
+                and stage["current_attempt"] is None
+                and not any(i["stage_id"] == stage["id"] for i in a["intents"].values())
+            )
+            unresolved = [
+                str(check.get("label") or check.get("id") or "准备检查")
+                for check in proposal["readiness"] if check.get("status") != "passed"
+            ]
+            try:
+                self._authorized(a, proposal)
+                authorized = True
+            except TaskError:
+                authorized = False
+            can_authorize = bool(
+                current and not authorized and ctx.principal_id == a["owner_id"]
+                and request["status"] == "open" and task["status"] != "paused"
+                and adapter and getattr(adapter, "can_authorize", lambda *_: False)(
+                    ctx.principal_id, proposal
+                )
+            )
+            if not current:
+                reason = "方案已过期、被替换、已处理或任务已暂停；请在聊天中要求更新方案。"
+            elif authorized:
+                reason = (
+                    "本次方案已有授权；仍须完成准备检查：" + "、".join(unresolved)
+                    if unresolved else "本次方案已有授权；确认执行后才会开始训练。"
+                )
+            elif not adapter:
+                reason = "尚未配置此项目的治理入口；请在聊天中要求配置，重复点击不会启动训练。"
+            elif can_authorize:
+                reason = (
+                    "请先点击“授权本次方案”，再在 Host 弹窗选择“允许本次”。"
+                    "此操作不会启动训练。"
+                )
+            else:
+                reason = "当前用户没有此范围的授权权限，或方案超出授权范围；请在聊天中要求调整或配置权限。"
+            if unresolved and not authorized:
+                reason += "执行前仍须完成准备检查：" + "、".join(unresolved) + "。"
+            confirm_reason = reason
+            if current and not authorized:
+                confirm_reason = "尚未授权，请先完成上方“授权本次方案”。"
+            if current and unresolved and not authorized:
+                confirm_reason += "另外尚未通过：" + "、".join(unresolved) + "。"
+            result[proposal["proposal_id"]] = {
+                "authorized": authorized, "can_authorize": can_authorize,
+                "can_confirm": current and authorized and not unresolved,
+                "reason": reason, "confirm_reason": confirm_reason,
+            }
+        return result
 
     def _cmd_propose_training(self, db, a, ctx, p, key):
         s = self._stage(a, p["stage_id"])
@@ -1595,21 +1691,19 @@ class TaskService:
             "INVALID_COMMAND",
         )
         require(
-            set(proposal["hard_limits"])
-            >= {"attempts", "retries", "wall_seconds", "memory_bytes"}
-            and all(
-                isinstance(proposal["hard_limits"][k], (int, float))
-                and proposal["hard_limits"][k] >= 0
-                for k in proposal["hard_limits"]
-            ),
+            valid_limits(proposal["hard_limits"]),
             "INVALID_COMMAND",
         )
-        require(
-            proposal["hard_limits"]["attempts"] >= 1
-            and proposal["hard_limits"]["wall_seconds"] > 0
-            and proposal["hard_limits"]["memory_bytes"] > 0,
-            "INVALID_COMMAND",
-        )
+        if proposal["hard_limits"]["memory_bytes"] is None:
+            memory = proposal["resources"].get("memory")
+            explanation = proposal["estimate"].get("memory_limit_enforcement")
+            require(
+                isinstance(memory, dict)
+                and memory.get("enforcement") == "scheduling_only"
+                and isinstance(explanation, str) and bool(explanation.strip()),
+                "INVALID_COMMAND",
+                "An uncapped memory proposal must explicitly disclose scheduling-only enforcement",
+            )
         proposal.update(
             proposal_id=uid("proposal"),
             revision=1 + sum(x["stage_id"] == s["id"] for x in a["proposals"].values()),
@@ -1628,7 +1722,7 @@ class TaskService:
             "proposal_id": proposal["proposal_id"],
             "subject_digest": proposal["digest"],
             "status": "open",
-            "allowed_decisions": ["confirm", "defer"],
+            "allowed_decisions": ["authorize", "confirm", "defer"],
             "created_at": utc(),
             "expires_at": proposal["expires_at"],
         }
@@ -1652,7 +1746,8 @@ class TaskService:
             },
             key,
         )
-        return {"proposal": proposal, "request": request}
+        return {"proposal": proposal, "request": request,
+                "decision_availability": self.training_authorizations(a, ctx)[proposal["proposal_id"]]}
 
     def _cmd_submit_input(self, db, a, ctx, p, key):
         request = a["requests"].get(p.get("request_id"))
@@ -1673,8 +1768,35 @@ class TaskService:
             timestamp(proposal["expires_at"]) > time.time(), "AUTHORIZATION_REQUIRED"
         )
         decision = values["decision"]
-        require(decision in {"confirm", "defer"}, "INVALID_COMMAND")
+        require(decision in {"authorize", "confirm", "defer"}, "INVALID_COMMAND")
+        if decision == "authorize":
+            availability = self.training_authorizations(a, ctx)[proposal["proposal_id"]]
+            require(availability["can_authorize"], "AUTHORIZATION_REQUIRED",
+                    availability["reason"])
+            grant = {
+                "id": uid("grant"),
+                "proposal_digest": proposal["digest"],
+                "plan_revision": proposal["plan_revision"],
+                "binding_id": a["binding"]["binding_id"],
+                "principal_id": ctx.principal_id,
+                "interaction_receipt": ctx.interaction_id,
+                "command_id": key,
+                "expires_at": proposal["expires_at"],
+                "granted_at": utc(),
+            }
+            a.setdefault("training_grants", []).append(grant)
+            s["status"] = "waiting_input"
+            a["snapshot"]["task"]["status"] = "waiting_input"
+            self._event(db, a, "training.authorized", {
+                "proposal_id": proposal["proposal_id"], **grant,
+            }, key)
+            return {"request_id": request["request_id"], "state": "authorized",
+                    "grant_id": grant["id"]}
         if decision == "confirm":
+            require(
+                self.training_authorizations(a, ctx)[proposal["proposal_id"]]["can_confirm"],
+                "AUTHORIZATION_REQUIRED", "Proposal is no longer confirmable",
+            )
             self._authorized(a, proposal)
             if a.get("in_current_turn"):
                 a["in_current_turn"] = False
@@ -1744,8 +1866,9 @@ class TaskService:
         ]:
             proposals = [v for v in a["proposals"].values() if v["stage_id"] == s["id"]]
             require(proposals, "AUTHORIZATION_REQUIRED")
-            proposal = proposals[-1]
+            proposal = max(proposals, key=lambda p: p["revision"])
             self._authorized(a, proposal)
+            self._training_ready(proposal)
             require(
                 p["immutable_inputs"] == proposal["immutable_inputs"]
                 and route == proposal["immutable_inputs"]["route"],
@@ -1803,7 +1926,7 @@ class TaskService:
             deadline = min(
                 deadline,
                 timestamp(a["attempts"][intent["attempt_id"]]["started_at"])
-                + proposals[-1]["hard_limits"]["wall_seconds"],
+                + max(proposals, key=lambda p: p["revision"])["hard_limits"]["wall_seconds"],
             )
         a.setdefault("external_deadlines", {})[o["id"]] = deadline
         a["snapshot"]["external_operations"].append(o)

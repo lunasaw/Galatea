@@ -51,6 +51,17 @@ stage. A trusted training decision enables the existing background continuation 
    immutable Release, data/split/config identity, profile, role, hard budget and existing authorization.
    Use `propose_training` before starting a training Attempt. Wait for the exact proposal's trusted
    confirm decision. Adjustment is a new proposal; defer preserves work and pauses execution.
+   Read `training_decisions` from the returned task context. Proactively tell the user the
+   specific next action: when `can_authorize` is true, click “授权本次方案” and approve the Host
+   interaction, then separately confirm execution. Authorization alone never starts training.
+   If the button is unavailable, explain its returned `reason` and prepare the missing configuration
+   or scope adjustment; do not send the user back to a disabled button. Request permission for any
+   platform authorization configuration change not already authorized in this conversation.
+   Do not forge a user decision, grant, Host proof or receipt through shell/Provider calls.
+   Complete executable readiness before presenting a proposal for execution. Do not invent a
+   memory hard cap when the selected backend only provides scheduling reservations. If an existing
+   proposal contains an unsupported limit, explain the mismatch and prepare an honest replacement
+   or the missing enforcement capability; never mark that check passed by user authorization.
 8. Before any external submission call `prepare_external`. Use its persisted identity with the fixed
    governed entrypoint. Bind the authoritative operation with `bind_external`, then `wait` and end
    this turn. If the submission response is lost, reconcile the original operation; never resubmit under

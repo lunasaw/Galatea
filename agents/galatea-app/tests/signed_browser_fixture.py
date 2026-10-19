@@ -58,7 +58,9 @@ class Native(FixtureNative):
             result["contents"][0]["uri"] = params["uri"]
             return result
         if method == "mcpServer/tool/call":
-            return await self.host.app.rpc(
+            from codex_agent.console.projection import redact
+
+            result = await self.host.app.rpc(
                 {
                     "method": "tools/call",
                     "params": {
@@ -68,6 +70,8 @@ class Native(FixtureNative):
                     },
                 }
             )
+            # NativeFacade applies this boundary before returning an MCP result.
+            return redact(result, method=method)[0]
         return await super().call(method, params, request_id)
 
 
@@ -77,6 +81,10 @@ class Host(BrowserHost):
         return await super().create_session(session_id, **kwargs)
 
     async def send_message(self, session_id, request_id, text, **kwargs):
+        if text in {"training-authorization-fixture", "training-scheduling-only-fixture"}:
+            return await self.training_fixture(
+                session_id, request_id, scheduling_only=text == "training-scheduling-only-fixture"
+            )
         if text != "conversation-task-fixture":
             return await super().send_message(session_id, request_id, text, **kwargs)
         from test_domain import spec
@@ -119,6 +127,65 @@ class Host(BrowserHost):
             "artifact_refs": [a["id"] for a in snapshot["artifacts"]]})
         wire("item/completed", {"item": {"id": "answer", "type": "agentMessage",
             "phase": "final_answer", "text": "质量报告已生成，可在右侧查看。"}})
+        wire("turn/completed", {"turn": {"id": turn, "status": "completed"}})
+        self.sessions[session_id].update(status="ready", active_turn_id=None)
+        return {"request_id": request_id, "turn_id": turn, "status": "accepted"}
+
+    async def training_fixture(self, session_id, request_id, *, scheduling_only=False):
+        """Only a synthetic proposal; no optimizer, external job or continuation worker."""
+        import json
+        from test_domain import spec
+        from galatea_app.integrations.project_governance import ProjectGovernance
+
+        turn = "turn-" + request_id
+        self.sessions[session_id].update(status="running", active_turn_id=turn)
+        self.events.bind(session_id, session_id)
+        self.events.append(session_id, {"kind": "message_accepted", "thread_id": session_id,
+            "turn_id": turn, "host_request_id": request_id, "public": {"text": "检查授权流程"}})
+
+        def wire(method, params):
+            self.events.observer("runtime_to_host", {"method": method, "params": {
+                "threadId": session_id, "turnId": turn, **params}},
+                runtime_instance_id="browser-fixture")
+
+        wire("turn/started", {"turn": {"id": turn, "status": "inProgress"}})
+        ctx = Context("p", "host", session_id, session_id, "work", turn_id=turn, call_id=request_id)
+        limits = {"attempts": 1, "retries": 0, "wall_seconds": 600, "memory_bytes": 1024}
+        if scheduling_only:
+            limits["memory_bytes"] = None
+        self.app.service.governance["project_governance"] = ProjectGovernance(
+            project_id="fixture", profile="test", ray_api="http://127.0.0.1:1",
+            tracking_uri="http://127.0.0.1:1", receipts_root=self.workspace_dir / "receipts",
+            user_authorization={"principal_ids": ["p"], "roles": ["smoke"],
+                "resources": {"gpu": 1, "cpu": 2}, "hard_limits": limits,
+                "allow_unbounded_memory": scheduling_only,
+                "expires_at": "2099-01-02T00:00:00Z"})
+        task_id = (await self.app.dispatch(ctx, "start_task", {
+            "goal": "验证训练授权交互，不执行训练", "constraints": {"allow_training": True},
+            "command_id": request_id + "-start"}))["task_id"]
+        stage = spec("train", kind="training.run")
+        stage["execution"]["capability_ref"] = "governed-training/v1"
+        await self.app.dispatch(ctx, "replace_plan", {"task_id": task_id,
+            "command_id": request_id + "-plan", "expected_plan_revision": 0,
+            "reason": "authorization browser fixture", "stages": [stage]})
+        await self.app.dispatch(ctx, "propose_training", {"task_id": task_id,
+            "command_id": request_id + "-proposal", "expected_plan_revision": 1,
+            "stage_id": "train", "proposal": {
+                "immutable_inputs": {"route": "project_governance", "project_id": "fixture",
+                    "profile": "test", "release_digest": "release", "config_digest": "config",
+                    "data_digest": "data", "split_digest": "split", "role": "smoke", "final_test": False},
+                "objective": "仅验证授权按钮与签名收据", "resources": {"cpu": 2, "gpu": 1,
+                    "memory": {"enforcement": "scheduling_only", "worker_bytes": 1024}},
+                "hard_limits": limits, "readiness": [],
+                "estimate": {"memory_limit_enforcement": "仅调度预留，无作业内存硬上限"},
+                "expires_at": "2099-01-01T00:00:00Z"}})
+        wire("item/completed", {"item": {"id": request_id + "-app", "type": "dynamicToolCall",
+            "namespace": "galatea_task", "tool": "start_task", "status": "completed", "success": True,
+            "arguments": {"goal": "验证训练授权", "command_id": request_id + "-start"},
+            "contentItems": [{"type": "inputText", "text": json.dumps({
+                "schema_version": "codex-agent.tools/v1", "ok": True, "data": {
+                    "task_id": task_id, "app_view": {"server": "fixture-app",
+                        "resource_uri": "ui://galatea/workbench/v1", "arguments": {"task_id": task_id}}}})}]}})
         wire("turn/completed", {"turn": {"id": turn, "status": "completed"}})
         self.sessions[session_id].update(status="ready", active_turn_id=None)
         return {"request_id": request_id, "turn_id": turn, "status": "accepted"}

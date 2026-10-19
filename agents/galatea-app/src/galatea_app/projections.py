@@ -267,6 +267,7 @@ class Workbench:
                 },
                 "pending_requests": list(a["requests"].values()),
                 "proposals": list(a["proposals"].values()),
+                "training_decisions": self.service.training_authorizations(a, ctx),
                 "inputs": list(a["inputs"].values()),
                 "capabilities": {
                     "raw_logs": False,

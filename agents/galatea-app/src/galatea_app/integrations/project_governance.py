@@ -10,6 +10,7 @@ import subprocess
 from urllib.parse import urlsplit
 import httpx
 from galatea_app.common import require, utc, digest, timestamp, TaskError
+from galatea_app.budgets import within_limits
 
 
 class ProjectGovernance:
@@ -23,6 +24,7 @@ class ProjectGovernance:
         receipts_root,
         grants=None,
         project_root=None,
+        user_authorization=None,
     ):
         for url in (ray_api, tracking_uri):
             p = urlsplit(url)
@@ -41,6 +43,7 @@ class ProjectGovernance:
         )
         self.receipts_root = Path(receipts_root).resolve()
         self.grants = grants or []
+        self.user_authorization = user_authorization or {}
         self.operations = {}
         self.http = httpx.Client(timeout=15, follow_redirects=False)
         self.project_root = Path(project_root).resolve() if project_root else None
@@ -79,12 +82,44 @@ class ProjectGovernance:
         return any(
             g.get("immutable_inputs") == inputs
             and timestamp(g["expires_at"]) > time.time()
-            and all(
-                proposal["hard_limits"][k] <= g["hard_limits"][k]
-                for k in ("attempts", "retries", "wall_seconds", "memory_bytes")
+            and within_limits(
+                proposal["hard_limits"], g["hard_limits"],
+                allow_unbounded_memory=g.get("allow_unbounded_memory", False),
             )
             for g in self.grants
         )
+
+    def can_authorize(self, principal_id, proposal):
+        """Administrator delegation permits a user decision, never an Agent grant."""
+        import time
+
+        policy = self.user_authorization
+        inputs = proposal["immutable_inputs"]
+        try:
+            return bool(
+                principal_id in policy["principal_ids"]
+                and inputs["route"] == "project_governance"
+                and inputs["project_id"] == self.project_id
+                and inputs["profile"] == self.profile
+                and inputs["role"] in policy["roles"]
+                and type(inputs["final_test"]) is bool
+                and (not inputs["final_test"] or policy.get("allow_final_test") is True)
+                and ("immutable_inputs" not in policy
+                     or inputs == policy["immutable_inputs"])
+                and time.time() < timestamp(proposal["expires_at"])
+                <= timestamp(policy["expires_at"])
+                and within_limits(
+                    proposal["hard_limits"], policy["hard_limits"],
+                    allow_unbounded_memory=policy.get("allow_unbounded_memory", False),
+                )
+                and all(
+                    type(proposal["resources"][k]) in (int, float)
+                    and 0 <= proposal["resources"][k] <= policy["resources"][k]
+                    for k in ("cpu", "gpu")
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            return False
 
     def register_receipt(self, relative, *, plan_relative=None):
         path = (self.receipts_root / relative).resolve()

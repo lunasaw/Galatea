@@ -66,7 +66,8 @@ const element = (tag: string, text?: string, className?: string) => {
   if (className) e.className = className;
   return e;
 };
-function notice(text: string, error = false) {
+function notice(text: string, error = false, background = false) {
+  if (background && (writing || $("#notice").classList.contains("error"))) return;
   $("#notice").textContent = text;
   $("#notice").className = error ? "error" : view?.fixture ? "fixture" : "";
 }
@@ -75,8 +76,14 @@ function err(error: any) {
 }
 function button(text: string, run: () => any, className = "") {
   const b = element("button", text, className) as HTMLButtonElement;
-  b.onclick = () => Promise.resolve(run()).catch(err);
+  b.onclick = () => Promise.resolve().then(run).catch(err);
   return b;
+}
+function commandId() {
+  // randomUUID is unavailable on HTTP IP origins; getRandomValues works there
+  // and retains a cryptographically random 128-bit idempotency identity.
+  return "app-" + Array.from(crypto.getRandomValues(new Uint8Array(16)),
+    value => value.toString(16).padStart(2, "0")).join("");
 }
 function formatted(value: any): string {
   return value === null || value === undefined
@@ -109,11 +116,13 @@ async function call(name: string, args: Obj = {}): Promise<Obj> {
 async function write(
   name: string,
   args: Obj,
-  key: string = crypto.randomUUID(),
+  key: string = commandId(),
 ) {
   if (writing) return;
   writing = true;
+  notice("正在等待 Host 确认或处理操作…");
   setDisabled();
+  renderActions();
   try {
     let r: Obj;
     try {
@@ -130,6 +139,7 @@ async function write(
   } finally {
     writing = false;
     setDisabled();
+    renderActions();
   }
 }
 function setDisabled() {
@@ -209,6 +219,8 @@ async function refresh() {
           : next.source_cursors?.host?.coverage === "incomplete"
             ? "事件同步存在缺口 · 当前展示最后已确认事实"
             : "已连接 · 状态来自 Task Service 与原始执行证据",
+      false,
+      true,
     );
   } catch (error) {
     err(error);
@@ -332,8 +344,13 @@ function renderActions() {
   if (!s) return;
   const proposals = view?.proposals || [];
   for (const p of proposals) {
+    if (proposals.some((other: Obj) =>
+      other.stage_id === p.stage_id && other.revision > p.revision)) continue;
     const request = (view?.pending_requests || [])
       .filter((r: Obj) => r.proposal_id === p.proposal_id)
+      .sort((a: Obj, b: Obj) =>
+        Number(!!a.parent_request_id) - Number(!!b.parent_request_id) ||
+        a.created_at.localeCompare(b.created_at))
       .at(-1);
     if (!request || request.status === "superseded") continue;
     const card = element("section", undefined, "proposal");
@@ -354,7 +371,11 @@ function renderActions() {
       },
       次数: `${p.hard_limits.attempts} 个 Attempt · 自动重试 ${p.hard_limits.retries} 次`,
       "时长 / 费用": p.estimate,
-      执行硬上限: `${p.hard_limits.wall_seconds} 秒 · ${p.hard_limits.memory_bytes} bytes`,
+      执行预算: `${p.hard_limits.wall_seconds} 秒 · ${
+        p.hard_limits.memory_bytes === null
+          ? "未设置作业内存硬上限（仅调度预留）"
+          : `内存硬上限 ${p.hard_limits.memory_bytes} bytes`
+      }`,
       范围: p.immutable_inputs,
       有效期: p.expires_at,
     };
@@ -373,6 +394,23 @@ function renderActions() {
       );
     card.append(readiness);
     const buttons = element("div", undefined, "buttons");
+    const authorization = view?.training_decisions?.[p.proposal_id];
+    if (authorization && !authorization.authorized) {
+      const authorize = button(
+        "授权本次方案",
+        () => write("submit_input", {
+          task_id: taskId,
+          request_id: request.request_id,
+          expected_version: s.task.version,
+          values: { proposal_digest: p.digest, decision: "authorize" },
+        }),
+        "primary",
+      );
+      authorize.disabled = !!view?.read_only || !!view?.fixture ||
+        !authorization.can_authorize || writing;
+      authorize.title = authorization.reason;
+      buttons.append(authorize);
+    }
     const confirm = button(
       "确认本次执行并训练",
       () =>
@@ -387,9 +425,10 @@ function renderActions() {
     confirm.disabled =
       !!view?.read_only ||
       !!view?.fixture ||
-      s.task.status === "waiting_approval" ||
+      (authorization ? !authorization.can_confirm : s.task.status === "waiting_approval") ||
       request.status === "accepted" ||
       writing;
+    confirm.title = authorization?.confirm_reason || authorization?.reason || "";
     buttons.append(
       confirm,
       button("调整方案", () => {
@@ -414,7 +453,9 @@ function renderActions() {
           card.scrollIntoView({ block: "center" });
         }),
       );
-    if (s.task.status === "waiting_approval")
+    if (authorization)
+      card.append(element("p", authorization.reason, "authorization-status"));
+    else if (s.task.status === "waiting_approval")
       card.append(
         element("p", "缺少匹配的治理授权。此工作台不能创建或扩展训练预算。"),
       );

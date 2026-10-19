@@ -274,8 +274,13 @@ class ConsoleApp:
             if path in {'/api/mcp-app/challenges', '/api/mcp-app/confirmations', '/api/mcp-app/tool-calls'} and method == 'POST':
                 if not self.integrations:
                     return await self._send(send, 503, {'error': 'trusted-app-gateway-disabled'})
-                # Only the Host's same-origin UI can confirm. Opaque sandboxed frames carry Origin:null.
-                if path.endswith('/confirmations') and (not headers.get('origin') or headers.get('sec-fetch-site') != 'same-origin'):
+                # _same_origin above validates a mandatory Origin here, including port.
+                # HTTP IP origins omit Sec-Fetch-*; opaque frames still send Origin:null
+                # and cannot confirm. Present fetch metadata must remain same-origin.
+                if path.endswith('/confirmations') and (
+                    not headers.get('origin')
+                    or headers.get('sec-fetch-site') not in (None, 'same-origin')
+                ):
                     return await self._send(send, 403, {'error': 'host-ui-confirmation-required'})
                 body = await self._body(receive)
                 async with self._writes:

@@ -217,8 +217,10 @@ export class ConsoleStore {
     this.state = { ...this.state, ...update };
     if (update.snapshot || update.pendingMessages) {
       const ids = new Set(this.state.snapshot?.messages?.map((row) => row.id));
+      const clientIds = new Set(this.state.snapshot?.messages?.map((row) => row.client_id));
       this.state.pendingMessages = this.state.pendingMessages.filter((row) =>
-        row.status !== "sent" || row.id !== this.state.active || !ids.has(`request:${row.key}`));
+        row.status !== "sent" || row.id !== this.state.active ||
+        (!ids.has(`request:${row.key}`) && !clientIds.has(row.key)));
     }
     this.listeners.forEach((fn) => fn());
   }
@@ -979,6 +981,15 @@ export class ConsoleStore {
     const { text, key, input } = submission;
     this.updatePending(key, { status: "sending" });
     try {
+      if (submission.steer) {
+        await api("/api/native/call", {
+          method: "turn/steer",
+          params: { ...submission.steer, clientUserMessageId: key, input },
+        }, key);
+        this.updatePending(key, { status: "sent" });
+        if (this.state.active === id) this.patch({ error: "" });
+        return;
+      }
       if (!id) {
         id = await this.create(true, (createdId) => this.updatePending(key, { id: createdId }));
         if (!id) throw new Error(this.state.error || "无法创建聊天");
@@ -1085,6 +1096,24 @@ export class ConsoleStore {
     const submission: PendingMessage = previous || { id, text, input, key: requestKey(), status: "sending", ...(id ? { options: this.turnOptions() } : {}) };
     this.patch({ submitting: true, error: "", pendingMessages: previous ? this.state.pendingMessages : [...this.state.pendingMessages, submission] });
     await this.sendTo(submission);
+  }
+  steer(text: string, input: Record<string, unknown>[], id: string, expectedTurnId: string) {
+    const session = this.state.sessions.find((row) => row.id === id);
+    if ((!text.trim() && !input.length) || this.state.active !== id ||
+      this.state.submitting || this.state.creating || this.state.loading ||
+      this.state.sessionRefreshing || this.state.settingsBusy) return false;
+    if (!session?.thread_id || session.active_turn_id !== expectedTurnId) {
+      this.fail(new Error("当前回复已结束或发生变化，请重新发送。"));
+      return false;
+    }
+    const submission: PendingMessage = {
+      id, text, input: structuredClone(input), key: requestKey(), status: "sending",
+      steer: { threadId: session.thread_id, expectedTurnId },
+    };
+    this.patch({ submitting: true, error: "", pendingMessages: [...this.state.pendingMessages, submission] });
+    // Publish before dispatch, so the composer can clear without waiting for RPC.
+    void this.sendTo(submission);
+    return true;
   }
   retrySend = async (key?: string) => {
     const pending = this.state.pendingMessages.find((row) => row.status === "failed" && row.id === this.state.active && (!key || row.key === key));

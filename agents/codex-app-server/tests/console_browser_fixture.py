@@ -60,6 +60,12 @@ class FixtureNative(NativeBridge):
         if method == 'turn/steer':
             if self.host.sessions[params['threadId']].get('active_turn_id') != params['expectedTurnId']:
                 raise ValueError('turn identity changed')
+            item = {'id': 'steered-' + request_id, 'type': 'userMessage',
+                    'clientId': params.get('clientUserMessageId'), 'content': params['input']}
+            self.host.events.observer('runtime_to_host', {'method': 'item/completed', 'params': {
+                'threadId': params['threadId'], 'turnId': params['expectedTurnId'], 'item': item,
+            }}, runtime_instance_id='browser-fixture')
+            await self.host.events.flush()
             return {'turnId': params['expectedTurnId']}
         if method == 'mcpServer/tool/call':
             return {'content': [{'type': 'text', 'text': 'native app tool result'}], 'isError': False}
@@ -254,10 +260,6 @@ class FixtureNative(NativeBridge):
             session['settings'] = {**session.get('settings', {}), **{k: v for k, v in params.items() if k != 'threadId'}}
             if params.get('cwd'):
                 session['cwd'] = params['cwd']
-        if method == 'turn/steer':
-            assert self.host.sessions[params['threadId']]['active_turn_id'] == params['expectedTurnId']
-            self.host.events.append(params['threadId'], {'kind': 'message_accepted', 'thread_id': params['threadId'],
-                'turn_id': params['expectedTurnId'], 'host_request_id': request_id, 'public': {'text': params['input'][0]['text']}})
         return {}
 
 
@@ -333,6 +335,9 @@ class BrowserHost(test_console.FakeHost):
                 wire('turn/moderationMetadata', {'metadata': {'sequence': index}})
         wire('item/started', {'item': {'id': 'reasoning', 'type': 'reasoning', 'summary': [], 'content': []}})
         wire('item/reasoning/summaryTextDelta', {'itemId': 'reasoning', 'summaryIndex': 0, 'delta': '先检查当前可用能力。'})
+        if text == 'steer-running-fixture':
+            await self.events.flush()
+            return {'request_id': request_id, 'turn_id': turn, 'status': 'accepted'}
         await asyncio.sleep(1.2)
         wire('item/reasoning/summaryPartAdded', {'itemId': 'reasoning', 'summaryIndex': 1})
         wire('item/reasoning/summaryTextDelta', {'itemId': 'reasoning', 'summaryIndex': 1, 'delta': '再整理结果与下一步建议。'})

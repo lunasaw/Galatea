@@ -134,11 +134,15 @@ class Projector:
                        **{key: item[key] for key in ('delivery', 'questions', 'memoryCitation') if key in item},
                        'status': 'completed' if method == 'item/completed' else 'inProgress'})
             elif item_type == 'userMessage':
-                initial = request and self.request_user_items.setdefault((thread, request), item_id) == item_id
+                client_id = item.get('clientId')
+                initial = not client_id and request and self.request_user_items.setdefault((thread, request), item_id) == item_id
                 key = 'request:' + request if initial else message_key
                 text = '\n'.join(c.get('text', '') for c in item.get('content', []) if isinstance(c, dict) and c.get('type') == 'text')
-                change('messages', key, {**common, 'role': 'user', 'item_id': item_id, 'text': text, 'content': item.get('content')})
-                if not request:
+                # Keep native identity and carry the client submission identity
+                # for optimistic steering reconciliation, also during replay.
+                change('messages', key, {**common, 'role': 'user', 'item_id': item_id,
+                       'client_id': client_id, 'text': text, 'content': item.get('content')})
+                if not request and not client_id:
                     pending = self.user_items.setdefault((thread, turn), [])
                     if (key, item_id) not in pending:
                         pending.append((key, item_id))

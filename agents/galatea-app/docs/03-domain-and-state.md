@@ -258,6 +258,7 @@ Worker 领取 Outbox 时使用租约和递增 fencing token。过期 Worker 的�
 | TrainingProposal | proposal_id、revision、digest、task/stage、plan_revision、immutable_inputs、resources、hard_limits、estimate、readiness、expires_at | 提案不可变；估算不是授权，治理决定单独查询 |
 | PendingRequest | request_id、kind、subject_digest、status、allowed_decisions、created_at、expires_at | training_proposal 请求绑定精确 proposal；状态 open/accepted/deferred/superseded/expired |
 | UserDecision | request_id、decision、subject_digest、interaction_receipt、command_id、decided_at | 可信用户决定，仅用于该版本；不能由 Agent 自己确认 |
+| training_decisions | 每个 proposal 的 authorized、can_authorize、can_confirm、reason、confirm_reason | 服务按当前委派权限、方案版本、有效期及就绪条件重算；不是授权凭据 |
 
 TimelineItem 的 seq 是工作台投影追加顺序，不是 TaskEvent.seq；源事件晚到保留实际发生时间，
 不回写已有顺序。消息流式修改增加 content_revision，通过工作台增量中的 upsert 传播。
@@ -265,9 +266,21 @@ get_workbench_events 使用独立更新游标，包含新增、更新和必要�
 不能用最大时间线 seq 跳过旧消息内容更新。每项保留源序号，缺失覆盖度可见。
 
 TrainingProposal 至少绑定数据/split、Release、配置、角色、资源 profile、次数/重试上限、
-时长与内存硬限制、final-test 范围。Agent 提议方案，服务规范化并计算 digest；
-治理适配器校验授权，用户只确认本次使用该方案执行。任一执行条件变化使旧待办 superseded。
+时长预算与内存执行方式、final-test 范围。有限 `hard_limits.memory_bytes` 必须有真实
+执行保障；仅有调度预留时，该字段明确为 `null`，并要求
+`resources.memory.enforcement=scheduling_only` 与非空的执行方式说明。
+这类方案必须另有 `allow_unbounded_memory=true` 且内存上限为 `null` 的管理员配置，
+有限预算不能授权它。界面明确显示“未设置作业内存硬上限”。
+Agent 提议方案，服务规范化并计算 digest；
+治理适配器校验授权。固定项目路线允许管理员配置有限委派后，用户通过 App 的
+`authorize` 决定授权精确方案，再通过单独的 `confirm` 决定执行；
+两次决定均要求 Host 签名，授权本身不创建 Attempt 或后台接续。
+用户授权记录保存在 Task 内并绑定主体、会话、proposal digest 和计划版本；
+每次执行仍须重检管理员委派。缺少委派时不能仅靠确认按钮获得授权。
+任一执行条件变化使旧待办 superseded。
 提交外部操作时重检 proposal digest 与当前输入/授权，不能凭旧按钮回执执行新配置。
+未通过的就绪检查不会被用户授权豁免；界面同时显示缺授权和缺就绪条件，
+服务在确认、begin_stage 和 prepare_external 三处检查就绪状态。
 
 有预授权但等待用户决定时 Task 为 waiting_input；缺治理授权时为 waiting_approval。
 未启动的训练 Stage 可从 ready 进入 waiting_input/waiting_approval；决定满足后回到 ready，

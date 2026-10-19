@@ -10,6 +10,7 @@ from .service import TaskService
 from .trust import ProofVerifier
 from .workers import HostClient, Worker
 from .projects import Projects
+from .budgets import within_limits
 
 
 def secret(path):
@@ -55,9 +56,9 @@ def build(config):
             return any(
                 g.get("immutable_inputs") == proposal["immutable_inputs"]
                 and timestamp(g["expires_at"]) > time.time()
-                and all(
-                    proposal["hard_limits"][k] <= g["hard_limits"][k]
-                    for k in ("attempts", "retries", "wall_seconds", "memory_bytes")
+                and within_limits(
+                    proposal["hard_limits"], g["hard_limits"],
+                    allow_unbounded_memory=g.get("allow_unbounded_memory", False),
                 )
                 for g in grants
             )

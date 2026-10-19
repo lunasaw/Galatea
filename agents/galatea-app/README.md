@@ -63,7 +63,9 @@ App 只展示当前任务的动态阶段、进度、指标、产物、日志和�
 项目/会话导航或第二个聊天框。用户在原聊天补充要求；不会自动创建或跳转另一会话。
 桌面切换标签或收起面板保留视图；刷新从原会话工具记录和服务端快照恢复。
 `start_task` 允许在当前原生回合做已请求的准备工作，不排队第二个 Agent，也不授予训练权限。
-真实训练仍需精确方案确认和现有治理授权；确认收据启用原有后台观察与接续机制。
+真实训练仍需精确方案确认和治理授权。具备管理员委派权限的用户可先点击
+“授权本次方案”，通过 Host 确认后留下持久化授权收据；这一步不会启动训练。
+再点击“确认本次执行并训练”并通过 Host 确认，才启用后台观察与接续机制。
 新会话只读取自身绑定的任务，不能将旧项目产物当作本次交付。
 旧 `launch_project` / activation 接口保留兼容历史任务，不作为主要交互入口。
 单个 Host 是单 owner 身份域；外网访问须经过认证代理。
@@ -73,12 +75,33 @@ App 只展示当前任务的动态阶段、进度、指标、产物、日志和�
 训练继续使用 `train-model/ray-cats-and-dogs/job/governed.mjs`。管理员配置
 `project_governance` 的 `project_id/profile/ray_api/tracking_uri/receipts_root/project_root/grants`。
 每个 grant 绑定完整 `immutable_inputs`、`hard_limits` 和 `expires_at`。
-App 确认仅选择该已授权范围，不能创建 Release 或扩充预算。
+也可配置 `project_governance.user_authorization`，把有限的授权权限委派给指定
+Host principal。字段为 `principal_ids`、`roles`、`allow_final_test`、
+`resources`（CPU/GPU 上限）、`hard_limits`（次数/重试/秒数/内存字节上限）、
+`expires_at`；参见 [委派配置示例](deploy/user-authorization.example.json)。
+该配置不授予任何训练方案。用户的签名点击才产生 Task 内持久化授权，绑定精确
+proposal digest、计划版本、任务/会话、用户与过期时间；修改方案必须重新授权。
+Agent Provider 不暴露授权命令，普通聊天回答不伪装为 Host 签名收据。
+授权和执行继续通过既有 App-only `submit_input`，分别使用 `authorize` 和 `confirm`，
+不需要向通用 Host 添加训练专用逻辑。
+未配置适配器、用户无权、预算越界或方案失效时，面板显示具体原因与聊天处理入口。
+部署配置补齐后，既有待确认方案会重新计算按钮可用性，无须修改任务数据库状态。
+移除委派权限、缩小上限或过期后，已保存授权也不能继续启动新 Attempt。
+
+授权预算不等于资源隔离能力：配置中的内存值不能把 Ray 调度预留变成 RSS 硬限制。
+执行器仍须验证可执行预算，方案必须如实展示未完成的就绪条件。
+后端只有调度预留时，可以明确提交 `hard_limits.memory_bytes: null`，
+同时设置 `resources.memory.enforcement: "scheduling_only"`，并在
+`estimate.memory_limit_enforcement` 说明没有每个作业的内存硬上限。
+这类方案仅匹配同时配置 `hard_limits.memory_bytes: null` 和
+`allow_unbounded_memory: true` 的管理员权限；任何有限内存权限均拒绝，
+不能静默把旧的有限预算变成无限制预算。用户仍须授权并确认新的精确方案。
+App 不能创建 Release 或越过管理员配置扩充预算。
 另一条路线配置 `governance_mcp`：`url` 为现有 stateless JSON MCP `/mcp`，
 `credential_file` 指向 0600 bearer，另填 `project_id`、`campaign_id`、`grants`。
 默认 `recovery_allowed=false` 只读取 operation；启用恢复式观察需要管理员显式授权。
 取消整个 Campaign 还要求 `exclusive_campaign=true`，不能停止其他 Task 的工作。
-两条适配器均不提供在线授权扩充。
+`governance_mcp` 仍使用既有 Campaign 授权；App 不在线扩展该路线的外部权限。
 
 `prepare_external.idempotency_key` 必须作为固定入口的 attempt 参数；Worker 从精确回执对账。
 

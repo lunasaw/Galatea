@@ -218,3 +218,25 @@ Host 使用 18880，独立 App 后端使用回环端口 18885；18891/18886 验�
   当前用户的新方案仍待真实用户授权；浏览器核对没有点击实际授权或执行按钮。
 
 这次修复不算作模型重新训练成功；完整训练和结果验证仍属于原 Task 的后续阶段。
+
+### HTTP IP 访问补充修复
+
+上节的主入口浏览器验证使用回环地址，未覆盖用户通过服务器 IP 的普通 HTTP 访问。
+再次报告点击无效后，分别在真实 `127.0.0.1` 与服务器 IP 页面读到
+`isSecureContext=true/false`、`crypto.randomUUID=function/undefined`。
+原按钮在提交之前抛出异常；改为同 Host 使用的 `crypto.getRandomValues`，
+保持 128 位随机幂等标识，并让同步点击异常可见、操作错误不被轮询提示覆盖。
+
+非安全来源浏览器还省略 `Sec-Fetch-*`，Host 的确认接口因此误拒绝同源 Origin。
+现在确认接口仍强制要求精确同源 Origin；Fetch Metadata 缺失时允许，
+存在时只允许 same-origin。无 Origin、Origin:null、不同来源、不同端口、
+cross-site、same-site、none 均拒绝，没有放宽 iframe 直接确认边界。
+
+- 新增非安全 HTTP 域名浏览器用例，先复现失败，再通过真实 Host 签名、
+  授权拒绝/接受、刷新恢复和单独执行拒绝；无训练。
+- Host Console / background 定向测试 17 项通过。
+- App 测试 89 项运行，88 通过、1 项可选测试跳过；类型检查和构建通过。
+- App 静态资源已更新。Host Python 变更需进程重载；部署脚本只在全部会话回合空闲后
+  重启 18880 并通过原生 resume 恢复原有就绪会话，不发送模型消息。
+  实际部署结果以本次 Task 的 `http-authorization-deployment.json` 为准，
+  不能把代码测试通过当作活动 Host 已加载修复。

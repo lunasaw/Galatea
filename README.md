@@ -16,6 +16,9 @@ Codex 是仓库唯一的 Agent Runtime。Web Agent 由
 会话恢复和可配置的 Tool Provider；业务能力通过外部 MCP 或独立 Provider 接入。
 当前 Host 不内置 Galatea 服务或训练流程，真实训练联动和业务阶段可视化仍需单独接入与验收。
 
+网页工作台的使用方式见 **[Codex Agent Host 产品界面图文导览](agents/codex-app-server/README.md#product-ui)**：
+包含当前界面截图，以及项目与聊天、任务输入、权限审批、文件与代码审查、终端、扩展、设置和多模态能力的详细介绍。
+
 仓库训练通过 [`.codex/skills/`](.codex/skills/) 和项目固定治理入口执行；
 [`galatea-governance`](packages/galatea-governance/README.md) 校验项目 YAML、Release 和执行证据，
 独立 [`galatea-mcp`](services/galatea-mcp/README.md) 提供 Campaign、预算与平台工具约束。

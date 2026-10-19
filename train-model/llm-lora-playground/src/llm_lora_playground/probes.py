@@ -128,7 +128,13 @@ def assert_adapter_effective(
     return results
 
 
-def probes_from_tokenizer(tokenizer: Any, conversations: Iterable[tuple[str, list[dict[str, str]]]], *, max_length: int = 256) -> list[AdapterProbe]:
+def probes_from_tokenizer(
+    tokenizer: Any,
+    conversations: Iterable[tuple[str, list[dict[str, str]]]],
+    *,
+    max_length: int = 256,
+    device: Any | None = None,
+) -> list[AdapterProbe]:
     """Build deterministic probes from chat conversations without persisting text."""
 
     probes: list[AdapterProbe] = []
@@ -147,5 +153,9 @@ def probes_from_tokenizer(tokenizer: Any, conversations: Iterable[tuple[str, lis
         else:
             input_ids = rendered
             attention_mask = None
+        if device is not None:
+            input_ids = input_ids.to(device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(device)
         probes.append(AdapterProbe(probe_id, input_ids, attention_mask))
     return probes

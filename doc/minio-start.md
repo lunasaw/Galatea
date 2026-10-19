@@ -1,5 +1,9 @@
 # MinIO 本地安装、启动与运维
 
+> 2026-10-14 的当前机器部署使用本仓库路径和 18101/18102 端口，见
+> [当前机器 MinIO / MLflow 部署](./local-services-18100.md)。下文保留旧机器的部署基线，
+> 其中的路径、9000/9001 端口及下载地址不能直接用于当前机器。
+
 本文记录当前训练服务器上的 MinIO 单机部署。MinIO 提供 S3 兼容对象存储，替代原实施手册中的腾讯云 COS，用于保存训练数据、Manifest、预处理结果、Checkpoint 和 MLflow Artifact。
 
 > 当前部署是单机、单盘模式，适合当前一台服务器的训练闭环，不等同于高可用或多副本生产对象存储。数据目录、`mlflow.db` 和密钥都必须纳入独立备份策略。
@@ -13,7 +17,7 @@
 | MinIO Client | `RELEASE.2025-08-13T08-35-41Z` |
 | MinIO API | `http://127.0.0.1:9000` |
 | MinIO Console | `http://127.0.0.1:9001` |
-| 数据目录 | `/data/ai/chenzhangyue/code/galatea/platform-data/minio/data` |
+| 数据目录 | `/data/ai/chenzhangyue/galatea-model/platform-data/minio/data` |
 | Server 二进制 | `/usr/local/bin/minio` |
 | Client 二进制 | `/usr/local/bin/mc` |
 | 服务账号 | `minio:minio` |
@@ -87,7 +91,7 @@ id minio >/dev/null 2>&1 || \
   useradd --system --gid minio --home-dir /var/lib/minio --shell /usr/sbin/nologin minio
 
 install -d -o minio -g minio -m 0750 \
-  /data/ai/chenzhangyue/code/galatea/platform-data/minio/data
+  /data/ai/chenzhangyue/galatea-model/platform-data/minio/data
 install -d -o root -g root -m 0750 /etc/minio
 ```
 
@@ -104,7 +108,7 @@ MINIO_ROOT_PASSWORD=$(openssl rand -base64 36 | tr -dc 'A-Za-z0-9' | head -c 32)
 cat > /etc/minio/minio.env <<EOF
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
-MINIO_VOLUMES=/data/ai/chenzhangyue/code/galatea/platform-data/minio/data
+MINIO_VOLUMES=/data/ai/chenzhangyue/galatea-model/platform-data/minio/data
 MINIO_OPTS="--address 127.0.0.1:9000 --console-address 127.0.0.1:9001"
 MINIO_BROWSER_REDIRECT_URL=https://coder.vdian.net/GC5026/proxy/9001/
 EOF
@@ -369,7 +373,7 @@ mc ls local
 mc version info local/training-data
 mc version info local/mlflow-artifacts
 mc admin info local
-du -sh /data/ai/chenzhangyue/code/galatea/platform-data/minio/data
+du -sh /data/ai/chenzhangyue/galatea-model/platform-data/minio/data
 ```
 
 删除对象时，启用版本控制的 Bucket 会先产生 delete marker；需要清理历史版本时必须明确评估恢复需求，不能把 `mc rm --recursive --force` 当作日常清理命令。
@@ -386,8 +390,8 @@ MLflow 数据库和密钥一起搬到独立位置，并通过恢复演练证明�
 
 至少同时备份以下三类内容：
 
-1. `/data/ai/chenzhangyue/code/galatea/platform-data/minio/data/`：对象数据。
-2. `/data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db`：MLflow 元数据。
+1. `/data/ai/chenzhangyue/galatea-model/platform-data/minio/data/`：对象数据。
+2. `/data/ai/chenzhangyue/galatea-model/platform-data/mlflow/mlflow.db`：MLflow 元数据。
 3. `/etc/minio/minio.env`、`/etc/minio/mlflow-s3.env`：凭据和 Endpoint 配置，必须加密保存。
 
 备份前暂停写入或使用文件系统快照，避免 SQLite 数据库和 Artifact 处于不一致状态。恢复到新机器后，先恢复 MinIO 数据与密钥，再启动 MinIO，最后启动 MLflow；不要只恢复 `mlflow.db` 而遗漏 Artifact。

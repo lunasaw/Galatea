@@ -18,10 +18,18 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from ray_cats_dogs.config import load_config  # noqa: E402
 from ray_cats_dogs.models import build_model  # noqa: E402
 from ray_cats_dogs.tracking import _flatten  # noqa: E402
-from ray_cats_dogs.train import _log_mlflow_model  # noqa: E402
+from ray_cats_dogs.train import _log_mlflow_model, config_plan  # noqa: E402
 
 
 class GalateaContractTest(unittest.TestCase):
+    def test_driver_reservation_does_not_consume_training_gpu(self) -> None:
+        config = load_config(PROJECT_ROOT / "configs" / "baseline.yaml")
+        resources = config_plan(config)["requested_resources"]
+        self.assertEqual(0, resources["num_gpus"])
+        self.assertGreaterEqual(resources["cpus"], 1)
+        self.assertGreater(resources["memory_gb"], 0)
+        self.assertEqual(1, resources["gpu_per_worker"])
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.manifest = yaml.safe_load(
@@ -44,7 +52,7 @@ class GalateaContractTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                "/data/conda/envs/attend-ray-py312/bin/python",
+                "/data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python",
                 "scripts/train.py",
                 "--config",
                 "{config}",
@@ -54,7 +62,7 @@ class GalateaContractTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                "/data/conda/envs/attend-ray-py312/bin/python",
+                "/data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python",
                 "scripts/train.py",
                 "--config",
                 "{config}",
@@ -64,7 +72,7 @@ class GalateaContractTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                "/data/conda/envs/attend-ray-py312/bin/python",
+                "/data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python",
                 "scripts/train.py",
                 "--config",
                 "{config}",
@@ -191,16 +199,29 @@ class GalateaContractTest(unittest.TestCase):
                 patch(
                     "mlflow.pytorch.log_model",
                     return_value=SimpleNamespace(model_uri="models:/m-123"),
-                ),
+                ) as log_model,
                 patch(
                     "mlflow.artifacts.download_artifacts",
                     side_effect=[str(logged_model_directory), str(run_descriptor)],
                 ) as download,
+                patch(
+                    "ray_cats_dogs.model_artifacts.verify_packaged_model",
+                    return_value={"default_loader_verified": True},
+                ) as verify_packaged,
+                patch("mlflow.log_dict") as log_dict,
                 patch("mlflow.log_artifacts") as log_artifacts,
             ):
                 model_uri = _log_mlflow_model(checkpoint, config, "run-123")
 
         self.assertEqual("runs:/run-123/model", model_uri)
+        self.assertEqual(
+            [str(PROJECT_ROOT / "src" / "ray_cats_dogs")],
+            log_model.call_args.kwargs["code_paths"],
+        )
+        verify_packaged.assert_called_once_with(logged_model_directory, config.image_size)
+        log_dict.assert_called_once_with(
+            {"default_loader_verified": True}, "verification/model-fresh-process-load.json"
+        )
         log_artifacts.assert_called_once_with(
             str(logged_model_directory), artifact_path="model"
         )

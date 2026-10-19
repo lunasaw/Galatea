@@ -1,0 +1,31 @@
+schema_version: wechat-persona-memory-daily-v1
+timezone: Asia/Shanghai
+grouping: calendar_day_with_session_boundaries
+neighbor_days: 1
+unresolved_neighbor_days: 3
+neighbor_context_turns: 2
+chunk:
+  token_counter: o200k_base
+  target_input_tokens: 8000
+  hard_input_tokens: 32000
+  overlap_turns: 2
+  reserve_output_tokens: 8000
+extraction:
+  provider: openai-compatible
+  api_mode: chat_completions
+  model: gpt-5.6-terra
+  temperature: 0
+  strict_json_schema: true
+  wire_schema_mode: compatible_constraints_v1
+  allow_inference: false
+  preserve_dates: true
+  request_timeout_seconds: 120
+  max_retries: 4
+  workers: 8
+governance:
+  required_consent_purposes:
+    - processing
+    - memory_rag
+  result_status: candidate
+  training_run: false
+  creates_mlflow_run: false

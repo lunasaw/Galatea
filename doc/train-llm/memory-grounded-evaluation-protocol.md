@@ -1,5 +1,8 @@
 # Memory-grounded chat evaluation protocol
 
+> Project example: [`wechat-persona/docs/README.md`](../../train-model/wechat-persona/docs/README.md).
+> This file is the reusable memory/RAG evaluation contract, not a training authorization.
+
 Long-term memory is an external, removable evidence layer. It is not a
 replacement for the style adapter and must not be trained into model
 parameters by default.
@@ -45,4 +48,3 @@ Generated text is not persisted in governed artifacts. Store hashes and
 aggregate labels instead. A Trial may compare Base, Prompt-only, LoRA, and
 LoRA+RAG using the same retrieval results and generation parameters, but test
 data remains untouched until a separately frozen Champion claim.
-

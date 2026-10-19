@@ -127,6 +127,14 @@ semantic scorer so a production vector index can be added without changing the p
 claim/refusal behavior, conflict recency, cross-owner leakage, and PII/canary leakage (the latter two
 must be zero). The current Trial remains `formal_training_eligible=false` and `promotable=false`.
 
+The serving ingress owns a versioned `prompt.persona_system_prompt`. It is combined with the memory
+evidence policy on the server, and client-provided system messages are discarded before forwarding to
+the model. This makes the intended intimate, conversational style a runtime contract instead of an
+accidental property of the training transcript. Retrieval also requires either a lexical anchor or a
+strong semantic match; generic questions are left without memory context so unrelated chat chunks do
+not steer the answer. Updating this prompt or retrieval rule changes the inference config digest and
+therefore requires a new immutable Release and a new governed inference plan.
+
 The Ray Runtime Environment reader requires only `ListBucket` and `GetObject` below
 `s3://training-data/ray-runtime/llm-lora-playground/`; it must not receive upload, delete,
 dataset or MLflow artifact permissions. Add this prefix before publishing the first release,
@@ -173,9 +181,11 @@ comparison is evaluated inside the same governed Run, on the same validation pop
 generation protocol as LoRA. Historical results produced by that legacy local path remain
 diagnostic-only and are not valid Galatea evidence.
 
-The documented runbook in `doc/train-llm/2026-09-05-project-2-4-toy-lora-ray/` is the
-authoritative order for GPU execution, validation-only candidate selection, test-once
-evaluation, MLflow Artifact API round-trip, and interruption/recovery drills.
+The consolidated project guide in
+[`docs/README.md`](docs/README.md)
+is the primary navigation for GPU execution, validation-only candidate selection, test-once
+evaluation, MLflow Artifact API round-trip, and interruption/recovery drills. Superseded dated
+documents were merged into that guide and removed; Git history remains the audit source.
 
 ## WeChat local review UI and provisional baseline
 

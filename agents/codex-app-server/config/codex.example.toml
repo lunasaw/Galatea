@@ -1,23 +1,23 @@
 # Copy to the controlled codex-home/config.toml; re-accept after any change.
 model = "REPLACE_WITH_APPROVED_MODEL"
 model_provider = "openai"
-web_search = "disabled"
-approval_policy = "never"
-sandbox_mode = "read-only"
+web_search = "live"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
 [features]
-apps = false
-plugins = false
+apps = true
+plugins = true
 remote_plugin = false
-recommended_plugins = false
+recommended_plugins = true
 tool_suggest = false
-multi_agent = false
+multi_agent = true
 multi_agent_v2 = false
-shell_tool = false
-unified_exec = false
-view_image = false
+shell_tool = true
+unified_exec = true
+view_image = true
 sleep_tool = false
-goals = false
-hooks = false
+goals = true
+hooks = true
 image_generation = false
 browser_use = false
 computer_use = false
@@ -26,7 +26,7 @@ code_mode_only = false
 code_mode_host = false
 workspace_dependencies = false
 skill_mcp_dependency_install = false
-skill_search = false
+skill_search = true
 enable_request_compression = false
 current_time_reminder = false
 token_budget = false
@@ -36,10 +36,10 @@ enabled = false
 [orchestrator.mcp]
 enabled = false
 [skills]
-include_instructions = false
+include_instructions = true
 [skills.bundled]
-enabled = false
+enabled = true
 [tools.experimental_request_user_input]
-enabled = false
+enabled = true
 [tools.update_plan]
-enabled = false
+enabled = true

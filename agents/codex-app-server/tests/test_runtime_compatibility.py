@@ -19,12 +19,12 @@ from codex_agent.state import AtomicJsonStore, OperationJournal
 
 class RuntimeCompatibilityTests(unittest.TestCase):
     def setUp(self):
-        self.catalog = Catalog.load(ROOT / "config/contracts")
-        self.profile = RuntimeContract.load(ROOT / "config/contracts/runtime-compatibility.json", self.catalog)
+        self.catalog = Catalog.load(ROOT / "tests/fixtures/dynamic-tools")
+        self.profile = RuntimeContract.load(ROOT / "tests/fixtures/dynamic-tools/runtime-compatibility.json", self.catalog)
 
     def test_new_continuation_and_resume_match_approved_wire_schema(self):
         for name, actions in (("full", {"*"}), ("subset", {"galatea_get_capabilities"})):
-            requests = json.loads((ROOT / f"tests/fixtures/codex-0.153.4/{name}-tool-surfaces.json").read_text())
+            requests = json.loads((ROOT / f"tests/fixtures/codex-0.154.0/{name}-tool-surfaces.json").read_text())
             for index, request in enumerate(requests):
                 with self.subTest(principal=name, request=index):
                     self.profile.assert_request(request, actions)
@@ -51,7 +51,7 @@ class RuntimeCompatibilityTests(unittest.TestCase):
         metadata = copy.deepcopy(self.catalog.metadata)
         metadata["tools"]["galatea_get_capabilities"]["description"] += " changed"
         with self.assertRaises(GateError):
-            RuntimeContract.load(ROOT / "config/contracts/runtime-compatibility.json", Catalog(self.catalog.schemas, metadata))
+            RuntimeContract.load(ROOT / "tests/fixtures/dynamic-tools/runtime-compatibility.json", Catalog(self.catalog.schemas, metadata))
 
     def test_arbitrary_principal_subset_is_filtered_without_rewriting(self):
         actions = {"galatea_list_projects", "galatea_get_campaign"}
@@ -81,7 +81,7 @@ class RuntimeCompatibilityTests(unittest.TestCase):
                     wire_schema = self.profile.tools({name})[0]["tools"][0]["parameters"]
                     jsonschema.validate(arguments, wire_schema)
                     context = ToolContext("s", "t", "turn", f"call-{index}", "principal",
-                                          frozenset({"p"}), frozenset({"c"}), frozenset({"*"}))
+                                          frozenset({"*"}))
                     result = registry.call(context, name, arguments)
                     self.assertFalse(result["ok"])
                     self.assertEqual(result["error"]["category"], "invalid-arguments")

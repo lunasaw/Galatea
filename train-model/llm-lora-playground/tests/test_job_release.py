@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
 
 from llm_lora_playground.job_release import build_release, create_working_dir_archive
 
@@ -15,6 +16,10 @@ class JobReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             first = build_release(ROOT, Path(directory))
             second = build_release(ROOT, Path(directory))
+            with zipfile.ZipFile(
+                first.directory / first.manifest["files"]["py_module"]["filename"]
+            ) as archive:
+                py_module_members = archive.namelist()
         self.assertEqual(first.manifest["release_id"], second.manifest["release_id"])
         self.assertEqual(
             "/data/conda/envs/ray-llm-py312/bin/python",
@@ -22,7 +27,13 @@ class JobReleaseTests(unittest.TestCase):
         )
         self.assertEqual(str(ROOT.parents[1]), first.manifest["runtime_env"]["env_vars"]["GALATEA_REPOSITORY_ROOT"])
         self.assertEqual("http://127.0.0.1:5000", first.manifest["runtime_env"]["env_vars"]["MLFLOW_TRACKING_URI"])
-        self.assertNotIn("py_modules", first.manifest["runtime_env"])
+        self.assertEqual("0", first.manifest["runtime_env"]["env_vars"]["RAYLLM_ENABLE_REQUEST_PROMPT_LOGS"])
+        self.assertEqual(
+            [f"s3://training-data/{first.manifest['files']['py_module']['key']}"],
+            first.manifest["runtime_env"]["py_modules"],
+        )
+        self.assertTrue(first.manifest["files"]["py_module"]["filename"].endswith(".zip"))
+        self.assertIn("llm_lora_playground/__init__.py", py_module_members)
         self.assertIn("py_module", first.manifest["files"])
         self.assertIn("working_dir", first.manifest["files"])
 

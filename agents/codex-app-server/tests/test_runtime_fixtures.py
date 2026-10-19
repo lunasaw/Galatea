@@ -1,4 +1,4 @@
-"""Regression evidence captured from the installed 0.153.4 binary, without prompts."""
+"""Regression evidence captured from the installed 0.154.0 binary, without prompts."""
 import json
 from pathlib import Path
 import sys
@@ -12,16 +12,16 @@ from codex_agent.catalog import Catalog
 from codex_agent.compatibility import RuntimeContract
 from codex_agent.stage0 import GateError, assert_tool_inventory, assert_tool_surface, file_sha256
 
-FIXTURE = ROOT / "tests/fixtures/codex-0.153.4"
+FIXTURE = ROOT / "tests/fixtures/codex-0.154.0"
 
 
 class RuntimeFixtureTests(unittest.TestCase):
     def setUp(self):
-        self.catalog = Catalog.load(ROOT / "config/contracts")
+        self.catalog = Catalog.load(ROOT / "tests/fixtures/dynamic-tools")
         self.provenance = json.loads((FIXTURE / "provenance.json").read_text())
 
     def test_every_captured_fixture_matches_its_digest(self):
-        self.assertEqual(self.provenance["runtime_version"], "codex-cli 0.153.4")
+        self.assertEqual(self.provenance["runtime_version"], "codex-cli 0.154.0")
         self.assertEqual(self.provenance["status"], "blocked")
         for name, sha256 in self.provenance["files"].items():
             with self.subTest(name=name):
@@ -43,7 +43,7 @@ class RuntimeFixtureTests(unittest.TestCase):
         self.assertNotIn("dynamicTools", schema["properties"])
 
     def test_full_and_subset_requests_match_approved_wire_contract(self):
-        profile = RuntimeContract.load(ROOT / "config/contracts/runtime-compatibility.json", self.catalog)
+        profile = RuntimeContract.load(ROOT / "tests/fixtures/dynamic-tools/runtime-compatibility.json", self.catalog)
         for name, actions in (("full", {"*"}), ("subset", {"galatea_get_capabilities"})):
             surfaces = json.loads((FIXTURE / f"{name}-tool-surfaces.json").read_text())
             self.assertEqual(len(surfaces), 3)

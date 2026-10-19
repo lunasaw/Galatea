@@ -1,10 +1,13 @@
-# 从 distributed.yaml 继承双 Worker、双完整 GPU 的 DDP 拓扑。
-extends: distributed.yaml
+# Evaluate the frozen single-worker baseline checkpoint without fitting again.
+extends: baseline.yaml
 
 run:
   role: champion
   name_prefix: ray-cats-dogs-champion
   log_model: true
+  promotable: true
 
 evaluation:
   evaluate_test: true
+  # Set the previously validated immutable manifest in an explicit final profile.
+  manifest_path: null

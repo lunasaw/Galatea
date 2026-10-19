@@ -12,14 +12,16 @@ sys.path.insert(0, str(ROOT / "src"))
 from runtime_probe import probe_runtime
 
 
-@unittest.skipUnless(os.environ.get("GALATEA_TEST_RUNTIME_PACKAGE"), "Set GALATEA_TEST_RUNTIME_PACKAGE to a real Codex package")
+@unittest.skipUnless(os.environ.get("CODEX_TEST_LEGACY_RUNTIME_PACKAGE"),
+                     "Set CODEX_TEST_LEGACY_RUNTIME_PACKAGE to the frozen 0.154.0 package")
 class RuntimeProbeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.directory = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.directory.cleanup)
-        cls.report = probe_runtime(Path(os.environ["GALATEA_TEST_RUNTIME_PACKAGE"]),
-                                   Path(cls.directory.name), ROOT / "config/contracts")
+        cls.report = probe_runtime(Path(os.environ["CODEX_TEST_LEGACY_RUNTIME_PACKAGE"]),
+                                   Path(cls.directory.name), ROOT / "tests/fixtures/dynamic-tools",
+                                   probe_tool="galatea_get_capabilities", probe_arguments={"protocol_version": "galatea.tools/v1"})
 
     def test_real_binary_success_and_error_round_trip(self):
         self.assertEqual(set(self.report["cases"]), {"full", "subset"})

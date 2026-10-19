@@ -13,7 +13,7 @@ from codex_agent.state import AtomicJsonStore, OperationJournal
 class RegistrySecurityTests(unittest.TestCase):
     def test_secret_fields_are_removed_before_model_receives_result(self):
         with tempfile.TemporaryDirectory() as directory:
-            catalog = Catalog.load(ROOT / "config/contracts")
+            catalog = Catalog.load(ROOT / "tests/fixtures/dynamic-tools")
             registry = ToolRegistry(catalog, OperationJournal(AtomicJsonStore(Path(directory))), {
                 name: lambda *_: {"token": "hidden", "nested": {"api_key": "hidden", "safe": "ok"}}
                 for name in catalog.schemas})

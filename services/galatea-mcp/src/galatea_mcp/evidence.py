@@ -177,6 +177,10 @@ class EvidenceService:
 
     def freeze(self, c, args):
         self.service.allowed(c)
+        _, operation, _ = self.owned(c, args['run_id'])
+        project = self.service.registry.get(c['spec']['project_id'])
+        if project.configs[operation['config_id']].promotable is not True:
+            raise DomainError('candidate-ineligible')
         result = self.compare(c, [args['run_id']])
         if not result['ranking']:
             raise DomainError('candidate-ineligible')

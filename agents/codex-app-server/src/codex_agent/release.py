@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import importlib.metadata
 import sys
+import sysconfig
 import stat
 from pathlib import Path
 import subprocess
@@ -12,6 +13,7 @@ import tempfile
 from .catalog import Catalog, digest
 from .compatibility import RuntimeContract
 from .stage0 import GateError, file_sha256, package_manifest, require_stage0
+from .runtime_version import VERSION, RUNTIME_VERSION
 
 
 def load_json(path):
@@ -38,20 +40,24 @@ def source_digest(root):
 
 
 def software_manifest():
-    import galatea_mcp
-    packages = sorted((dist.metadata['Name'].lower(), dist.version) for dist in importlib.metadata.distributions())
+    # Measure installed distributions independently of sys.path or import order.
+    package_paths = sorted({sysconfig.get_path('purelib'), sysconfig.get_path('platlib')})
+    packages = sorted((dist.metadata['Name'].lower(), dist.version)
+                      for dist in importlib.metadata.distributions(path=package_paths))
     return {'host_code_sha256': source_digest(Path(__file__).parent),
-            'galatea_code_sha256': source_digest(Path(galatea_mcp.__file__).parent),
             'python_binary_sha256': file_sha256(Path(sys.executable).resolve()),
             'python_version': sys.version.split()[0], 'python_packages_sha256': digest(packages)}
 
 
+def extension_manifest(config):
+    return digest({'providers': [{'path': str(entry['path']), 'code': source_digest(entry['path'].parent)}
+                                 for entry in config.providers],
+                   'skills': [{'path': str(root), 'code': source_digest(root)} for root in config.skill_roots]})
+
+
 def measure(config):
-    catalog = Catalog.load(config.contracts.parent)
-    catalog.dynamic_tools(config.actions)
-    if config.catalog_metadata != config.contracts.parent / 'catalog-metadata.json':
-        raise GateError('catalog metadata must use the bound contract directory')
-    compatibility = RuntimeContract.load(config.contracts.parent / 'runtime-compatibility.json', catalog)
+    catalog = config.catalog()
+    compatibility = RuntimeContract.load(config.compatibility_profile, catalog) if config.compatibility_profile else None
     if not config.binary.is_file() or not config.binary.stat().st_mode & 0o111:
         raise GateError('configured runtime is not executable')
     package = load_json(config.runtime_dir / 'codex-package.json')
@@ -60,20 +66,23 @@ def measure(config):
     static_binding = {'runtime_binary_sha256': file_sha256(config.binary),
         'runtime_package_manifest_sha256': file_sha256(config.runtime_dir / 'codex-package.json'),
         'runtime_package_tree_sha256': package_manifest(config.runtime_dir)['sha256']}
-    if any(value != compatibility.runtime_binding[key] for key, value in static_binding.items()):
+    if compatibility and any(value != compatibility.runtime_binding[key] for key, value in static_binding.items()):
         raise GateError('runtime bytes differ from the accepted compatibility profile')
     version = subprocess.check_output([str(config.binary), '--version'], text=True, timeout=15).strip()
-    if version != config.runtime_version or version != 'codex-cli ' + package['version']:
-        raise GateError('runtime version mismatch')
-    with tempfile.TemporaryDirectory(prefix='galatea-schema-') as directory:
+    if (version != config.runtime_version or version != 'codex-cli ' + package['version']
+            or version != RUNTIME_VERSION):
+        raise GateError(f'runtime must match the supported Codex {VERSION} protocol')
+    with tempfile.TemporaryDirectory(prefix='codex-schema-') as directory:
         subprocess.run([str(config.binary), 'app-server', 'generate-json-schema', '--experimental', '--out', directory],
                        check=True, capture_output=True, timeout=30)
         schema_digest = package_manifest(Path(directory))['sha256']
     manifest = {**software_manifest(), **static_binding, 'codex_version': version,
         'app_server_protocol_schema_sha256': schema_digest, 'dynamic_tool_catalog_sha256': catalog.digest,
-        'runtime_compatibility_sha256': compatibility.digest, 'agent_config_sha256': digest(config.raw),
+        'runtime_compatibility_sha256': compatibility.digest if compatibility else digest({'protocol': schema_digest, 'catalog': catalog.digest}),
+        'extensions_sha256': extension_manifest(config), 'agent_config_sha256': digest(config.raw),
         'codex_config_sha256': file_sha256(config.codex_home / 'config.toml')}
-    compatibility.assert_runtime(manifest)
+    if compatibility:
+        compatibility.assert_runtime(manifest)
     return manifest
 
 
@@ -115,7 +124,7 @@ def verify_release(config):
         raise GateError('reviewed release manifest and stage-0 record are required')
     if config.codex_home != config.config_dir / 'codex-home':
         raise GateError('CODEX_HOME must be config-dir/codex-home')
-    for path in (config.codex_home, config.state_dir, config.event_dir, config.workspace_dir):
+    for path in (config.codex_home, config.state_dir, config.workspace_dir):
         if not path.is_relative_to(config.config_dir):
             raise GateError('application state must be under its controlled configuration directory')
         if path.exists() and path.stat().st_mode & 0o022:
@@ -133,7 +142,18 @@ def verify_release(config):
     # A matching digest alone does not prevent replacement between measurement
     # and execution. The runtime and contracts stay administrator-owned.
     require_protected_tree(config.runtime_dir)
-    require_protected_tree(config.contracts.parent)
+    if config.catalog_dir:
+        if not config.compatibility_profile:
+            raise GateError('custom tools require an accepted runtime compatibility profile')
+        require_protected_tree(config.catalog_dir)
+    if config.compatibility_profile:
+        require_protected_path(config.compatibility_profile)
+    for entry in config.providers:
+        require_protected_tree(entry['path'].parent)
+    for root in config.skill_roots:
+        require_protected_tree(root)
+    if file_sha256(config.binary) != expected.get('runtime_binary_sha256'):
+        raise GateError('runtime bytes differ from the accepted release')
     measured = measure(config)
     if any(expected.get(k) != v for k, v in measured.items()):
         raise GateError('measured release differs from accepted manifest')
@@ -141,7 +161,7 @@ def verify_release(config):
         raise GateError('effective runtime configuration must be accepted')
     source_check = record['checks']['source_provenance']
     provenance = load_json(paths[1].parent / source_check['evidence_path'])
-    if (provenance.get('schema_version') != 'galatea.runtime-provenance/v1'
+    if (provenance.get('schema_version') != 'codex-agent.runtime-provenance/v1'
             or provenance.get('status') != 'passed'
             or provenance.get('verification') != 'npm-audit-signatures-and-sigstore-attestations'
             or provenance.get('source_repository') != 'https://github.com/openai/codex'

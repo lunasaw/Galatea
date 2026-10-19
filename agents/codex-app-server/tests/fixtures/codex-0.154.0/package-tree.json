@@ -1,0 +1,66 @@
+{
+  "entries": [
+    {
+      "path": "bin",
+      "executable": 73,
+      "type": "directory"
+    },
+    {
+      "path": "bin/codex",
+      "executable": 73,
+      "type": "file",
+      "sha256": "3188814c35471432d4123203e0eb38e5bddc60226e3d7ddf0e59e649ea140022"
+    },
+    {
+      "path": "bin/codex-code-mode-host",
+      "executable": 73,
+      "type": "file",
+      "sha256": "0c57be435e73b70d9106c850d751cd259a7f04da958a453d7ef59090d82b70f1"
+    },
+    {
+      "path": "codex-package.json",
+      "executable": 0,
+      "type": "file",
+      "sha256": "b039964d28d57b2a7e929ee9986303582501c7cc9787f6c018b6d3c7b35c87d7"
+    },
+    {
+      "path": "codex-path",
+      "executable": 73,
+      "type": "directory"
+    },
+    {
+      "path": "codex-path/rg",
+      "executable": 73,
+      "type": "file",
+      "sha256": "e62198eb19b136b88c330af83647b5a962cb99b6b1f066758568f12de1974849"
+    },
+    {
+      "path": "codex-resources",
+      "executable": 73,
+      "type": "directory"
+    },
+    {
+      "path": "codex-resources/bwrap",
+      "executable": 73,
+      "type": "file",
+      "sha256": "01fb705f067bd5365b63d8ad2323a61c8d007733ca5e649437e086f3fb9935d8"
+    },
+    {
+      "path": "codex-resources/zsh",
+      "executable": 73,
+      "type": "directory"
+    },
+    {
+      "path": "codex-resources/zsh/bin",
+      "executable": 73,
+      "type": "directory"
+    },
+    {
+      "path": "codex-resources/zsh/bin/zsh",
+      "executable": 73,
+      "type": "file",
+      "sha256": "67faaaa89242c4a332e16e508a1977cffc24bf7fca31d4411cdfd101f3831ef3"
+    }
+  ],
+  "sha256": "3cc41caee17e08d177a0213b881424d41eff0377627ace4d90ada506110ec3c1"
+}

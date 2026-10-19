@@ -1,5 +1,6 @@
 import json
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -65,21 +66,37 @@ class JobReleaseTests(unittest.TestCase):
             )
             self.assertTrue(project.releases[release_id].deadline_enforced)
             self.assertTrue(project.releases[release_id].path.endswith(".zip"))
-            self.assertEqual(58560, campaign.budget.cpu_seconds)
-            self.assertEqual(14640, campaign.budget.gpu_seconds)
+            self.assertIn("reports/evidence.json", project.artifact_paths)
+            # Four governed slots (baseline, one trial, champion, evaluator)
+            # each carry the explicit three-hour execution budget.
+            self.assertEqual(173760, campaign.budget.cpu_seconds)
+            self.assertEqual(43440, campaign.budget.gpu_seconds)
             champion = next(slot for slot in campaign.slots if slot.role == "champion")
             self.assertEqual(
                 {"formal-sft-v2-champion", "formal-sft-v2-champion-trial"},
                 set(champion.config_ids),
             )
+            self.assertFalse(project.configs["formal-sft-v2-baseline"].promotable)
+            self.assertTrue(project.configs["formal-sft-v2-champion"].promotable)
             for path in files.values():
                 self.assertEqual(stat.S_IRUSR | stat.S_IWUSR, stat.S_IMODE(path.stat().st_mode))
 
     def test_clean_build_rejects_dirty_repository(self):
         with tempfile.TemporaryDirectory() as td:
+            repository = Path(td) / "repository"
+            root = repository / "train-model" / "wechat-persona"
+            (root / "scripts").mkdir(parents=True)
+            for relative in ("galatea.project.yaml", "conda.yaml", "scripts/submit_train.py"):
+                (root / relative).write_text("fixture\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "init", "--quiet"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             with self.assertRaisesRegex(ValueError, "clean Git commit"):
-                root = Path(td)
-                build_release(ROOT, root / "release")
+                build_release(root, Path(td) / "release")
 
     def test_release_rejects_symlink_and_output_inside_project(self):
         with tempfile.TemporaryDirectory() as td:

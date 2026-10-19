@@ -10,6 +10,19 @@ from codex_agent.stage0 import GateError
 
 
 class SoftwareMeasurementTests(unittest.TestCase):
+    def test_vendored_dependency_search_path_does_not_change_installed_package_measurement(self):
+        from importlib.metadata import distributions
+        from unittest.mock import patch
+        from codex_agent.release import software_manifest
+        before = software_manifest()['python_packages_sha256']
+        with tempfile.TemporaryDirectory() as directory:
+            metadata = Path(directory) / 'galatea_test_vendored-1.0.dist-info'
+            metadata.mkdir()
+            (metadata / 'METADATA').write_text('Name: galatea-test-vendored\nVersion: 1.0\n')
+            with patch.object(sys, 'path', [directory, *sys.path]):
+                self.assertIn('galatea-test-vendored', [d.metadata['Name'] for d in distributions()])
+                self.assertEqual(software_manifest()['python_packages_sha256'], before)
+
     def test_source_digest_covers_code_and_web_assets_but_not_interpreter_caches(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); (root/'app.py').write_text('x=1\n')
@@ -31,8 +44,9 @@ class SoftwareMeasurementTests(unittest.TestCase):
             root=Path(directory);(root/'bin').mkdir()
             binary=root/'bin/codex';binary.write_text('#!/bin/sh\nexit 0\n');binary.chmod(0o755)
             (root/'codex-package.json').write_text(json.dumps({'variant':'codex','entrypoint':'bin/codex','version':'0.153.4'}))
-            config=SimpleNamespace(contracts=ROOT/'config/contracts/tools.json',
-                catalog_metadata=ROOT/'config/contracts/catalog-metadata.json',actions=frozenset({'*'}),
+            from codex_agent.catalog import Catalog
+            config=SimpleNamespace(catalog=lambda:Catalog.load(ROOT/'tests/fixtures/dynamic-tools'),
+                compatibility_profile=ROOT/'tests/fixtures/dynamic-tools/runtime-compatibility.json',
                 runtime_dir=root,binary=binary,runtime_version='codex-cli 0.153.4')
             with patch('codex_agent.release.subprocess.check_output') as execute:
                 with self.assertRaises(GateError):

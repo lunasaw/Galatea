@@ -12,30 +12,30 @@ The cats-and-dogs TensorFlow/Keras example in `train-model/cats-and-dogs/` is on
 
 ## Environment
 
-- **Conda environment**: `attend-ray-py312` at `/data/conda/envs/attend-ray-py312`
-- **Working directory**: `/data/ai/chenzhangyue/code/galatea`
-- **Data directory**: `/data/ai/chenzhangyue/code/data/` (sibling to train, not in git)
+- **Conda environment**: `attend-ray-py312` at `/data/miniconda3/envs/attend-ray-py312`
+- **Working directory**: `/data/ai/chenzhangyue/galatea-model/galatea`
+- **Data directory**: `/data/ai/chenzhangyue/galatea-model/train-data/` (outside the repository, not in git)
 - **Platform data**: `platform-data/` (gitignored, contains runtime databases, artifacts, and state)
 
 Activate the environment:
 ```bash
-source /data/conda/etc/profile.d/conda.sh
+source /data/miniconda3/etc/profile.d/conda.sh
 conda activate attend-ray-py312
 ```
 
 ## Platform Services
 
-All services are managed by systemd. Required before training:
+The recorded development profile runs MinIO, MLflow and the Ray Head under systemd. JupyterLab is optional. Verify the target profile before training; current machine facts are in `doc/local-services-18100.md` and `doc/platform-runtime-memory.md`.
 
 | Service | Port | Purpose | Health Check |
 | --- | ---: | --- | --- |
 | JupyterLab | 8888 | Interactive development | `systemctl is-active jupyterlab.service` |
-| MLflow Tracking | 5000 | Experiment tracking & artifact proxy | `curl -fsS http://127.0.0.1:5000/health` |
-| MinIO API | 9000 | S3-compatible object storage | `curl -fsS http://127.0.0.1:9000/minio/health/live` |
-| MinIO Console | 9001 | Storage management UI | Web access |
-| Ray (optional) | 8265 | Distributed job execution & dashboard | `ray status` |
+| MLflow Tracking | 18103 | Experiment tracking & artifact proxy | `curl -fsS http://127.0.0.1:18103/health` |
+| MinIO API | 18101 | S3-compatible object storage | `curl -fsS http://127.0.0.1:18101/minio/health/live` |
+| MinIO Console | 18102 | Storage management UI | Web access |
+| Ray Head / Jobs | 18104 / 8265 | Governed job execution & dashboard | `ray status --address=10.26.0.140:18104` |
 
-Ray Head is started on-demand before submitting formal training jobs (see `doc/ray-start.md`). Training clients only access MLflow API at `http://127.0.0.1:5000` and never read `platform-data/mlflow/mlflow.db` directly. MLflow Server proxies all artifact writes to MinIO using credentials from `/etc/minio/mlflow-s3.env` (never commit this file).
+The development Ray Head is managed by `ray-head.service`; select explicit GCS and Jobs API addresses before submitting any Training Run (see `doc/ray-start.md`). Training clients only access MLflow API at `http://127.0.0.1:18103` and never read `platform-data/mlflow/mlflow.db` directly. MLflow Server proxies all artifact writes to MinIO using credentials from `/etc/minio/mlflow-s3.env` (never commit this file).
 
 ## Development Commands
 
@@ -46,13 +46,13 @@ jupyter lab --no-browser --allow-root --ServerApp.root_dir="$PWD"
 
 **Run tests**:
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+/data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
   -s tests -p 'test_*.py'
-/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+/data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
   -s train-model/cats-and-dogs/tests -p 'test_*.py'
-/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+/data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
   -s train-model/ray-cats-and-dogs/tests -p 'test_*.py'
-/data/conda/envs/attend-ray-py312/bin/python -m unittest discover \
+/data/miniconda3/envs/attend-ray-py312/bin/python -m unittest discover \
   -s train-model/ray-handwritten-digits/tests -p 'test_*.py'
 ```
 
@@ -61,17 +61,14 @@ jupyter lab --no-browser --allow-root --ServerApp.root_dir="$PWD"
 systemd-analyze verify systemd/*.service
 ```
 
-**Notebook smoke test** (cats-and-dogs example):
-```bash
-# Edit notebook to set EPOCHS=1, RUN_AUTO_TUNING=False first
-jupyter nbconvert --execute --to notebook \
-  train-model/cats-and-dogs/cats-vs-dogs-classification.ipynb \
-  --output-dir /tmp --output cats-vs-dogs-smoke.ipynb
-```
+**Notebook validation**: Local checks must be read-only or forward-only. Any parameter fitting,
+optimizer update, checkpoint or durable training evidence must use the project's declared governed
+backend, even for a one-epoch smoke. Use the owning project README and fixed entrypoint; keep permitted
+notebook outputs in a temporary directory without overwriting the source.
 
 **Analyze MLflow experiments** (framework-agnostic):
 ```bash
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export MLFLOW_TRACKING_URI=http://127.0.0.1:18103
 export MLFLOW_EXPERIMENT_NAME="your-experiment-name"
 python .codex/skills/mlflow-optimize-models/scripts/analyze_experiment.py \
   --tracking-uri "$MLFLOW_TRACKING_URI" \
@@ -81,16 +78,20 @@ python .codex/skills/mlflow-optimize-models/scripts/analyze_experiment.py \
   --repo-root "$PWD"
 ```
 
-**dsh-galatea plugin checks**:
+**Codex and platform checks**:
 ```bash
-cd plugins/dsh-galatea
-node --test tests/*.test.ts
-./node_modules/.bin/tsc --noEmit
-./node_modules/.bin/tsc -p tsconfig.build.json
+cd packages/galatea-governance
+npm ci
+npm test
+npm run typecheck
+npm run build
+```
 
-# Run source-level Harness integration tests from the neighboring checkout
-/data/ai/chenzhangyue/code/deepseek-harness/node_modules/.bin/vitest run \
-  --config "$PWD/vitest.harness.config.ts"
+Run the Python Host and platform suites from the repository root:
+```bash
+python -m unittest discover -s agents/codex-app-server/tests -p 'test_*.py'
+PYTHONPATH=services/galatea-mcp/src \
+  python -m unittest discover -s services/galatea-mcp/tests -p 'test_*.py'
 ```
 
 ## Platform Contracts
@@ -185,72 +186,65 @@ PR requirements:
 ```bash
 python -m pip install kaggle  # Requires ~/.kaggle/kaggle.json
 
-mkdir -p /data/ai/chenzhangyue/code/data/cats-and-dogs
+mkdir -p /data/ai/chenzhangyue/galatea-model/train-data/cats-and-dogs
 kaggle datasets download \
   -d shaunthesheep/microsoft-catsvsdogs-dataset \
-  -p /data/ai/chenzhangyue/code/data/cats-and-dogs \
+  -p /data/ai/chenzhangyue/galatea-model/train-data/cats-and-dogs \
   --force
 
-unzip -q /data/ai/chenzhangyue/code/data/cats-and-dogs/microsoft-catsvsdogs-dataset.zip \
-  -d /data/ai/chenzhangyue/code/data/cats-and-dogs
+unzip -q /data/ai/chenzhangyue/galatea-model/train-data/cats-and-dogs/microsoft-catsvsdogs-dataset.zip \
+  -d /data/ai/chenzhangyue/galatea-model/train-data/cats-and-dogs
 
 # Verify: should both output 12500
-find /data/ai/chenzhangyue/code/data/cats-and-dogs/PetImages/Cat -maxdepth 1 -type f -iname '*.jpg' | wc -l
-find /data/ai/chenzhangyue/code/data/cats-and-dogs/PetImages/Dog -maxdepth 1 -type f -iname '*.jpg' | wc -l
+find /data/ai/chenzhangyue/galatea-model/train-data/cats-and-dogs/PetImages/Cat -maxdepth 1 -type f -iname '*.jpg' | wc -l
+find /data/ai/chenzhangyue/galatea-model/train-data/cats-and-dogs/PetImages/Dog -maxdepth 1 -type f -iname '*.jpg' | wc -l
 ```
 
-**First-time notebook runs**: Set `EPOCHS = 1` in the parameters cell to verify the pipeline, then change to `10` for full training. Known corrupted images (Cat/666.jpg, Dog/11702.jpg) are automatically skipped.
+**First-time validation**: Use read-only configuration/data checks and forward-only fixtures. Training smoke runs still use the fixed governed backend with an explicit budget. Known corrupted images (Cat/666.jpg, Dog/11702.jpg) are handled by the workload data contract.
 
 **Configure MLflow client**:
 ```bash
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export MLFLOW_TRACKING_URI=http://127.0.0.1:18103
 export MLFLOW_EXPERIMENT_NAME=your-experiment-name
 ```
 
 For remote MLflow servers, use the HTTPS tracking URI and authentication config. Never copy server database or MinIO credentials to training projects.
 
-## Harness Integration
+## Codex Integration
 
-DeepSeek Harness is the repository's only Agent Runtime. The TypeScript ESM package in
-`plugins/dsh-galatea/` registers 14 typed Cordis Tools for administrator-configured project listing and
-Session-scoped selection, project inspection/configuration, Ray Job lifecycle, MLflow evidence, stage
-approval, and explicitly approved model promotion. The current bundle registers `ray-cats-and-dogs`
-and `ray-handwritten-digits`, defaulting to the former.
+Codex is the sole Agent Runtime. Repository workflows use `.codex/skills/` and fixed project entrypoints.
+The Web Agent in `agents/codex-app-server/` hosts the native `codex app-server` over stdio JSON-RPC;
+Codex owns Thread, Turn, Skill, sandbox, approval and the Agent Loop. The generic Host provides an
+HTTP/SSE Console, process/session recovery and an optional Dynamic Tool Registry backed by configured
+Python Providers. It has no Galatea service dependency, built-in business adapter or training state machine.
+The Console uses one Host identity; protect external access with an authenticated proxy or controlled network.
 
-The plugin does not own an Agent Loop, Session, Workflow, permission system, Skill Registry, CLI, or
-model client. Successful project-selection Tool events are replayed through the Harness
-`galateaProjectSelection` Session projection; selection is not a process-global singleton and can only
-route to registry entries configured by an administrator. This trusted-project routing is not tenant
-isolation: shared Ray/MLflow clients and credentials remain a common trust domain. Its project entrypoints
-are fixed argv arrays declared in `galatea.project.yaml`; arbitrary shell commands are not model-facing
-capabilities. `configPath` is project-relative below the declared `configRoot`, while
-`releaseManifestPath` is relative to that project's configured immutable `releaseRoot`.
+`services/galatea-mcp/` owns Campaign scope, budgets, idempotent operations, final-test usage and platform
+API evidence. Connect its independent MCP transport through native `codex-home/config.toml`; configure
+Skill roots separately in `agent.json`. Never run two writers against the same business state. Native
+approval cannot grant platform business authorization. Production startup requires an accepted release
+and explicit model configuration; documentation or protocol tests do not establish training acceptance.
 
-Lifecycle/evidence results with `operationStatus` report execution, quality, governance, and
-preprocessing/migration integrity independently. Readiness fails closed when required integrity evidence
-is absent, unknown, inapplicable for an applicable role, or failed. A Ray success never implies quality or
-authorization. Promotion is never automatic and always requires an explicit `galatea_promote_model` call with
-current final-validation evidence. Harness `danger-full-access` authorizes governed actions without a prompt;
-other permission presets require one-time approval. With approval policy `never` outside full access, governed
-submit, resume, and promotion fail closed; retrying cannot bypass disabled prompts.
+`packages/galatea-governance/` contains runtime-independent policies used by fixed project-YAML entrypoints
+such as `train-model/ray-cats-and-dogs/job/governed.mjs`. It owns no Agent Loop, Session or model client.
+Plans and submissions still require immutable releases, explicit cluster selection and evidence-bound
+authorization. A successful Ray Job does not imply quality approval or permission to change a production alias.
 
-Credentials are injected by the Harness process. Plugin configuration stores only the name of an
-environment variable containing a bearer token, never the token itself. Missing referenced variables
-fail startup rather than silently falling back to unauthenticated access. Project subprocesses inherit only
-the configured environment allowlist (a small non-secret default), not the full Harness environment.
-Ray log reads use a character-offset cursor: feed each `nextLogCursor` into the next `logCursor`, handle
-truncation/reset flags, and prefer status-only observations after the first log read.
+Only `codex-agent/v2` Host configuration is accepted. Old principal/galatea fields, state and release
+acceptance records are not automatically migrated. The removed Python Runner is not a deployment entrypoint;
+the published training Skill bundle still has a historical `wait_external` contract that the generic Host
+does not schedule. Business integration and training-stage/artifact visualization require separate acceptance.
 
-The plugin consumes and binds declarations from immutable release manifests but does not build or overwrite
-runtime packages. After source, entrypoint, dependency/packaging, or data/split-identity changes, rebuild and
-publish a new release and plan against its new relative `<release-id>/release.json`; old releases do not
-absorb workspace changes.
+After source, configuration, entrypoint, dependency or data-identity changes, build a new immutable Release;
+old releases never absorb workspace edits. Use the actual source/protocol surfaces for Agent features and
+keep credentials in protected host configuration, outside model input, subprocess environments and logs.
 
-See `plugins/dsh-galatea/README.md` for development commands and `doc/dsh-galatea-operations.md` for
-Profile installation, deployment configuration, release handling, and operational recovery.
+See `doc/agent-galatea.md` and `agents/codex-app-server/docs/06-config-deployment.md` for boundaries and deployment.
 
 ## Documentation
 
+- [Current machine deployment](doc/local-services-18100.md)
+- [Cluster profiles and runtime memory](doc/platform-runtime-memory.md)
 - [JupyterLab deployment](doc/jupyter-start.md)
 - [MLflow Tracking Server deployment](doc/mlflow-start.md)
 - [MinIO deployment](doc/minio-start.md)
@@ -259,5 +253,5 @@ Profile installation, deployment configuration, release handling, and operationa
 - [End-to-end implementation guide](doc/train-guide/data-to-training-to-model-imp-guide.md)
 - [Repository development conventions](AGENTS.md)
 - [Platform overview and architecture](README.md)
-- [DeepSeek Harness and Galatea architecture](doc/agent-galatea.md)
-- [dsh-galatea operations](doc/dsh-galatea-operations.md)
+- [Codex and Galatea architecture](doc/agent-galatea.md)
+- [Codex app-server deployment](agents/codex-app-server/docs/06-config-deployment.md)

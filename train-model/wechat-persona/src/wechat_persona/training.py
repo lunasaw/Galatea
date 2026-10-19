@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -20,6 +21,10 @@ class TrainingBoundaryError(RuntimeError):
     pass
 
 
+QWEN35_MODEL_ID = "Qwen/Qwen3.5-0.8B"
+QWEN35_CONDITIONAL_ARCHITECTURE = "qwen3_5_conditional_generation"
+
+
 def _model_source(model_config: Mapping[str, Any]) -> tuple[str, str | None]:
     """Resolve the approved model identity to a node-local immutable snapshot.
 
@@ -30,7 +35,7 @@ def _model_source(model_config: Mapping[str, Any]) -> tuple[str, str | None]:
     """
     model_id = str(model_config["model_id"])
     local_path = os.environ.get("WECHAT_PERSONA_MODEL_PATH")
-    if local_path and model_id == "Qwen/Qwen3.5-0.8B":
+    if local_path and model_id == QWEN35_MODEL_ID:
         path = Path(local_path)
         if path.is_dir() and (path / "config.json").is_file():
             return str(path), None
@@ -73,6 +78,7 @@ def build_training_plan(config: Mapping[str, Any]) -> dict[str, Any]:
         "task": config.get("task"),
         "config_digest": _digest(config),
         "role": config.get("run", {}).get("role"),
+        "model_architecture": config.get("model", {}).get("architecture"),
         "test_access": config.get("evaluation", {}).get("test_access", "untouched"),
         "execution_backend": config.get("execution", {}).get("backend"),
         "errors": errors,
@@ -90,18 +96,58 @@ def validate_training_readiness(config: Mapping[str, Any]) -> list[str]:
     for split in ("train", "validation", "test"):
         if counts and int(counts.get(split, 0)) <= 0:
             errors.append(f"dataset.{split} must be non-empty")
-    if dataset.get("formal_dataset_ready") is not True:
-        errors.append("dataset must be FORMAL_DATASET_READY")
-    if governance:
+    experimental_prelabel = (
+        governance.get("quality_status") == "experimental_only"
+        and governance.get("review_method") == "gpt-prelabel-v1"
+    )
+    if experimental_prelabel:
+        if dataset.get("experimental_prelabel_ready") is not True:
+            errors.append("experimental prelabel dataset must be ready")
+        if dataset.get("formal_dataset_ready") is not False:
+            errors.append("experimental prelabel dataset must not claim FORMAL_DATASET_READY")
+        if config.get("run", {}).get("role") not in {"baseline", "trial"}:
+            errors.append("experimental prelabel training is limited to baseline/trial")
+        if config.get("run", {}).get("promotable") is not False:
+            errors.append("experimental prelabel training must be non-promotable")
+        if config.get("evaluation", {}).get("test_access") != "untouched":
+            errors.append("experimental prelabel training must leave test untouched")
+        if config.get("evaluation", {}).get("evaluate_test") is not False:
+            errors.append("experimental prelabel training cannot evaluate test")
         required_true = (
-            "formal_training_eligible",
-            "human_review_completed",
+            "experimental_training_authorized",
+            "machine_review_completed",
+            "parent_human_review_completed",
             "pii_scan_passed",
             "canary_scan_passed",
         )
         for name in required_true:
             if governance.get(name) is not True:
                 errors.append(f"{name} must be true")
+        for name in ("formal_training_eligible", "human_review_completed"):
+            if governance.get(name) is not False:
+                errors.append(f"experimental prelabel {name} must be false")
+        for name in ("authorization_digest", "review_state_sha256"):
+            if not _is_sha(governance.get(name)):
+                errors.append(f"{name} must be a SHA-256 digest")
+        authorization_id = str(governance.get("authorization_id") or "")
+        authorization_digest = hashlib.sha256(
+            authorization_id.encode("utf-8")
+        ).hexdigest()
+        if not authorization_id or governance.get("authorization_digest") != authorization_digest:
+            errors.append("experimental training authorization identity mismatch")
+    elif dataset.get("formal_dataset_ready") is not True:
+        errors.append("dataset must be FORMAL_DATASET_READY")
+    if governance:
+        if not experimental_prelabel:
+            required_true = (
+                "formal_training_eligible",
+                "human_review_completed",
+                "pii_scan_passed",
+                "canary_scan_passed",
+            )
+            for name in required_true:
+                if governance.get(name) is not True:
+                    errors.append(f"{name} must be true")
         if governance.get("withdrawn") is True:
             errors.append("withdrawn dataset cannot train")
         if governance.get("cross_split_session_count", 0) != 0:
@@ -133,6 +179,34 @@ def validate_training_readiness(config: Mapping[str, Any]) -> list[str]:
             )
         except (ConsentError, OSError) as exc:
             errors.append(str(exc))
+    return sorted(set(errors))
+
+
+def validate_binding_identity(
+    binding: Mapping[str, Any], config: Mapping[str, Any]
+) -> list[str]:
+    """Ensure platform input identity matches the immutable embedded config."""
+
+    dataset = config.get("dataset", {})
+    evaluation = config.get("evaluation", {})
+    expected = {
+        "project_id": config.get("platform_project_id", config.get("project")),
+        "dataset_digest": dataset.get("manifest_sha256"),
+        "split_digest": dataset.get("split_sha256"),
+        "preprocessing": dataset.get("preprocessing_version"),
+        "role": config.get("run", {}).get("role"),
+        "seed": config.get("training", {}).get("seed"),
+    }
+    errors = [
+        f"binding {key} differs from embedded config"
+        for key, value in expected.items()
+        if binding.get(key) != value
+    ]
+    objective = binding.get("objective") or {}
+    if objective.get("metric") != evaluation.get("objective_metric"):
+        errors.append("binding objective metric differs from embedded config")
+    if objective.get("direction") != evaluation.get("objective_direction"):
+        errors.append("binding objective direction differs from embedded config")
     return sorted(set(errors))
 
 
@@ -199,24 +273,9 @@ def _messages(row: Mapping[str, Any]) -> list[dict[str, str]]:
 
 
 def _load_model(config: Mapping[str, Any]):
-    import torch
     from peft import LoraConfig, get_peft_model
-    from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    model_config = config["model"]
-    model_source, revision = _model_source(model_config)
-    tokenizer_source, tokenizer_revision = _model_source(model_config)
-    tokenizer = AutoTokenizer.from_pretrained(
-        tokenizer_source,
-        revision=tokenizer_revision,
-        trust_remote_code=False,
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        model_source,
-        revision=revision,
-        torch_dtype=getattr(torch, str(model_config.get("dtype", "bfloat16"))),
-        trust_remote_code=False,
-    )
+    tokenizer, model = _load_base_model(config)
     lora = config["lora"]
     return tokenizer, get_peft_model(
         model,
@@ -227,6 +286,86 @@ def _load_model(config: Mapping[str, Any]):
             target_modules=list(lora["target_modules"]),
             task_type="CAUSAL_LM",
         ),
+    )
+
+
+def _base_model_loader(
+    model_config: Mapping[str, Any],
+    *,
+    causal_loader: Any,
+    conditional_loader: Any,
+) -> Any:
+    if model_config["model_id"] != QWEN35_MODEL_ID:
+        return causal_loader
+    if model_config.get("architecture") != QWEN35_CONDITIONAL_ARCHITECTURE:
+        raise TrainingBoundaryError(
+            "Qwen3.5 training and serving require "
+            "model.architecture=qwen3_5_conditional_generation"
+        )
+    return conditional_loader
+
+
+def _load_base_model(config: Mapping[str, Any]):
+    """Load the concrete model class bound by the training/serving contract."""
+
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen3_5ForConditionalGeneration
+
+    model_config = config["model"]
+    model_source, revision = _model_source(model_config)
+    tokenizer_source, tokenizer_revision = _model_source(model_config)
+    tokenizer = AutoTokenizer.from_pretrained(
+        tokenizer_source,
+        revision=tokenizer_revision,
+        trust_remote_code=False,
+    )
+    model_loader = _base_model_loader(
+        model_config,
+        causal_loader=AutoModelForCausalLM,
+        conditional_loader=Qwen3_5ForConditionalGeneration,
+    )
+    model = model_loader.from_pretrained(
+        model_source,
+        revision=revision,
+        dtype=getattr(torch, str(model_config.get("dtype", "bfloat16"))),
+        trust_remote_code=False,
+    )
+    return tokenizer, model
+
+
+def _adapter_tensor_architecture(model_directory: Path) -> str:
+    from safetensors import safe_open
+
+    weights = model_directory / "adapter_model.safetensors"
+    if not weights.is_file():
+        raise ValueError("adapter_model.safetensors is missing")
+    with safe_open(str(weights), framework="pt", device="cpu") as handle:
+        keys = list(handle.keys())
+    if not keys:
+        raise ValueError("adapter contains no tensors")
+    conditional_markers = (
+        "base_model.model.model.language_model.layers.",
+        "base_model.model.language_model.model.layers.",
+    )
+    if all(any(marker in key for marker in conditional_markers) for key in keys):
+        return QWEN35_CONDITIONAL_ARCHITECTURE
+    if all("base_model.model.model.layers." in key for key in keys):
+        return "qwen3_5_causal_lm"
+    raise ValueError("adapter tensor keys do not match a supported Qwen3.5 module tree")
+
+
+def _record_adapter_architecture(model_directory: Path, expected: str) -> None:
+    observed = _adapter_tensor_architecture(model_directory)
+    if observed != expected:
+        raise ValueError(
+            f"adapter architecture mismatch: expected {expected}, observed {observed}"
+        )
+    config_path = model_directory / "adapter_config.json"
+    value = json.loads(config_path.read_text(encoding="utf-8"))
+    value["model_architecture"] = observed
+    config_path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -250,6 +389,20 @@ def _tokenize_rows(tokenizer: Any, rows: Iterable[Mapping[str, Any]], max_length
         # the supervised signal.
         full = tokenizer(full_text, truncation=False)
         prompt = tokenizer(prompt_text, truncation=False)
+        if row.get("schema_version") == "topic-reply-candidate-v1":
+            if row.get("candidate_sha256") != _digest({
+                key: value for key, value in row.items() if key != "candidate_sha256"
+            }):
+                raise ValueError("topic candidate semantic digest mismatch")
+            if full["input_ids"][:len(prompt["input_ids"])] != prompt["input_ids"]:
+                raise ValueError("topic candidate template prompt is not a prefix")
+            statistics = row.get("tokens", {})
+            if (len(full["input_ids"]) > max_length
+                    or statistics.get("serialized_tokens") != len(full["input_ids"])
+                    or statistics.get("target_start") != len(prompt["input_ids"])
+                    or statistics.get("target_end") != len(full["input_ids"])
+                    or statistics.get("target_tokens") != len(full["input_ids"]) - len(prompt["input_ids"])):
+                raise ValueError("topic candidate encoding changed or exceeds maximum length")
         labels = list(full["input_ids"])
         prompt_length = min(len(prompt["input_ids"]), len(labels))
         labels[:prompt_length] = [-100] * prompt_length
@@ -270,15 +423,59 @@ def _tokenize_rows(tokenizer: Any, rows: Iterable[Mapping[str, Any]], max_length
     return Dataset.from_list(encoded)
 
 
-def _example_losses(model: Any, dataset: Any) -> list[float]:
+def _example_losses(model: Any, dataset: Any, *, batch_size: int = 4) -> list[float]:
+    """Compute one causal-LM loss per example using padded inference batches.
+
+    The previous implementation launched one GPU forward pass per validation
+    row.  That made the post-training validation tail take several minutes and
+    could consume the governed execution deadline even after Trainer had
+    finished.  Batched logits are reduced per row so the metric remains the
+    same as the single-example cross-entropy while using the declared eval
+    batch size.
+    """
     import torch
+    import torch.nn.functional as F
 
     model.eval()
+    batch_size = max(1, int(batch_size))
+    pad_token_id = getattr(model.config, "pad_token_id", None)
+    if pad_token_id is None:
+        pad_token_id = getattr(model.config, "eos_token_id", 0)
     losses: list[float] = []
-    for row in dataset:
-        inputs = {key: torch.tensor([value], device=model.device) for key, value in row.items()}
+    rows = list(dataset)
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start : start + batch_size]
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(row["input_ids"], dtype=torch.long) for row in batch],
+            batch_first=True,
+            padding_value=int(pad_token_id),
+        ).to(model.device)
+        attention_mask = torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(row["attention_mask"], dtype=torch.long) for row in batch],
+            batch_first=True,
+            padding_value=0,
+        ).to(model.device)
+        labels = torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(row["labels"], dtype=torch.long) for row in batch],
+            batch_first=True,
+            padding_value=-100,
+        ).to(model.device)
         with torch.no_grad():
-            losses.append(float(model(**inputs).loss.detach().cpu()))
+            logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
+        shifted_logits = logits[:, :-1, :].contiguous()
+        shifted_labels = labels[:, 1:].contiguous()
+        token_losses = F.cross_entropy(
+            shifted_logits.float().view(-1, shifted_logits.shape[-1]),
+            shifted_labels.view(-1),
+            reduction="none",
+            ignore_index=-100,
+        ).view(shifted_labels.shape)
+        valid = shifted_labels.ne(-100)
+        counts = valid.sum(dim=1)
+        if torch.any(counts == 0):
+            raise ValueError("example has no supervised assistant tokens")
+        per_example = token_losses.sum(dim=1) / counts
+        losses.extend(float(value) for value in per_example.detach().cpu())
     return losses
 
 
@@ -355,6 +552,7 @@ def _log_lineage(client: Any, run_id: str, binding: Mapping[str, Any], config: M
         "metric_definition": binding["metric_definition"],
         "evaluation_protocol": binding["evaluation_protocol"],
         "model_id": config["model"]["model_id"],
+        "model_architecture": config["model"].get("architecture", "auto_causal_lm"),
         "model_revision": config["model"]["model_revision"],
         "tokenizer_revision": config["model"]["tokenizer_revision"],
         "seed": binding["seed"],
@@ -377,29 +575,97 @@ def _download_proxy_model(client: Any, run_id: str, destination: Path) -> Path:
     return path
 
 
-def _verify_fresh_adapter_load(model_directory: Path) -> None:
+def _verify_fresh_adapter_load(model_directory: Path, config: Mapping[str, Any]) -> None:
     import subprocess
     import sys
 
+    model_config = config["model"]
+    model_source, revision = _model_source(model_config)
+    expected = str(model_config.get("architecture", "auto_causal_lm"))
+    if model_config["model_id"] == QWEN35_MODEL_ID:
+        observed = _adapter_tensor_architecture(model_directory)
+        if observed != expected:
+            raise ValueError(
+                f"adapter architecture mismatch: expected {expected}, observed {observed}"
+            )
     result = subprocess.run(
         [
             sys.executable,
             "-c",
             (
-                "from pathlib import Path; from peft import PeftConfig; "
-                "from safetensors import safe_open; import sys; "
-                "root=Path(sys.argv[1]); PeftConfig.from_pretrained(root); "
-                "handle=safe_open(root/'adapter_model.safetensors',framework='pt',device='cpu'); "
-                "assert handle.keys()"
+                "from pathlib import Path; import sys, torch; "
+                "from peft import PeftModel; "
+                "from transformers import AutoModelForCausalLM, Qwen3_5ForConditionalGeneration; "
+                "adapter=Path(sys.argv[1]); source=sys.argv[2]; revision=sys.argv[3] or None; "
+                "architecture=sys.argv[4]; "
+                "loader=(Qwen3_5ForConditionalGeneration "
+                "if architecture=='qwen3_5_conditional_generation' else AutoModelForCausalLM); "
+                "base=loader.from_pretrained(source,revision=revision,dtype=torch.bfloat16,"
+                "trust_remote_code=False,local_files_only=Path(source).is_dir()); "
+                "model=PeftModel.from_pretrained(base,str(adapter),is_trainable=False); "
+                "assert model.peft_config"
             ),
             str(model_directory),
+            model_source,
+            revision or "",
+            expected,
         ],
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode != 0:
-        raise ValueError("fresh-process adapter load verification failed")
+        detail = (result.stderr or result.stdout).strip()[-2000:]
+        raise ValueError(f"fresh-process adapter load verification failed: {detail}")
+
+
+def _log_training_history(
+    client: Any,
+    run_id: str,
+    history: Iterable[Mapping[str, Any]],
+    *,
+    summary_metrics: Mapping[str, float] | None = None,
+) -> None:
+    """Persist step metrics and authoritative summaries in bounded MLflow batches."""
+
+    from mlflow.entities import Metric
+
+    batch: list[Any] = []
+    timestamp = int(time.time() * 1000)
+    last_step = 0
+    for entry in history:
+        step = int(entry.get("step", 0))
+        last_step = max(last_step, step)
+        for source, target in (
+            ("loss", "train_loss"),
+            ("learning_rate", "learning_rate"),
+            ("grad_norm", "gradient_norm"),
+        ):
+            if source in entry:
+                batch.append(Metric(target, float(entry[source]), timestamp, step))
+            if len(batch) >= 1000:
+                client.log_batch(run_id, metrics=batch, synchronous=True)
+                batch = []
+    for key, value in (summary_metrics or {}).items():
+        batch.append(Metric(key, float(value), timestamp, last_step + 1))
+        if len(batch) >= 1000:
+            client.log_batch(run_id, metrics=batch, synchronous=True)
+            batch = []
+    if batch:
+        client.log_batch(run_id, metrics=batch, synchronous=True)
+
+
+def _artifact_parent(source: Path, remote: str) -> str:
+    """Return the upload parent after enforcing the exact remote filename."""
+
+    remote_path = Path(remote)
+    if remote_path.is_absolute() or ".." in remote_path.parts:
+        raise ValueError("artifact path must be relative and cannot traverse parents")
+    if source.name != remote_path.name:
+        raise ValueError(
+            f"artifact source name {source.name!r} does not match remote name {remote_path.name!r}"
+        )
+    return str(remote_path.parent)
 
 
 def _train_role(
@@ -440,35 +706,46 @@ def _train_role(
         data_collator=DataCollatorForSeq2Seq(tokenizer, padding=True),
     )
     train = trainer.train()
-    validation = trainer.evaluate()
     model.save_pretrained(adapter_dir, safe_serialization=True)
+    if config["model"]["model_id"] == QWEN35_MODEL_ID:
+        _record_adapter_architecture(
+            adapter_dir,
+            str(config["model"].get("architecture", "auto_causal_lm")),
+        )
     tokenizer.save_pretrained(adapter_dir)
-    validation_losses = _example_losses(model, validation_data)
-    adapted_validation_loss = sum(validation_losses) / len(validation_losses)
+    # Reuse the authoritative Trainer evaluation metric.  Re-running a second
+    # validation pass after training can produce small numerical differences
+    # and makes the MLflow metric disagree with the evidence report.
+    eval_history = [
+        entry for entry in trainer.state.log_history
+        if "eval_loss" in entry
+    ]
+    if not eval_history:
+        raise ValueError("Trainer did not produce validation metrics")
+    adapted_validation_loss = float(eval_history[-1]["eval_loss"])
     metrics = {
         "train_loss": float(train.training_loss),
         "val_loss": adapted_validation_loss,
         "val_perplexity": math.exp(min(adapted_validation_loss, 20.0)),
     }
-    for entry in trainer.state.log_history:
-        step = int(entry.get("step", 0))
-        for source, target in (
-            ("loss", "train_loss"),
-            ("learning_rate", "learning_rate"),
-            ("grad_norm", "gradient_norm"),
-        ):
-            if source in entry:
-                client.log_metric(run_id, target, float(entry[source]), step=step)
+    _log_training_history(
+        client,
+        run_id,
+        trainer.state.log_history,
+        summary_metrics=metrics,
+    )
     report = output / "validation-quality.json"
     report.write_text(json.dumps({"metrics": metrics}, sort_keys=True) + "\n", encoding="utf-8")
     if not trainer.state.best_model_checkpoint:
         raise ValueError("best checkpoint was not produced")
     best_checkpoint = Path(trainer.state.best_model_checkpoint)
+    best_adapter = output / "best-adapter.safetensors"
+    shutil.copy2(best_checkpoint / "adapter_model.safetensors", best_adapter)
     return metrics, [
         (adapter_dir / "adapter_model.safetensors", "model/adapter_model.safetensors"),
         (adapter_dir / "adapter_config.json", "model/adapter_config.json"),
         (report, "reports/validation-quality.json"),
-        (best_checkpoint / "adapter_model.safetensors", "checkpoints/best-adapter.safetensors"),
+        (best_adapter, "checkpoints/best-adapter.safetensors"),
         (best_checkpoint / "trainer_state.json", "checkpoints/trainer_state.json"),
     ]
 
@@ -480,19 +757,9 @@ def _evaluate_role(
     client: Any,
     output: Path,
 ) -> tuple[dict[str, float], list[tuple[Path, str]]]:
-    import torch
     from peft import PeftModel
-    from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    model_config = config["model"]
-    model_source, revision = _model_source(model_config)
-    tokenizer_source, tokenizer_revision = _model_source(model_config)
-    tokenizer = AutoTokenizer.from_pretrained(
-        tokenizer_source, revision=tokenizer_revision, trust_remote_code=False
-    )
-    base = AutoModelForCausalLM.from_pretrained(
-        model_source, revision=revision, trust_remote_code=False
-    )
+    tokenizer, base = _load_base_model(config)
     adapter_directory = _download_proxy_model(
         client,
         str(binding["champion_run_id"]),
@@ -501,7 +768,7 @@ def _evaluate_role(
     adapter_file = adapter_directory / "adapter_model.safetensors"
     if _file_digest(adapter_file) != binding["champion_model_sha256"]:
         raise ValueError("champion model digest mismatch")
-    _verify_fresh_adapter_load(adapter_directory)
+    _verify_fresh_adapter_load(adapter_directory, config)
     model = PeftModel.from_pretrained(base, str(adapter_directory), is_trainable=False)
     model.eval()
     dataset = _tokenize_rows(tokenizer, test_rows, int(config["training"].get("max_length", 1024)))
@@ -543,6 +810,7 @@ def run_training(
 
     require_admission(admission, binding)
     errors = validate_training_readiness(config)
+    errors.extend(validate_binding_identity(binding, config))
     if errors:
         raise TrainingBoundaryError("training readiness failed: " + "; ".join(errors))
     role = str(binding["role"])
@@ -564,11 +832,15 @@ def run_training(
                 metrics, artifacts = _train_role(
                     config, views["train"], views["validation"], mlflow_client, run_id, output
                 )
-            for name, value in metrics.items():
-                mlflow_client.log_metric(run_id, name, float(value))
+            # Training aggregates were written after step history by
+            # ``_train_role``.  Evaluation has no Trainer history, so log its
+            # final metrics here.
+            if role == "evaluate":
+                for name, value in metrics.items():
+                    mlflow_client.log_metric(run_id, name, float(value))
             manifest: list[dict[str, Any]] = []
             for source, remote in artifacts:
-                parent = str(Path(remote).parent)
+                parent = _artifact_parent(source, remote)
                 mlflow_client.log_artifact(run_id, str(source), parent)
                 digest = _file_digest(source)
                 verify_artifact_roundtrip(
@@ -583,7 +855,7 @@ def run_training(
                 roundtrip_model = Path(
                     mlflow_client.download_artifacts(run_id, "model", str(output / "roundtrip-model"))
                 )
-                _verify_fresh_adapter_load(roundtrip_model)
+                _verify_fresh_adapter_load(roundtrip_model, config)
             evidence = {
                 "schema_version": "galatea.evidence/v1",
                 "lineage": {
@@ -600,6 +872,9 @@ def run_training(
                     "preprocessing": binding["preprocessing"],
                     "metric_definition": binding["metric_definition"],
                     "evaluation_protocol": binding["evaluation_protocol"],
+                    "model_architecture": config["model"].get(
+                        "architecture", "auto_causal_lm"
+                    ),
                     "seed": binding["seed"],
                     "role": role,
                     "readiness_digest": binding["readiness_digest"],

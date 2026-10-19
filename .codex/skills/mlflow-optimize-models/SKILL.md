@@ -22,6 +22,17 @@ repository. Identify:
 
 Never silently use a test or holdout metric as the optimization objective.
 
+For new-machine Ray/MLflow/MinIO integration or missing metrics/Trace/UI errors, read
+[the platform runtime memory](../../../doc/platform-runtime-memory.md). Verify the explicit cluster profile,
+Tracking URI and Experiment before querying. Runs, Logged Models and Traces are separate views; a Models
+page without metrics does not establish that no Run metrics exist. Confirm through Run/Metric History APIs.
+For `INTERNAL_ERROR`, capture the failing request status/body and relevant server logs when server operations
+are in scope; do not infer a Host/CORS failure or change security settings from the screenshot alone.
+
+When adding instrumentation, run the installed `mlflow skills list` and read its matching tracing/framework
+instructions before choosing APIs. Generic `autolog()` is not a guarantee of Trace creation for every framework.
+Explicitly verify a completed Trace in the selected Experiment as well as training metrics and Artifact integrity.
+
 ## Route execution by scope
 
 Apply the repository `governed-training-workflow` classification before executing model code:

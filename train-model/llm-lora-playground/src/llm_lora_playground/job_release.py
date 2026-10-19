@@ -81,38 +81,6 @@ def create_working_dir_archive(project_root: Path, destination: Path) -> None:
             archive.writestr(info, source.read_bytes())
 
 
-def _normalize_zip(path: Path) -> None:
-    normalized = path.with_name(f".{path.name}.normalized")
-    with zipfile.ZipFile(path) as source, zipfile.ZipFile(normalized, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as target:
-        for item in sorted(source.infolist(), key=lambda value: value.filename):
-            info = zipfile.ZipInfo(item.filename, date_time=FIXED_ZIP_TIMESTAMP)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = item.external_attr
-            target.writestr(info, source.read(item.filename))
-    normalized.replace(path)
-
-
-def build_wheel(archive: Path, destination: Path) -> Path:
-    destination.mkdir(parents=True, exist_ok=True)
-    source = destination.parent / "wheel-source"
-    source.mkdir()
-    with zipfile.ZipFile(archive) as bundle:
-        bundle.extractall(source)
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "wheel", "--quiet", "--no-deps", "--no-build-isolation", "--wheel-dir", str(destination), str(source)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-    wheels = sorted(destination.glob("*.whl"))
-    if len(wheels) != 1:
-        raise RuntimeError(f"expected one wheel, found {len(wheels)}")
-    _normalize_zip(wheels[0])
-    return wheels[0]
-
-
 def _git_identity(project_root: Path) -> dict[str, Any]:
     repository_root = project_root.parents[1]
 
@@ -147,8 +115,9 @@ def build_release(
     with tempfile.TemporaryDirectory(prefix="llm-lora-release-") as directory:
         stage = Path(directory)
         archive = stage / "working-dir.zip"
+        py_module = stage / "py-modules.zip"
         create_working_dir_archive(project_root, archive)
-        wheel = build_wheel(archive, stage / "wheel")
+        create_working_dir_archive(project_root / "src", py_module)
         import ray
 
         identity = {
@@ -156,7 +125,7 @@ def build_release(
             "environment_sha256": _sha256(environment_path),
             "git": _git_identity(project_root),
             "working_dir_sha256": _sha256(archive),
-            "wheel_sha256": _sha256(wheel),
+            "py_module_sha256": _sha256(py_module),
             "py_executable": py_executable,
             "repository_root": str(repository_root),
             "mlflow_tracking_uri": mlflow_tracking_uri,
@@ -166,23 +135,25 @@ def build_release(
         release_directory = output_root / release_id
         release_directory.mkdir(parents=True, exist_ok=True)
         local_archive = release_directory / archive.name
-        local_wheel = release_directory / wheel.name
-        for source, target in ((archive, local_archive), (wheel, local_wheel)):
+        local_py_module = release_directory / py_module.name
+        for source, target in ((archive, local_archive), (py_module, local_py_module)):
             if target.exists() and _sha256(target) != _sha256(source):
                 raise FileExistsError(f"refusing to overwrite a different release object: {target}")
             if not target.exists():
                 shutil.copyfile(source, target)
     release_prefix = f"{prefix.strip('/')}/{release_id}"
     working_key = f"{release_prefix}/{local_archive.name}"
-    wheel_key = f"{release_prefix}/{local_wheel.name}"
+    py_module_key = f"{release_prefix}/{local_py_module.name}"
     runtime_env = {
         "working_dir": f"s3://{bucket}/{working_key}",
+        "py_modules": [f"s3://{bucket}/{py_module_key}"],
         "py_executable": py_executable,
         "env_vars": {
             "CODE_REVISION": identity["git"]["commit"],
             "GALATEA_REPOSITORY_ROOT": str(repository_root),
             "MLFLOW_TRACKING_URI": mlflow_tracking_uri,
             "MLFLOW_EXPERIMENT_NAME": mlflow_experiment_name,
+            "RAYLLM_ENABLE_REQUEST_PROMPT_LOGS": "0",
             "LD_LIBRARY_PATH": "/data/conda/envs/ray-llm-py312/lib:/data/conda/envs/ray-llm-py312/lib/python3.12/site-packages/nvidia/cuda_runtime/lib",
         },
         "config": {"setup_timeout_seconds": 600},
@@ -203,7 +174,7 @@ def build_release(
         "s3": {"bucket": bucket, "prefix": release_prefix},
         "files": {
             "working_dir": {"filename": local_archive.name, "key": working_key, "sha256": _sha256(local_archive), "size_bytes": local_archive.stat().st_size},
-            "py_module": {"filename": local_wheel.name, "key": wheel_key, "sha256": _sha256(local_wheel), "size_bytes": local_wheel.stat().st_size},
+            "py_module": {"filename": local_py_module.name, "key": py_module_key, "sha256": _sha256(local_py_module), "size_bytes": local_py_module.stat().st_size},
         },
     }
     manifest_path = release_directory / "release.json"

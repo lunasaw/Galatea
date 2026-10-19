@@ -15,7 +15,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from ray_cats_dogs.config import load_config  # noqa: E402
-from ray_cats_dogs.data import prepare_dataset, validate_equal_shards  # noqa: E402
+from ray_cats_dogs.data import (  # noqa: E402
+    _validated_class_records,
+    prepare_dataset,
+    validate_equal_shards,
+)
 
 
 class DatasetTest(unittest.TestCase):
@@ -75,6 +79,29 @@ class DatasetTest(unittest.TestCase):
         validate_equal_shards(dataset, num_workers=2)
         with self.assertRaisesRegex(ValueError, "divide evenly"):
             validate_equal_shards(dataset, num_workers=3)
+
+    def test_decode_warning_marks_image_invalid(self) -> None:
+        pet_images_root = self.root / "warning-dataset" / "PetImages"
+        image_path = pet_images_root / "Cat" / "warning.jpg"
+        image_path.parent.mkdir(parents=True)
+        image_path.write_bytes(b"placeholder")
+        with patch("ray_cats_dogs.data.Image.open") as open_image:
+            image = open_image.return_value.__enter__.return_value
+            image.load.side_effect = UserWarning("Truncated File Read")
+            valid, invalid, source_count = _validated_class_records(
+                pet_images_root,
+                "Cat",
+                0,
+                self.config,
+                seed=42,
+            )
+
+        self.assertEqual(1, source_count)
+        self.assertEqual([], valid)
+        self.assertEqual(
+            [{"relative_path": "Cat/warning.jpg", "error_type": "UserWarning"}],
+            invalid,
+        )
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+from codex_agent.console.models import EventQuery
 import asyncio
 import json
 import unittest
@@ -63,7 +64,7 @@ class HostLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result['result']['success'])
         await self.host.handle_notification({'method': 'item/reasoning/textDelta', 'params': {
             'threadId': session['thread_id'], 'delta': 'private reasoning'}})
-        self.assertNotIn('private reasoning', json.dumps(self.events.replay('s')))
+        self.assertNotIn('private reasoning', json.dumps(await self.events.read_events(EventQuery(session_id='s'))))
 
     async def test_handler_timeout_keeps_loop_responsive_and_blocks_resume(self):
         import threading

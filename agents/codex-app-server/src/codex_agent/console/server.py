@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 import json
+import sys
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
+from dataclasses import replace
+import uuid
+
+from .models import EventQuery, SnapshotQuery
+from .ports import ObservationError, InvalidCursor, UnknownEvent, UnknownSession
+from .service import CAPABILITIES
+from .static_files import CSP, StaticFiles
 
 from ..host import HostNotReady
 from ..state import identifier, payload_digest
+from ..native import PROTOCOL
+from ..rpc import RpcError
+from ..mcp_app_context import app_identity, message_input, update_context
+from .projection import redact
 
 
 class BodyTooLarge(ValueError):
@@ -15,15 +26,16 @@ class BodyTooLarge(ValueError):
 
 
 class ConsoleApp:
-    """Authenticated ASGI API and live SSE with bounded reads and socket backpressure."""
+    """Same-origin Console for a trusted network; execution uses the Host principal."""
 
-    def __init__(self, host, events, *, token, allowed_origins, max_streams=32):
-        if not token or len(token) < 16:
-            raise ValueError('strong bearer token required')
-        self.host, self.events, self.token = host, events, token
-        self.allowed_origins = frozenset(allowed_origins)
+    def __init__(self, host, events, *, max_streams=32, static_dir=None, image_settings=None):
+        self.host, self.events = host, events
         self.max_streams, self._streams = max_streams, 0
         self._writes = asyncio.Lock()
+        self._stopping = False
+        self._native_locks = {}
+        self.image_settings = image_settings
+        self.static = StaticFiles(static_dir or Path(__file__).parent / 'static')
 
     @staticmethod
     async def _body(receive):
@@ -34,7 +46,7 @@ class ConsoleApp:
                 raise ValueError('request disconnected')
             chunk = message.get('body', b'')
             size += len(chunk)
-            if size > 1024 * 1024:
+            if size > 16 * 1024 * 1024:
                 raise BodyTooLarge('request body too large')
             chunks.append(chunk)
             if not message.get('more_body'):
@@ -50,7 +62,7 @@ class ConsoleApp:
         await send({'type': 'http.response.start', 'status': status,
                     'headers': [(b'content-type', content_type.encode()), (b'cache-control', b'no-store'),
                                 (b'x-content-type-options', b'nosniff'),
-                                (b'content-security-policy', b"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'")]})
+                                (b'content-security-policy', CSP)]})
         await send({'type': 'http.response.body', 'body': body})
 
     async def _lifespan(self, receive, send):
@@ -58,51 +70,114 @@ class ConsoleApp:
             message = await receive()
             if message['type'] == 'lifespan.startup':
                 try:
+                    await self.events.start()
                     await self.host.start()
                 except Exception:
                     await send({'type': 'lifespan.startup.failed', 'message': 'Host initialization failed'})
                     return
                 await send({'type': 'lifespan.startup.complete'})
             elif message['type'] == 'lifespan.shutdown':
+                self._stopping = True
                 await self.host.stop()
+                await self.events.close()
                 await send({'type': 'lifespan.shutdown.complete'})
                 return
 
-    async def _stream(self, session_id, after, receive, send):
+    @staticmethod
+    def _query(scope, headers, session_id=None):
+        raw = parse_qs(scope.get('query_string', b'').decode(), keep_blank_values=True)
+        if any(len(values) != 1 for values in raw.values()):
+            raise InvalidCursor('duplicate query parameter')
+        query = {key: values[0] for key, values in raw.items()}
+        if headers.get('last-event-id') and 'after' in query and headers['last-event-id'] != query['after']:
+            raise InvalidCursor('Last-Event-ID and after differ')
+        after = headers.get('last-event-id') or query.get('after')
+        try:
+            limit = int(query.get('limit', '200'))
+        except ValueError as exc:
+            raise InvalidCursor('invalid page size') from exc
+        filters = {key: value for key, value in query.items() if key not in {'after', 'until', 'limit', 'page', 'view'}}
+        if 'unbound' in filters:
+            if filters['unbound'] not in {'true', 'false'}:
+                raise InvalidCursor('invalid unbound filter')
+            filters['unbound'] = filters['unbound'] == 'true'
+        return EventQuery(session_id, after, query.get('until'), limit, filters), query
+
+    async def _stream(self, query, receive, send):
         if self._streams >= self.max_streams:
-            return await self._send(send, 429, {'error': 'stream-limit'})
-        batch = self.events.replay(session_id, after)
+            return await self._send(send, 429, {'error': 'STREAM_LIMIT', 'epoch': self.events.epoch})
+        batch = await self.events.read_events(query)
+        baseline = await self.events.read_events(replace(query, until=query.after or self.events.epoch + ':0'))
+        binding_version = baseline['binding_version']
         self._streams += 1
         async def disconnect():
             while (await receive()).get('type') != 'http.disconnect':
                 pass
         disconnected = asyncio.create_task(disconnect())
+        async def frame(name, data, cursor=None):
+            body = (('id: ' + cursor + '\n') if cursor else '') + 'event: ' + name + '\ndata: ' + json.dumps(data, ensure_ascii=False, separators=(',', ':')) + '\n\n'
+            await asyncio.wait_for(send({'type': 'http.response.body', 'body': body.encode(), 'more_body': True}), 10)
         try:
-            await send({'type': 'http.response.start', 'status': 200, 'headers': [
-                (b'content-type', b'text/event-stream'), (b'cache-control', b'no-store'), (b'x-accel-buffering', b'no')]})
-            heartbeat = 0
+            await asyncio.wait_for(send({'type': 'http.response.start', 'status': 200, 'headers': [
+                (b'content-type', b'text/event-stream'), (b'cache-control', b'no-store'), (b'x-accel-buffering', b'no')]}), 10)
             while True:
-                if batch:
-                    body = b''.join(b'id: ' + str(e['seq']).encode() + b'\ndata: ' +
-                        json.dumps(e, ensure_ascii=False, separators=(',', ':')).encode() + b'\n\n' for e in batch)
-                    await asyncio.wait_for(send({'type': 'http.response.body', 'body': body, 'more_body': True}), 10)
-                    after = batch[-1]['seq']
+                if query.session_id and batch['binding_version'] != binding_version:
+                    await frame('snapshot_required', {'reason': 'binding_changed', 'binding_version': batch['binding_version']})
+                    break
+                for event in batch['events']:
+                    await frame('observation', event, event['event_id'])
+                cursor = batch['next_cursor']
+                await frame('cursor', {'cursor': cursor}, cursor)
                 if disconnected.done():
                     break
-                done, _ = await asyncio.wait({disconnected}, timeout=.1)
-                if done:
-                    break
-                batch = self.events.replay(session_id, after)
-                heartbeat += 1
-                if not batch and heartbeat % 150 == 0:
-                    await asyncio.wait_for(send({'type': 'http.response.body', 'body': b': keepalive\n\n', 'more_body': True}), 10)
+                if batch['has_more']:
+                    query = replace(query, after=cursor, until=batch['watermark'])
+                else:
+                    query = replace(query, after=cursor, until=None)
+                    change = asyncio.create_task(self.events.wait_for_change(cursor, 1))
+                    try:
+                        done, _ = await asyncio.wait({change, disconnected}, return_when=asyncio.FIRST_COMPLETED)
+                        if disconnected in done:
+                            break
+                        await change
+                    finally:
+                        change.cancel()
+                        await asyncio.gather(change, return_exceptions=True)
+                    status = await self.events.status()
+                    await frame('status', status['observation'])
+                batch = await self.events.read_events(query)
         except (TimeoutError, ConnectionError, ValueError, RuntimeError):
-            # Headers may already be on the wire; terminate without a second response.
-            pass
+            # Headers are already on the wire: only a control frame and close.
+            try:
+                await frame('status', {'status': 'unavailable', 'error': 'OBSERVATION_UNAVAILABLE'})
+            except (TimeoutError, ConnectionError, RuntimeError):
+                pass
         finally:
             disconnected.cancel()
             await asyncio.gather(disconnected, return_exceptions=True)
             self._streams -= 1
+        try:
+            await asyncio.wait_for(send({'type': 'http.response.body', 'body': b'', 'more_body': False}), 10)
+        except (TimeoutError, ConnectionError, RuntimeError):
+            pass
+
+    @staticmethod
+    def _same_origin(scope, headers):
+        if headers.get('sec-fetch-site') not in (None, 'same-origin', 'none'):
+            return False
+        origin = headers.get('origin')
+        if origin is None:
+            return True  # non-browser clients have no Origin; identity is shared.
+        expected = scope.get('scheme', 'http') + '://' + headers.get('host', '')
+        def normalized(value):
+            parsed = urlsplit(value)
+            if parsed.scheme not in {'http', 'https'} or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+                return None
+            return parsed.scheme, parsed.hostname, parsed.port or (443 if parsed.scheme == 'https' else 80)
+        try:
+            return normalized(origin) is not None and normalized(origin) == normalized(expected)
+        except ValueError:
+            return False
 
     async def _write(self, path, body, headers, action):
         key = identifier(headers.get('idempotency-key') or body.get('request_id', ''))
@@ -116,11 +191,42 @@ class ConsoleApp:
                 if 'result' in previous:
                     return previous['result']
                 # Message admission has its own durable intent and safe deduplication.
-                if not path.endswith('/messages'):
+                if not (path.startswith('/api/sessions/') and path.endswith('/messages')):
                     raise HostNotReady('request outcome unknown')
             self.host.store.write(record_path, {'digest': digest, 'status': 'intent_recorded'})
             result = await action(key)
             self.host.store.write(record_path, {'digest': digest, 'status': 'receipt_saved', 'result': result})
+            return result
+
+    async def _native_write(self, body, headers):
+        key = identifier(headers.get('idempotency-key', ''))
+        digest = payload_digest(body)
+        lock = self._native_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            path = f'native-requests/{key}.json'
+            previous = self.host.store.read(path)
+            if previous:
+                if previous['digest'] != digest:
+                    raise ValueError('idempotency conflict')
+                if 'result' in previous:
+                    return previous['result']
+                if 'error' in previous:
+                    raise RpcError(previous['error'])
+                if 'rejected' in previous:
+                    raise ValueError(previous['rejected'])
+                raise HostNotReady('native request outcome unknown; inspect runtime before retrying')
+            # Schema errors must not leave an indeterminate mutation record.
+            PROTOCOL.validate(PROTOCOL.schema(body['method']), body.get('params', {}))
+            self.host.store.write(path, {'digest': digest, 'status': 'intent_recorded'})
+            try:
+                result = await self.host.native.call(body['method'], body.get('params', {}), key)
+            except RpcError as exc:
+                self.host.store.write(path, {'digest': digest, 'error': redact(exc.error)[0]})
+                raise
+            except ValueError as exc:
+                self.host.store.write(path, {'digest': digest, 'rejected': str(exc)})
+                raise
+            self.host.store.write(path, {'digest': digest, 'result': result})
             return result
 
     async def __call__(self, scope, receive, send):
@@ -131,70 +237,196 @@ class ConsoleApp:
         method, path = scope.get('method', 'GET'), scope.get('path', '/')
         if method == 'GET' and path == '/health/live':
             return await self._send(send, 200, {'live': True})
-        if method == 'GET' and path in {'/', '/app.js', '/style.css'}:
-            filename, content_type = {'/': ('index.html', 'text/html; charset=utf-8'),
-                '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}[path]
-            return await self._send(send, 200, (Path(__file__).parent / 'static' / filename).read_bytes(), content_type=content_type)
+        if method in {'GET', 'HEAD'} and await self.static.serve(scope, send):
+            return
         headers = {k.decode().lower(): v.decode() for k, v in scope.get('headers', [])}
-        if not hmac.compare_digest(headers.get('authorization', ''), 'Bearer ' + self.token):
-            return await self._send(send, 401, {'error': 'unauthorized'})
-        if headers.get('origin') and headers['origin'] not in self.allowed_origins:
+        if method == 'POST' and not self._same_origin(scope, headers):
             return await self._send(send, 403, {'error': 'origin-forbidden'})
-        if method == 'POST' and headers.get('origin') not in self.allowed_origins:
-            return await self._send(send, 403, {'error': 'origin-forbidden'})
+        if method == 'POST' and self._stopping:
+            return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
         try:
+            if path in {'/api/image-generation/settings', '/api/image-generation/check'}:
+                if self.image_settings is None:
+                    return await self._send(send, 503, {'error': '图像设置服务尚未加载，请更新并重启此实例。'})
+                if method not in {'GET', 'POST'} or method == 'GET' and path.endswith('/check'):
+                    return await self._send(send, 405, {'error': 'method-not-allowed'})
+                self.host.assert_ready()
+                observed = await self.host.client.read_config(str(self.host.workspace_dir))
+                if method == 'GET':
+                    return await self._send(send, 200, self.image_settings.public(observed['config']))
+                body = await self._body(receive)
+                if path.endswith('/check'):
+                    result = await asyncio.to_thread(self.image_settings.check, body, observed['config'])
+                else:
+                    async def save_images(_key):
+                        result = await asyncio.to_thread(self.image_settings.save, body, observed['config'])
+                        try:
+                            await self.host.client.peer.request('skills/list', {'cwds': [str(self.host.workspace_dir)], 'forceReload': True})
+                        except Exception:
+                            result['warning'] = '配置已保存；技能列表刷新失败，请在 Skills 中刷新或开始新聊天。'
+                        return result
+                    result = await self._write(path, body, headers, save_images)
+                return await self._send(send, 200, result)
+            if path in {'/api/mcp-app/context', '/api/mcp-app/messages'} and method == 'POST':
+                body = await self._body(receive)
+                app_identity(body)
+                session = self.host._session_for_thread(body.get('threadId'))
+                if not session or session.get('principal_id') != self.host.principal_id:
+                    raise UnknownSession('MCP App thread does not belong to this Host')
+                async def app_action(key):
+                    if path.endswith('/context'):
+                        return update_context(self.host.store, session['id'], body)
+                    inputs = message_input(body.get('message'))
+                    current = self.host._session_for_thread(body['threadId'])
+                    if not current or current.get('status') not in {'ready', 'running'}:
+                        raise HostNotReady('MCP App thread is not ready')
+                    # The app cannot choose another thread or a turn id. Resolve
+                    # both from its bound Host session; native steer checks races.
+                    turn = current.get('active_turn_id')
+                    params = {'threadId': current['thread_id'], 'input': inputs}
+                    method = 'turn/steer' if turn else 'turn/start'
+                    if turn:
+                        params['expectedTurnId'] = turn
+                    result = await self.host.native.call(method, params, key)
+                    if result.get('status') == 'unknown':
+                        raise HostNotReady('MCP App message outcome unknown')
+                    return {}
+                return await self._send(send, 200, await self._write(path, body, headers, app_action))
+            if path == '/api/mcp-app' and method == 'GET':
+                from .mcp_apps import resource_document
+                query = parse_qs(scope.get('query_string', b'').decode(), keep_blank_values=True)
+                if set(query) != {'threadId', 'server', 'uri'} or any(len(v) != 1 for v in query.values()):
+                    raise ValueError('invalid MCP application resource')
+                params = {key: values[0] for key, values in query.items()}
+                if not params['uri'].startswith('ui://'):
+                    raise ValueError('MCP application requires a ui resource')
+                result = await self.host.native.call('mcpServer/resource/read', params, 'app-' + uuid.uuid4().hex)
+                body, policy = resource_document(result, params['uri'], headers.get('host', ''))
+                await send({'type': 'http.response.start', 'status': 200, 'headers': [
+                    (b'content-type', b'text/html; charset=utf-8'), (b'cache-control', b'no-store'),
+                    (b'x-content-type-options', b'nosniff'), (b'referrer-policy', b'no-referrer'),
+                    (b'content-security-policy', policy.encode()),
+                    (b'permissions-policy', b'camera=(), microphone=(), geolocation=(), clipboard-write=()'),
+                ]})
+                return await send({'type': 'http.response.body', 'body': body})
             if path == '/health/ready' and method == 'GET':
                 self.host.assert_ready()
                 return await self._send(send, 200, {'ready': True})
             if path == '/api/capabilities' and method == 'GET':
-                return await self._send(send, 200, {'catalog_digest': self.host.registry.catalog.digest,
+                return await self._send(send, 200, {**CAPABILITIES, 'storage': (await self.events.status())['storage'], 'catalog_digest': self.host.registry.catalog.digest,
                     'principal_id': self.host.principal_id, 'tools': self.host.registry.dynamic_tools(self.host.actions)})
+            if path == '/api/native/protocol' and method == 'GET':
+                return await self._send(send, 200, {**PROTOCOL.catalog(), 'cwd': str(self.host.workspace_dir),
+                                                   'skill_roots': getattr(self.host, 'skill_roots', []),
+                                                   'platform': sys.platform,
+                                                   'configuration_editable': bool(self.host.configuration_changed)})
+            if path == '/api/native/config-schema' and method == 'GET':
+                from ..runtime_version import PROTOCOL_PATH
+                schema = json.loads(PROTOCOL_PATH.with_name('config.schema.json').read_text())
+                return await self._send(send, 200, schema)
+            if path == '/api/native/auth-handoffs' and method == 'GET':
+                return await self._send(send, 200, self.host.native.list_auth_handoffs())
+            if path.startswith('/api/native/receipts/') and method == 'GET':
+                key = identifier(path.rsplit('/', 1)[1])
+                receipt = self.host.store.read(f'native-requests/{key}.json')
+                return await self._send(send, 200 if receipt else 404, receipt or {'error': 'receipt-not-found'})
+            if path == '/api/sidebar-groups' and method == 'GET':
+                return await self._send(send, 200, self.host.store.read('console/sidebar-groups.json') or {'sections': [], 'revision': 0})
+            if path == '/api/sidebar-groups' and method == 'POST':
+                body = await self._body(receive)
+                async def save_groups(_key):
+                    sections = body.get('sections')
+                    if (not isinstance(sections, list) or len(sections) > 1000
+                            or any(not isinstance(s, dict) or set(s) != {'id', 'name'}
+                                   or not isinstance(s['id'], str) or not s['id']
+                                   or not isinstance(s['name'], str) or not s['name'].strip()
+                                   or len(s['name']) > 256 for s in sections)
+                            or len({s['id'] for s in sections}) != len(sections)):
+                        raise ValueError('invalid project groups')
+                    previous = self.host.store.read('console/sidebar-groups.json') or {'revision': 0}
+                    if body.get('revision') != previous['revision']:
+                        raise ValueError('project groups changed in another client; refresh and retry')
+                    result = {'sections': sections, 'revision': previous['revision'] + 1}
+                    self.host.store.write('console/sidebar-groups.json', result)
+                    return result
+                return await self._send(send, 200, await self._write(path, body, headers, save_groups))
+            if path == '/api/native/requests' and method == 'GET':
+                return await self._send(send, 200, self.host.native.list_pending())
+            if path.startswith('/api/native/requests/') and method == 'POST':
+                body = await self._body(receive)
+                key = identifier(path.rsplit('/', 1)[1])
+                return await self._send(send, 200, self.host.native.respond(key, body.get('result'), body.get('error')))
+            if path == '/api/native/call' and method == 'POST':
+                body = await self._body(receive)
+                return await self._send(send, 200, await self._native_write(body, headers))
+            if path == '/api/console/status' and method == 'GET':
+                status = await self.events.status()
+                try:
+                    self.host.assert_ready()
+                    status['host_ready'] = True
+                except HostNotReady:
+                    status['host_ready'] = False
+                return await self._send(send, 200, status)
+            if path.startswith('/api/events/') and method == 'GET':
+                query, _ = self._query(scope, headers)
+                action = path[len('/api/events/'):]
+                if action == 'history':
+                    return await self._send(send, 200, await self.events.read_events(query))
+                if action == 'stream':
+                    return await self._stream(query, receive, send)
+                return await self._send(send, 200, await self.events.detail(action))
             if path == '/api/sessions':
                 if method == 'GET':
                     return await self._send(send, 200, self.host.list_sessions())
                 if method == 'POST':
                     body = await self._body(receive)
                     async def create(key):
-                        return await self.host.create_session(body.get('session_id') or 'session-' + payload_digest([self.host.principal_id, key]))
+                        kwargs = {'options': body['options']} if body.get('options') else {}
+                        return await self.host.create_session(body.get('session_id') or 'session-' + payload_digest([self.host.principal_id, key]), **kwargs)
                     return await self._send(send, 200, await self._write(path, body, headers, create))
             parts = path.strip('/').split('/')
             if len(parts) in (3, 4, 5) and parts[:2] == ['api', 'sessions']:
                 session_id = identifier(parts[2])
                 session = self.host.get_session(session_id)
                 if session is None or session.get('principal_id') != self.host.principal_id:
-                    return await self._send(send, 404, {'error': 'unknown-session'})
+                    raise UnknownSession('Host session does not exist')
                 if method == 'GET' and len(parts) == 3:
                     return await self._send(send, 200, session)
-                if len(parts) == 5:
-                    if method == 'GET' and parts[3] == 'loop':
-                        turn_id = identifier(parts[4])
-                        loop = self.events.loop(session_id)
-                        loop['steps'] = [step for step in loop['steps'] if step.get('turn_id') == turn_id]
-                        return await self._send(send, 200, loop)
-                    return await self._send(send, 404, {'error': 'not-found'})
-                action = parts[3] if len(parts) == 4 else None
-                if action == 'events' and method == 'GET':
-                    query = parse_qs(scope.get('query_string', b'').decode())
-                    after = int(headers.get('last-event-id', query.get('after', ['0'])[0]))
-                    return await self._stream(session_id, after, receive, send)
-                if action == 'loop' and method == 'GET':
-                    return await self._send(send, 200, self.events.loop(session_id))
+                action = parts[3] if len(parts) >= 4 else None
+                if method == 'GET':
+                    query, raw = self._query(scope, headers, session_id)
+                    if action == 'events':
+                        return await self._stream(query, receive, send)
+                    if action == 'history':
+                        return await self._send(send, 200, await self.events.read_events(query))
+                    if action in {'snapshot', 'messages', 'loop'}:
+                        turn_id = identifier(parts[4]) if len(parts) == 5 and action == 'loop' else None
+                        view = 'messages' if action == 'messages' else 'steps' if turn_id else raw.get('view', 'all')
+                        snapshot = await self.events.snapshot(SnapshotQuery(session_id, turn_id, view, query.until, query.limit, raw.get('page')))
+                        return await self._send(send, 200, snapshot)
                 if method == 'POST' and action in {'messages', 'interrupt', 'close', 'resume'}:
                     body = await self._body(receive)
                     async def invoke(key):
                         if action == 'messages':
                             if body.get('request_id', key) != key:
                                 raise ValueError('idempotency key mismatch')
-                            return await self.host.send_message(session_id, key, body['text'])
+                            kwargs = {k: body[k] for k in ('input_items', 'options') if k in body}
+                            return await self.host.send_message(session_id, key, body.get('text', ''), **kwargs)
                         fn = {'interrupt': self.host.interrupt, 'close': self.host.close_session, 'resume': self.host.resume}[action]
                         return await fn(session_id)
                     return await self._send(send, 200, await self._write(path, body, headers, invoke))
             return await self._send(send, 404, {'error': 'not-found'})
+        except ObservationError as exc:
+            return await self._send(send, exc.status, {'error': exc.code, 'epoch': self.events.epoch})
         except BodyTooLarge:
             return await self._send(send, 413, {'error': 'body-too-large'})
+        except RpcError as exc:
+            return await self._send(send, 422, {'error': str(exc), 'native_error': redact(exc.error)[0]})
         except HostNotReady:
             return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
-        except (ValueError, KeyError, TimeoutError):
+        except ValueError as exc:
+            return await self._send(send, 409, {'error': str(exc) if path.startswith(('/api/native/', '/api/image-generation/')) else 'invalid-or-conflicting-request'})
+        except (KeyError, TimeoutError):
             return await self._send(send, 409, {'error': 'invalid-or-conflicting-request'})
         except Exception:
             return await self._send(send, 503, {'error': 'state-or-runtime-unavailable'})

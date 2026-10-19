@@ -1,0 +1,27 @@
+schema_version: daily-topic-sft-config-v1
+timezone: Asia/Shanghai
+target_role: target
+allowed_splits: [train]
+selection:
+  seed: 42
+  max_days: 50
+  max_candidates: 200
+context:
+  policy_version: prefix-topic-openers-v3
+  max_history_turns: 64
+  max_context_turns: 16
+  merge_gap_seconds: 120
+  cross_session: false
+  cross_day: false
+encoding:
+  model_id: Qwen/Qwen3.5-0.8B
+  tokenizer_revision: 2fc06364715b967f1860aea9cf38778875588b17
+  max_length: 1024
+  target_token_reserve: 256
+  system_prompt: 仅基于已提供的脱敏对话生成回复；不猜测或复述私人事实。
+governance:
+  required_purposes: [processing, persona_style, evaluation]
+  training_run: false
+  human_review_completed: false
+  formal_training_eligible: false
+  promotable: false

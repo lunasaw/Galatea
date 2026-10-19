@@ -32,8 +32,6 @@ class ToolContext:
     turn_id: str
     call_id: str
     principal_id: str
-    project_ids: frozenset[str] = frozenset()
-    campaign_ids: frozenset[str] = frozenset()
     actions: frozenset[str] = frozenset()
     catalog_digest: str = ""
     config_digest: str = ""
@@ -50,7 +48,7 @@ class ToolResult:
     request_id: str = ""
 
     def envelope(self):
-        result = {"schema_version": "galatea.tools/v1", "request_id": self.request_id, "ok": self.ok}
+        result = {"schema_version": "codex-agent.tools/v1", "request_id": self.request_id, "ok": self.ok}
         result["data" if self.ok else "error"] = self.data if self.ok else self.error
         return result
 
@@ -60,12 +58,16 @@ class ToolHandler(Protocol):
 
 
 class ToolRegistry:
-    def __init__(self, catalog: Catalog, journal: OperationJournal, handlers: dict[str, ToolHandler], *, max_response_bytes=MAX_RESPONSE_BYTES):
-        missing = set(catalog.schemas) - handlers.keys()
-        if missing:
-            raise ValueError(f"missing handlers: {sorted(missing)}")
-        self.catalog, self.journal, self.handlers = catalog, journal, dict(handlers)
+    def __init__(self, catalog: Catalog, journal: OperationJournal, handlers: dict[str, ToolHandler] | None = None, *, max_response_bytes=MAX_RESPONSE_BYTES):
+        self.catalog, self.journal, self.handlers = catalog, journal, {}
         self.max_response_bytes, self._lock = max_response_bytes, threading.RLock()
+        if handlers is not None:
+            self.bind_handlers(handlers)
+
+    def bind_handlers(self, handlers):
+        if set(self.catalog.schemas) != set(handlers):
+            raise ValueError("handlers must cover exactly the configured tool catalog")
+        self.handlers = dict(handlers)
 
     def dynamic_tools(self, actions):
         return self.catalog.dynamic_tools(actions)
@@ -82,13 +84,10 @@ class ToolRegistry:
             Draft202012Validator(self.catalog.schemas[name]).validate(arguments)
         except Exception:
             return self._error(request_id, "invalid-arguments", "fix-input")
-        for field_name, scope in (("project_id", context.project_ids), ("campaign_id", context.campaign_ids)):
-            if arguments.get(field_name) is not None and arguments[field_name] not in scope:
-                return self._error(request_id, "forbidden", "review-authorization")
         if context.cancel.is_set() or (context.deadline is not None and time.monotonic() >= context.deadline):
             return self._error(request_id, "cancelled", "observe")
-        identity = {"session_id": context.session_id, "thread_id": context.thread_id, "turn_id": context.turn_id,
-                    "tool": name, "arguments": arguments, "catalog_digest": context.catalog_digest,
+        identity = {"call_id": context.call_id, "session_id": context.session_id, "thread_id": context.thread_id, "turn_id": context.turn_id,
+                    "tool": name, "arguments": arguments, "read_only": self.catalog.metadata["tools"][name]["read_only"], "catalog_digest": context.catalog_digest,
                     "principal_id": context.principal_id, "config_digest": context.config_digest}
         with self._lock:
             try:
@@ -103,7 +102,7 @@ class ToolRegistry:
             if not self.catalog.metadata['tools'][name]['read_only']:
                 unresolved = [r for r in self.journal.records() if r['call_id'] != context.call_id
                               and r['state'] != 'receipt_saved'
-                              and not self.catalog.metadata['tools'][r['identity']['tool']]['read_only']]
+                              and not r['identity'].get('read_only', False)]
                 if unresolved:
                     envelope = self._error('req-' + uuid.uuid4().hex, 'operation-unknown', 'observe-existing')
                     self.journal.transition(context.call_id, 'receipt_saved', receipt=envelope)

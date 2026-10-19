@@ -41,7 +41,8 @@ def sse(items: list[dict], response_id: str) -> bytes:
 
 
 class MockModel:
-    def __init__(self):
+    def __init__(self, namespace, tool, arguments):
+        self.namespace, self.tool, self.arguments = namespace, tool, arguments
         self.requests = []
         self.errors = []
         owner = self
@@ -62,8 +63,8 @@ class MockModel:
                     index = len(owner.requests)
                     if index == 1:
                         items = [{"type": "function_call", "call_id": "probe-call",
-                                  "namespace": "galatea", "name": "galatea_get_capabilities",
-                                  "arguments": '{"protocol_version":"galatea.tools/v1"}'}]
+                                  "namespace": owner.namespace, "name": owner.tool,
+                                  "arguments": json.dumps(owner.arguments)}]
                     else:
                         items = [{"id": f"msg-{index}", "type": "message", "role": "assistant",
                                   "content": [{"type": "output_text", "text": "Synthetic probe complete."}]}]
@@ -148,7 +149,7 @@ async def process(binary: Path, directory: Path, *, experimental=True):
         )
         rpc = ProbeRPC(child)
         try:
-            await rpc.result("initialize", {"clientInfo": {"name": "galatea-stage0", "version": "0.1.0"},
+            await rpc.result("initialize", {"clientInfo": {"name": "codex-stage0", "version": "0.1.0"},
                                             "capabilities": {"experimentalApi": experimental}})
             await rpc.send({"method": "initialized"})
             yield rpc
@@ -196,12 +197,12 @@ def mock_config(port: int) -> str:
     ])
 
 
-async def complete_turn(rpc: ProbeRPC, thread_id: str, *, success: bool) -> tuple[bool, dict]:
+async def complete_turn(rpc: ProbeRPC, thread_id: str, *, success: bool, namespace: str, tool: str, arguments: dict) -> tuple[bool, dict]:
     await rpc.result("turn/start", {"threadId": thread_id,
                                    "input": [{"type": "text", "text": "Run synthetic protocol fixture.",
                                               "text_elements": []}]})
     called = False
-    receipt = {"schema_version": "galatea.tools/v1", "request_id": "req-synthetic-probe", "ok": success}
+    receipt = {"schema_version": "codex-agent.tools/v1", "request_id": "req-synthetic-probe", "ok": success}
     receipt.update({"data": {"probe": True}} if success else {
         "error": {"category": "forbidden", "retryable": False, "state_changed": False,
                   "operation_id": None, "next_action": "review-authorization"}})
@@ -209,9 +210,9 @@ async def complete_turn(rpc: ProbeRPC, thread_id: str, *, success: bool) -> tupl
         message = await rpc.read()
         if message.get("method") == "item/tool/call":
             params = message["params"]
-            if (params["threadId"] != thread_id or params["namespace"] != "galatea"
-                    or params["tool"] != "galatea_get_capabilities" or params["callId"] != "probe-call"
-                    or params["arguments"] != {"protocol_version": "galatea.tools/v1"} or called):
+            if (params["threadId"] != thread_id or params["namespace"] != namespace
+                    or params["tool"] != tool or params["callId"] != "probe-call"
+                    or params["arguments"] != arguments or called):
                 raise GateError("Dynamic call binding mismatch")
             called = True
             await rpc.send({"id": message["id"], "result": {"success": success,
@@ -225,9 +226,10 @@ async def complete_turn(rpc: ProbeRPC, thread_id: str, *, success: bool) -> tupl
 
 
 async def probe_case(binary: Path, directory: Path, catalog: list[dict], *, success: bool,
-                     compatibility: RuntimeContract, actions: set[str]) -> dict:
+                     compatibility: RuntimeContract, actions: set[str], probe_tool: str, probe_arguments: dict) -> dict:
     directory.mkdir(parents=True, mode=0o700)
-    with MockModel() as model:
+    namespace = catalog[0]["name"]
+    with MockModel(namespace, probe_tool, probe_arguments) as model:
         (directory / "codex-home").mkdir(mode=0o700)
         (directory / "codex-home/config.toml").write_text(mock_config(model.server.server_port))
         result = {"tool_call_received": False, "receipt_seen_by_model": False,
@@ -242,7 +244,7 @@ async def probe_case(binary: Path, directory: Path, catalog: list[dict], *, succ
                     "approvalPolicy": "never", "sandbox": "read-only", "environments": [],
                     "dynamicTools": catalog})
                 thread_id = started["thread"]["id"]
-                called, receipt = await complete_turn(rpc, thread_id, success=success)
+                called, receipt = await complete_turn(rpc, thread_id, success=success, namespace=namespace, tool=probe_tool, arguments=probe_arguments)
                 result["tool_call_received"] = called
                 read = await rpc.result("thread/read", {"threadId": thread_id, "includeTurns": True})
                 write_json(directory / "thread-read.json", read)
@@ -252,7 +254,7 @@ async def probe_case(binary: Path, directory: Path, catalog: list[dict], *, succ
                 resumed_config = await rpc.result("config/read", {"includeLayers": True})
                 write_json(directory / "resume-effective-config.json", resumed_config)
                 result["resume_effective_config_sha256"] = digest(resumed_config)
-                await complete_turn(rpc, thread_id, success=success)
+                await complete_turn(rpc, thread_id, success=success, namespace=namespace, tool=probe_tool, arguments=probe_arguments)
                 result["resumed_in_new_process"] = result["first_pid"] != rpc.process.pid
             for index, request in enumerate(model.requests):
                 try:
@@ -286,7 +288,7 @@ async def probe_case(binary: Path, directory: Path, catalog: list[dict], *, succ
         return result
 
 
-def probe_runtime(package: Path, output: Path, contracts: Path) -> dict:
+def probe_runtime(package: Path, output: Path, contracts: Path, *, probe_tool: str, probe_arguments: dict) -> dict:
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     runtime = output / "runtime"
@@ -307,6 +309,10 @@ def probe_runtime(package: Path, output: Path, contracts: Path) -> dict:
     subprocess.run([str(binary), "app-server", "generate-json-schema", "--experimental",
                     "--out", str(output / "schema")], check=True, capture_output=True, timeout=30)
     catalog = Catalog.load(contracts)
+    if probe_tool not in catalog.schemas:
+        raise GateError("probe_tool is not in the supplied catalog")
+    from jsonschema import Draft202012Validator
+    Draft202012Validator(catalog.schemas[probe_tool]).validate(probe_arguments)
     write_json(output / "package-tree.json", copied_tree)
     manifest = {"codex_version": version, "package": package_info,
                 "runtime_binary_sha256": file_sha256(binary),
@@ -330,16 +336,16 @@ def probe_runtime(package: Path, output: Path, contracts: Path) -> dict:
         try:
             async with process(binary, negative, experimental=False) as rpc:
                 reply = await rpc.request("thread/start", {"environments": [],
-                                          "dynamicTools": catalog.dynamic_tools({"galatea_get_capabilities"})})
+                                          "dynamicTools": catalog.dynamic_tools({probe_tool})})
                 checks["experimental_negative"] = (reply.get("error", {}).get("code") == -32600
                     and "experimentalApi" in reply.get("error", {}).get("message", ""))
         except Exception as exc:
             checks["experimental_negative"] = False
             checks["negative_error"] = str(exc)
         cases = {}
-        for name, actions, success in [("full", {"*"}, True), ("subset", {"galatea_get_capabilities"}, False)]:
+        for name, actions, success in [("full", {"*"}, True), ("subset", {probe_tool}, False)]:
             cases[name] = await probe_case(binary, output / name, catalog.dynamic_tools(actions), success=success,
-                                           compatibility=compatibility, actions=actions)
+                                           compatibility=compatibility, actions=actions, probe_tool=probe_tool, probe_arguments=probe_arguments)
             case = cases[name]
             checks[name] = (not case.get("error") and not case["surface_errors"]
                             and not case["mock_errors"] and case["model_requests"] >= 3
@@ -394,8 +400,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--contracts", type=Path, required=True)
+    parser.add_argument("--probe-tool", required=True)
+    parser.add_argument("--probe-arguments", type=json.loads, required=True)
     args = parser.parse_args()
-    report = probe_runtime(args.package, args.output, Path(__file__).resolve().parents[1] / "config/contracts")
+    report = probe_runtime(args.package, args.output, args.contracts,
+                           probe_tool=args.probe_tool, probe_arguments=args.probe_arguments)
     print(json.dumps({"protocol_status": report["protocol_status"], "stage0_status": report["stage0_status"],
                       "checks": report["checks"], "evidence": str(args.output / "report.json")}, indent=2))
     return 1 if report["protocol_status"] != "passed" else 2

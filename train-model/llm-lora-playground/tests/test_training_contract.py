@@ -65,7 +65,7 @@ class TrainingContractTests(unittest.TestCase):
         self.assertEqual("untouched", plan["dataset"]["test_access"])
 
     def test_run_manifest_schema_allows_only_explicit_final_test_access(self):
-        schema_path = ROOT.parents[1] / "doc/train-llm/2026-09-05-project-2-4-toy-lora-ray/schemas/run-manifest.schema.json"
+        schema_path = ROOT / "schemas/training-run-manifest.schema.json"
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         self.assertEqual(["untouched", "enabled_once"], schema["properties"]["test_access"]["enum"])
         self.assertEqual(

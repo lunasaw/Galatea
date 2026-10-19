@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -47,13 +48,38 @@ def _require_job_boundary() -> None:
         raise RuntimeError("inference service could not verify its Ray Job context") from exc
 
 
+def _run_isolated_adapter_probe(config_path: Path) -> list[dict[str, object]]:
+    """Run the CUDA readiness probe in a process that exits before serving.
+
+    The serving Driver is intentionally long-lived.  Keeping the probe in that
+    process would retain a CUDA context for the lifetime of every historical
+    deployment attempt and eventually interfere with vLLM engine startup.
+    """
+
+    completed = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve()), "--config", str(config_path), "--probe-adapter"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError("isolated adapter effectiveness probe failed")
+    try:
+        payload = json.loads(completed.stdout.strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise RuntimeError("isolated adapter effectiveness probe returned invalid evidence") from exc
+    if payload.get("status") != "ok" or not isinstance(payload.get("adapter_effectiveness_probes"), list):
+        raise RuntimeError("isolated adapter effectiveness probe did not return accepted evidence")
+    return payload["adapter_effectiveness_probes"]
+
+
 def run(config_path: Path) -> int:
     _require_job_boundary()
     preflight = validate_inference_config(config_path)
     compatibility = validate_model_adapter_compatibility(preflight)
     # Readiness must prove the adapter affects the exact model class used by
     # serving.  A successful download/registration alone is insufficient.
-    probe_results = run_adapter_effectiveness_probe(preflight)
+    probe_results = _run_isolated_adapter_probe(config_path)
     expected_digest = os.environ.get("RAY_INFERENCE_CONFIG_DIGEST")
     if expected_digest and expected_digest != preflight["config_digest"]:
         raise RuntimeError("inference config digest does not match the submission binding")
@@ -86,7 +112,16 @@ def run(config_path: Path) -> int:
     app = create_deployment(preflight)
     official_model_id = preflight.get("official_model_id")
     if official_model_id:
-        print(json.dumps({"status": "ray-llm-ready", "model": official_model_id, "engine": "ray-serve-llm-vllm", "promotable": False, "test_access": "untouched"}, ensure_ascii=False, sort_keys=True), flush=True)
+        print(json.dumps({
+            "status": "ray-llm-ready",
+            "model": official_model_id,
+            "engine": "ray-serve-llm-vllm",
+            "memory_backend": preflight["values"]["memory"]["backend"],
+            "memory_index_manifest_digest": preflight["values"]["memory"]["index_manifest_digest"],
+            "promotable": False,
+            "test_access": "historical_test_included_in_memory_corpus",
+            "future_holdout_policy": "post_index_temporal",
+        }, ensure_ascii=False, sort_keys=True), flush=True)
     serve.run(
         app,
         name=str(service["name"]),
@@ -100,6 +135,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--check-config", action="store_true")
+    parser.add_argument("--probe-adapter", action="store_true")
     parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
     try:
@@ -107,6 +143,11 @@ def main() -> int:
             preflight = validate_inference_config(args.config.resolve())
             compatibility = validate_model_adapter_compatibility(preflight)
             print(json.dumps({"status": "ok", "config_digest": preflight["config_digest"], "model_manifest_sha256": preflight["model_manifest_sha256"], "checkpoint_step": preflight["checkpoint"].step, "model_compatibility": compatibility}, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.probe_adapter:
+            preflight = validate_inference_config(args.config.resolve())
+            results = run_adapter_effectiveness_probe(preflight)
+            print(json.dumps({"status": "ok", "adapter_effectiveness_probes": results}, ensure_ascii=False, sort_keys=True))
             return 0
         if not args.run:
             parser.error("one of --check-config or --run is required")

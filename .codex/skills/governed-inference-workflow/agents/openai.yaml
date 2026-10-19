@@ -1,0 +1,4 @@
+interface:
+  display_name: "Governed Inference Workflow"
+  short_description: "Plan and submit evidence-bound Ray inference safely"
+  default_prompt: "Use $governed-inference-workflow to plan and submit this governed Ray inference deployment."

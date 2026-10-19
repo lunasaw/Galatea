@@ -2,11 +2,12 @@ import asyncio
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import AsyncMock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from codex_agent.config import AgentConfig
-from codex_agent.rpc import JsonRpcPeer, ProtocolError
+from codex_agent.rpc import AppServerClient, JsonRpcPeer, ProtocolError
 
 
 class MemoryWriter:
@@ -21,6 +22,19 @@ class MemoryReader:
 
 
 class RPCConfigTests(unittest.IsolatedAsyncioTestCase):
+    async def test_thread_defaults_are_native_and_explicit_overrides_are_preserved(self):
+        peer = type('Peer', (), {'request': AsyncMock(return_value={})})()
+        client = AppServerClient(peer)
+        client.initialized = True
+        await client.start_thread(cwd='/workspace', dynamic_tools=[])
+        self.assertEqual(peer.request.call_args.args, ('thread/start', {'cwd': '/workspace', 'dynamicTools': []}))
+        await client.start_thread(cwd='/workspace', dynamic_tools=[], approvalPolicy='never', sandbox='read-only')
+        self.assertEqual(peer.request.call_args.args[1]['approvalPolicy'], 'never')
+        self.assertEqual(peer.request.call_args.args[1]['sandbox'], 'read-only')
+        await client.start_thread(cwd='/workspace', dynamic_tools=[], permissions='custom', sandbox='workspace-write')
+        self.assertNotIn('sandbox', peer.request.call_args.args[1])
+        self.assertEqual(peer.request.call_args.args[1]['permissions'], 'custom')
+
     async def test_server_request_is_dispatched_and_response_is_sent(self):
         writer = MemoryWriter()
         async def handler(message):
@@ -42,11 +56,7 @@ class RPCConfigTests(unittest.IsolatedAsyncioTestCase):
             await peer.receive()
 
     def test_config_uses_explicit_paths_and_environment_allowlist(self):
-        config = AgentConfig.from_dict({"schema_version": "codex-agent/v1", "paths": {
-            "codex_home": "home", "runtime_dir": "runtime", "state_dir": "state", "event_dir": "events",
-            "workspace_dir": "workspace", "contracts": "contracts/tools.json", "catalog_metadata": "contracts/catalog-metadata.json"},
-            "codex": {"binary": "runtime/bin/codex", "runtime_version": "codex-cli 0.153.4"},
-            "galatea": {"principal": {"principal_id": "p", "actions": ["galatea_get_capabilities"]}}}, ROOT)
+        config = AgentConfig.from_dict({'schema_version': 'codex-agent/v2', 'paths': {'codex_home': 'home', 'runtime_dir': 'runtime', 'state_dir': 'state', 'workspace_dir': 'workspace'}, 'codex': {'binary': 'runtime/bin/codex', 'runtime_version': 'codex-cli 0.153.4'}, 'agent': {'id': 'p'}, 'tools': {'catalog_dir': str(ROOT / 'tests/fixtures/dynamic-tools'), 'actions': ['galatea_get_capabilities'], 'providers': [{'path': str(ROOT / 'tests/fixtures/dynamic-tools/provider.py')}]}}, ROOT)
         self.assertEqual(config.codex_home, (ROOT / "home").resolve())
         env = config.child_environment()
         self.assertEqual(set(env) - {"PATH", "LANG", "LC_ALL", "OPENAI_API_KEY", "HOME", "CODEX_HOME"}, set())

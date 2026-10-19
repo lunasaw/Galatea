@@ -26,6 +26,14 @@ class CompileError(ValueError):
     pass
 
 
+MACHINE_REVIEWER_PREFIXES = ("gpt-prelabel-",)
+
+
+def _is_machine_reviewer(reviewer_id: Any) -> bool:
+    normalized = str(reviewer_id or "").strip().lower()
+    return any(normalized.startswith(prefix) for prefix in MACHINE_REVIEWER_PREFIXES)
+
+
 def _candidate_manifest_digest(rows: list[dict[str, Any]]) -> str:
     return digest({
         "sample_ids": [str(row.get("sample_id") or "") for row in rows],
@@ -175,6 +183,7 @@ def compile_reviewed(
 
     exported: list[dict[str, Any]] = []
     counts = {status: 0 for status in sorted(STATUSES)}
+    machine_review_count = 0
     for sample_id in selected_ids:
         candidate = candidate_by_id[sample_id]
         event = event_by_id[sample_id]
@@ -186,6 +195,8 @@ def compile_reviewed(
             raise CompileError(f"session mismatch: {sample_id}")
         if not event.get("reviewer_id") or not event.get("reviewed_at"):
             raise CompileError(f"review evidence incomplete: {sample_id}")
+        if _is_machine_reviewer(event["reviewer_id"]):
+            machine_review_count += 1
 
         row = candidate
         if status == "redact_keep":
@@ -243,12 +254,16 @@ def compile_reviewed(
         "candidate_count": len(candidates),
         "event_count": len(events),
         "reviewed_count": len(events),
+        "human_review_count": len(events) - machine_review_count,
+        "machine_review_count": machine_review_count,
         "exported_count": len(exported),
         "uncertain_count": counts["uncertain"],
         "status_counts": counts,
         "rejected_counts_by_split": rejected_counts_by_split,
         "reviewed_hard_leak_count": 0,
-        "human_review_completed": counts["uncertain"] == 0,
+        "human_review_completed": (
+            counts["uncertain"] == 0 and machine_review_count == 0
+        ),
         "event_evidence_digest": file_digest(events_path),
         "candidate_manifest_sha256": actual_candidate_manifest_sha256,
         "output": str(output_path),

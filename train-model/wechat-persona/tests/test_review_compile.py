@@ -60,6 +60,24 @@ class ReviewCompileTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(summary.stat().st_mode), 0o600)
             self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)
 
+    def test_machine_prelabels_do_not_complete_human_review(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            candidate = self._row("s1")
+            candidates = root / "candidates.jsonl"
+            candidates.write_text(json.dumps(candidate) + "\n", encoding="utf-8")
+            events = root / "events.jsonl"
+            append_review_event(
+                events,
+                apply_review(candidate, "keep", reviewer_id="gpt-prelabel-v1"),
+            )
+
+            result = compile_reviewed(candidates, events, root / "reviewed.jsonl")
+
+            self.assertEqual(result["machine_review_count"], 1)
+            self.assertEqual(result["human_review_count"], 0)
+            self.assertFalse(result["human_review_completed"])
+
     def test_redact_keep_requires_separate_reviewed_row(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

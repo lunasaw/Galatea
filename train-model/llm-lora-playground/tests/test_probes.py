@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from llm_lora_playground.probes import AdapterEffectError, AdapterProbe, assert_adapter_effective
+from llm_lora_playground.probes import (
+    AdapterEffectError,
+    AdapterProbe,
+    assert_adapter_effective,
+    probes_from_tokenizer,
+)
 
 
 class _Output:
@@ -53,6 +58,33 @@ class ProbeTests(unittest.TestCase):
 
         with self.assertRaises(AdapterEffectError):
             assert_adapter_effective(Same(), [AdapterProbe("a", torch.ones((1, 2), dtype=torch.long))])
+
+    def test_tokenizer_probe_tensors_move_to_declared_model_device(self):
+        class Tensor:
+            def __init__(self):
+                self.device = None
+
+            def to(self, device):
+                self.device = device
+                return self
+
+        input_ids = Tensor()
+        attention_mask = Tensor()
+
+        class Tokenizer:
+            def apply_chat_template(self, messages, **kwargs):
+                return {"input_ids": input_ids, "attention_mask": attention_mask}
+
+        probes = probes_from_tokenizer(
+            Tokenizer(),
+            [("device", [{"role": "user", "content": "hello"}])],
+            device="cuda:0",
+        )
+
+        self.assertIs(probes[0].input_ids, input_ids)
+        self.assertIs(probes[0].attention_mask, attention_mask)
+        self.assertEqual(input_ids.device, "cuda:0")
+        self.assertEqual(attention_mask.device, "cuda:0")
 
 
 if __name__ == "__main__":

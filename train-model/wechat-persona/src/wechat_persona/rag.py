@@ -1,11 +1,4 @@
-"""Dependency-free, auditable retrieval indexes for the wechat-persona project.
-
-The reference backend is intentionally small and local: BM25-like lexical
-scoring is always available, while the embedding backend uses a deterministic
-hashed vector when no local encoder is supplied.  A production adapter may
-provide an ``encode`` callable, but it must still record its immutable revision
-in the index manifest.
-"""
+"""Auditable local retrieval indexes for the wechat-persona project."""
 
 from __future__ import annotations
 
@@ -29,16 +22,22 @@ class RagContractError(ValueError):
     """Raised when an index or retrieval request is invalid."""
 
 
-_TOKEN_RE = re.compile(r"[A-Za-z0-9_<>]+|[\u4e00-\u9fff]")
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_<>]+|[\u4e00-\u9fff]+")
 _MANIFEST_FILE = "index_manifest.json"
 _CARDS_FILE = "cards.json"
 _DELETION_LEDGER_FILE = "deletion-ledger.jsonl"
 
 
 def _tokenize(text: str) -> list[str]:
-    # Character-level CJK tokens preserve useful overlap for short Chinese
-    # queries without requiring an external segmentation package.
-    return [token.casefold() for token in _TOKEN_RE.findall(text or "")]
+    tokens: list[str] = []
+    for token in _TOKEN_RE.findall(text or ""):
+        if re.fullmatch(r"[\u4e00-\u9fff]+", token):
+            characters = list(token)
+            tokens.extend(characters)
+            tokens.extend("".join(characters[index:index + 2]) for index in range(len(characters) - 1))
+        else:
+            tokens.append(token.casefold())
+    return tokens
 
 
 def _sha256_payload(payload: Any) -> str:
@@ -99,6 +98,10 @@ class IndexManifest:
     embedding_model_revision: str | None = None
     pooling: str | None = None
     vector_dimension: int | None = None
+    vector_digest: str | None = None
+    lexical_weight: float = 0.35
+    semantic_weight: float = 0.65
+    min_score: float = 0.0
     built_at: str = field(default_factory=_utc_timestamp)
     excluded_counts: Mapping[str, int] = field(default_factory=dict)
     code_revision: str = "local-reference"
@@ -117,6 +120,10 @@ class IndexManifest:
             "embedding_model_revision": self.embedding_model_revision,
             "pooling": self.pooling,
             "vector_dimension": self.vector_dimension,
+            "vector_digest": self.vector_digest,
+            "lexical_weight": self.lexical_weight,
+            "semantic_weight": self.semantic_weight,
+            "min_score": self.min_score,
             "built_at": self.built_at,
             "excluded_counts": dict(self.excluded_counts),
             "code_revision": self.code_revision,
@@ -130,6 +137,10 @@ class IndexManifest:
         values["index_dir"] = str(index_dir)
         values["owner_scopes"] = tuple(values.get("owner_scopes") or ())
         values.setdefault("excluded_counts", {})
+        values.setdefault("vector_digest", None)
+        values.setdefault("lexical_weight", 0.35)
+        values.setdefault("semantic_weight", 0.65)
+        values.setdefault("min_score", 0.0)
         return cls(**values)
 
 
@@ -226,6 +237,10 @@ def _load_index(index_ref: str | Path | IndexManifest) -> tuple[IndexManifest, l
         embedding_model_revision=manifest.embedding_model_revision,
         pooling=manifest.pooling,
         vector_dimension=manifest.vector_dimension,
+        vector_digest=manifest.vector_digest,
+        lexical_weight=manifest.lexical_weight,
+        semantic_weight=manifest.semantic_weight,
+        min_score=manifest.min_score,
         owner_scopes=manifest.owner_scopes,
         card_count=manifest.card_count,
         consent_scope=manifest.consent_scope,
@@ -245,6 +260,8 @@ def _load_index(index_ref: str | Path | IndexManifest) -> tuple[IndexManifest, l
             raise RagContractError("embedding vector count does not match manifest")
         if manifest.vector_dimension is None or any(len(vector) != manifest.vector_dimension for vector in vectors):
             raise RagContractError("embedding vector dimension does not match manifest")
+        if manifest.vector_digest and _sha256_payload(vectors) != manifest.vector_digest:
+            raise RagContractError("embedding vector digest does not match manifest")
     return manifest, cards
 
 
@@ -271,6 +288,10 @@ def _manifest_digest(
     embedding_model_revision: str | None,
     pooling: str | None,
     vector_dimension: int | None,
+    vector_digest: str | None,
+    lexical_weight: float,
+    semantic_weight: float,
+    min_score: float,
     owner_scopes: Sequence[str],
     card_count: int,
     consent_scope: str | None,
@@ -285,6 +306,10 @@ def _manifest_digest(
             "embedding_model_revision": embedding_model_revision,
             "pooling": pooling,
             "vector_dimension": vector_dimension,
+            "vector_digest": vector_digest,
+            "lexical_weight": lexical_weight,
+            "semantic_weight": semantic_weight,
+            "min_score": min_score,
             "owner_scopes": sorted(owner_scopes),
             "card_count": card_count,
             "consent_scope": consent_scope,
@@ -303,6 +328,9 @@ def _write_index(
     pooling: str | None = None,
     embedding_model: Any = None,
     stored_vectors: Sequence[Sequence[float]] | None = None,
+    lexical_weight: float = 0.35,
+    semantic_weight: float = 0.65,
+    min_score: float = 0.0,
     consent_scope: str | None = None,
     excluded_counts: Mapping[str, int] | None = None,
 ) -> IndexManifest:
@@ -315,7 +343,7 @@ def _write_index(
         vectors = (
             [[float(value) for value in row] for row in stored_vectors]
             if stored_vectors is not None
-            else [_embed(card.content, embedding_model) for card in cards]
+            else _encode_documents([card.content for card in cards], embedding_model)
         )
         if len(vectors) != len(cards):
             raise RagContractError("embedding vector count does not match card count")
@@ -325,6 +353,7 @@ def _write_index(
         vector_dimension = dimensions.pop() if dimensions else 0
     else:
         vector_dimension = None
+    vector_digest = _sha256_payload(vectors) if vectors is not None else None
     excluded = dict(excluded_counts or {})
     owner_scopes = tuple(sorted({card.owner_scope for card in cards}))
     manifest_digest = _manifest_digest(
@@ -335,6 +364,10 @@ def _write_index(
         embedding_model_revision=embedding_model_revision,
         pooling=pooling,
         vector_dimension=vector_dimension,
+        vector_digest=vector_digest,
+        lexical_weight=lexical_weight,
+        semantic_weight=semantic_weight,
+        min_score=min_score,
         owner_scopes=owner_scopes,
         card_count=len(cards),
         consent_scope=consent_scope,
@@ -352,6 +385,10 @@ def _write_index(
         embedding_model_revision=embedding_model_revision,
         pooling=pooling,
         vector_dimension=vector_dimension,
+        vector_digest=vector_digest,
+        lexical_weight=lexical_weight,
+        semantic_weight=semantic_weight,
+        min_score=min_score,
         excluded_counts=excluded,
         consent_scope=consent_scope,
     )
@@ -359,6 +396,10 @@ def _write_index(
     _atomic_json(directory / _MANIFEST_FILE, manifest.as_dict())
     if vectors is not None:
         _atomic_json(directory / "vectors.json", vectors)
+    directory.chmod(0o700)
+    for path in directory.iterdir():
+        if path.is_file():
+            path.chmod(0o600)
     return manifest
 
 
@@ -382,27 +423,39 @@ def build_bm25_index(
 
 def _model_revision(model_ref: Any) -> str:
     if model_ref is None:
-        return "hashed-embedding-v1"
+        raise RagContractError("a pinned local embedding model is required")
     if isinstance(model_ref, str):
         return model_ref
     return str(getattr(model_ref, "revision", None) or getattr(model_ref, "model_revision", None) or type(model_ref).__name__)
 
 
-def _embed(text: str, model_ref: Any = None, dimensions: int = 128) -> list[float]:
+def _encode_documents(texts: Sequence[str], model_ref: Any, batch_size: int = 32) -> list[list[float]]:
+    if model_ref is None:
+        raise RagContractError("a pinned local embedding model is required")
+    if hasattr(model_ref, "encode_documents"):
+        encoded = model_ref.encode_documents(texts, batch_size=batch_size)
+    elif hasattr(model_ref, "encode"):
+        try:
+            encoded = model_ref.encode(texts, batch_size=batch_size)
+        except TypeError:
+            encoded = model_ref.encode(texts)
+    elif callable(model_ref):
+        encoded = [model_ref(text) for text in texts]
+    else:
+        raise RagContractError("embedding model must provide encode_documents or encode")
+    return [[float(value) for value in row] for row in encoded]
+
+
+def _embed(text: str, model_ref: Any = None) -> list[float]:
+    if model_ref is not None and hasattr(model_ref, "encode_query"):
+        return [float(value) for value in model_ref.encode_query(text)]
     if model_ref is not None and hasattr(model_ref, "encode"):
         encoded = model_ref.encode([text])
         values = encoded[0] if hasattr(encoded, "__getitem__") and not isinstance(encoded[0], (str, bytes)) else encoded
         return [float(value) for value in values]
     if callable(model_ref):
         return [float(value) for value in model_ref(text)]
-    vector = [0.0] * dimensions
-    for token in _tokenize(text):
-        digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
-        index = int.from_bytes(digest[:4], "big") % dimensions
-        sign = 1.0 if digest[4] & 1 else -1.0
-        vector[index] += sign
-    norm = math.sqrt(sum(value * value for value in vector))
-    return [value / norm for value in vector] if norm else vector
+    raise RagContractError("a pinned local embedding model is required")
 
 
 def build_embedding_index(
@@ -421,6 +474,39 @@ def build_embedding_index(
         embedding_model_revision=_model_revision(model_ref),
         pooling=pooling,
         embedding_model=model_ref,
+        consent_scope=consent_scope,
+        excluded_counts=excluded,
+    )
+
+
+def build_hybrid_index(
+    cards: Iterable[MemoryCard],
+    model_ref: Any,
+    index_dir: str | Path,
+    *,
+    tokenizer_revision: str = "tokenizer-cjk-char-v1",
+    pooling: str = "cls-normalized",
+    lexical_weight: float = 0.35,
+    semantic_weight: float = 0.65,
+    min_score: float = 0.45,
+    consent_scope: str | None = None,
+) -> IndexManifest:
+    if lexical_weight < 0 or semantic_weight < 0 or lexical_weight + semantic_weight <= 0:
+        raise RagContractError("hybrid retrieval weights must be non-negative and non-zero")
+    if not 0 <= min_score <= 1:
+        raise RagContractError("hybrid min_score must be in [0, 1]")
+    selected, excluded = _indexable(cards)
+    return _write_index(
+        selected,
+        index_dir,
+        backend="hybrid",
+        tokenizer_revision=tokenizer_revision,
+        embedding_model_revision=_model_revision(model_ref),
+        pooling=pooling,
+        embedding_model=model_ref,
+        lexical_weight=lexical_weight,
+        semantic_weight=semantic_weight,
+        min_score=min_score,
         consent_scope=consent_scope,
         excluded_counts=excluded,
     )
@@ -493,10 +579,9 @@ def retrieve(
     eligible = without_fact + list(latest_by_fact.values())
     if not eligible:
         return []
-    if manifest.backend == "embedding":
+    if manifest.backend in {"embedding", "hybrid"}:
         if embedding_model is None:
-            if manifest.embedding_model_revision != "hashed-embedding-v1":
-                raise RagContractError("the indexed local embedding model is required for retrieval")
+            raise RagContractError("the indexed local embedding model is required for retrieval")
         elif _model_revision(embedding_model) != manifest.embedding_model_revision:
             raise RagContractError("embedding model revision does not match the index manifest")
         vectors = json.loads((_index_dir(index_ref) / "vectors.json").read_text(encoding="utf-8"))
@@ -504,17 +589,28 @@ def retrieve(
         query_vector = _embed(query, embedding_model)
         if manifest.vector_dimension is not None and len(query_vector) != manifest.vector_dimension:
             raise RagContractError("embedding output dimension does not match the index manifest")
-        scores = [_cosine(query_vector, vector_by_id.get(card.memory_id, [])) for card in eligible]
-        source = "embedding"
-    elif manifest.backend == "hybrid":
-        raise RagContractError("hybrid retrieval is not enabled without an explicit validation protocol")
+        semantic_scores = [_cosine(query_vector, vector_by_id.get(card.memory_id, [])) for card in eligible]
+        if manifest.backend == "hybrid":
+            lexical_scores = _bm25_scores(query, eligible)
+            lexical_max = max(lexical_scores, default=0.0)
+            normalized_lexical = [score / lexical_max if lexical_max > 0 else 0.0 for score in lexical_scores]
+            weight_sum = manifest.lexical_weight + manifest.semantic_weight
+            scores = [
+                (manifest.lexical_weight * lexical + manifest.semantic_weight * semantic) / weight_sum
+                for lexical, semantic in zip(normalized_lexical, semantic_scores)
+            ]
+            source = "bm25+embedding"
+        else:
+            scores = semantic_scores
+            source = "embedding"
     else:
         scores = _bm25_scores(query, eligible)
         source = "bm25"
     if semantic_scorer is not None:
         scores = [score + float(semantic_scorer(query, card.content)) for score, card in zip(scores, eligible)]
         source += "+semantic"
-    scored = [RetrievedMemory(card, score, 0, source) for card, score in zip(eligible, scores) if score > 0]
+    threshold = manifest.min_score if manifest.backend in {"embedding", "hybrid"} else 0.0
+    scored = [RetrievedMemory(card, score, 0, source) for card, score in zip(eligible, scores) if score > threshold]
     scored.sort(key=lambda item: (item.score, item.record.revision_key), reverse=True)
     return [RetrievedMemory(item.record, item.score, rank, item.retrieval_source) for rank, item in enumerate(scored[:k], 1)]
 
@@ -662,6 +758,9 @@ def _rewrite_without(
         pooling=manifest.pooling,
         embedding_model=None,
         stored_vectors=stored_vectors,
+        lexical_weight=manifest.lexical_weight,
+        semantic_weight=manifest.semantic_weight,
+        min_score=manifest.min_score,
         consent_scope=manifest.consent_scope,
         excluded_counts=manifest.excluded_counts,
     )
@@ -777,6 +876,7 @@ __all__ = [
     "RetrievalReport",
     "build_bm25_index",
     "build_embedding_index",
+    "build_hybrid_index",
     "build_grounded_messages",
     "delete_consent_scope",
     "delete_memory",

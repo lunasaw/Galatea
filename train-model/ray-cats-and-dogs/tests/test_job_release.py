@@ -32,6 +32,15 @@ from ray_cats_dogs.job_release import (  # noqa: E402
 
 
 class JobReleaseTest(unittest.TestCase):
+    def test_generic_cd_rejects_training_before_loading_release(self) -> None:
+        with patch("ray_cats_dogs.job_release.load_release_manifest") as load:
+            with self.assertRaisesRegex(ValueError, "Galatea readiness"):
+                deploy_release_manifest(
+                    Path("release.json"), address="http://127.0.0.1:8265",
+                    submission_id=None, config="configs/smoke.yaml", mode="train",
+                )
+            load.assert_not_called()
+
     def _release_fixture(self, directory: str) -> BuiltRelease:
         release_directory = Path(directory)
         return BuiltRelease(
@@ -208,7 +217,7 @@ class JobReleaseTest(unittest.TestCase):
         self.assertEqual("conda.yaml", release.manifest["environment_source"])
         self.assertEqual(64, len(release.manifest["environment_sha256"]))
         self.assertEqual(
-            "/data/conda/envs/ray-cats-and-dogs-py312",
+            "/data/miniconda3/envs/ray-cats-and-dogs-py312",
             release.manifest["runtime_env"]["conda"],
         )
 
@@ -356,7 +365,7 @@ class JobReleaseTest(unittest.TestCase):
         self.assertFalse(publish_mock.call_args.kwargs["dry_run"])
         self.assertEqual("preinstalled", publish_mock.call_args.kwargs["runtime_mode"])
         self.assertEqual(
-            "/data/conda/envs/ray-cats-and-dogs-py312",
+            "/data/miniconda3/envs/ray-cats-and-dogs-py312",
             publish_mock.call_args.kwargs["conda_prefix"],
         )
         self.assertEqual(release.manifest_path, deploy_mock.call_args.args[0])

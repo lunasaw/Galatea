@@ -1,4 +1,12 @@
-# Python 解耦架构实施工作包
+# Python 解耦架构实施工作包（历史归档）
+
+> **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
+> 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
+> 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+
+> 本工作包对应的独立 `training-agent-runtime` 已于 2026-09-22 删除。当前 Agent 设计已经转为
+> Codex app-server 宿主，见 [`agents/codex-app-server/docs`](../../../agents/codex-app-server/docs/README.md)。
 
 更新：2026-09-07。以下是原实施工作包，当前实现状态见
 [开发记录](09-development-record.md)及[本地验证](../09-local-validation.md)；未部署服务或运行真实训练。
@@ -7,8 +15,8 @@
 ## 1. 共同约束
 
 - 新主线：Python Galatea MCP + 原版 Codex + 独立 Skill 包 + Python Runner。
-- `Galatea/plugins/` 所有源码、配置、测试、依赖和现有功能保持不动，无迁移步骤。
-- 不修改 Codex Core，不新建自研 Agent，不依赖 DeepSeek Harness。
+- 当前源码归属以 [Codex 与 Galatea 架构](../../agent-galatea.md)为准；此处保留历史 Runner 工作包。
+- 不修改 Codex Core，不新建自研 Agent，不依赖其他 Agent Runtime。
 - 首版不新增数据库、ORM、SQL migrations、队列或 training-control 服务。
 - 单 MCP 写进程、单 Runner、一个活跃 Campaign、串行受信 Job，本地持久卷与进程锁。
 - 通过官方 Ray、MLflow、S3 API 使用平台；不直读 MLflow 数据库或 MinIO 服务端目录。

@@ -1,5 +1,10 @@
 # 方案 06：数据与不可变 Release 实施计划
 
+> **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
+> 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
+> 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+
 > 后续实现使用 superpowers:executing-plans；实际修改 workload 时遵守 model-project-structure。
 
 **目标：**训练始终绑定可复现的数据、配置、代码和环境，按需扩展新数据入口。

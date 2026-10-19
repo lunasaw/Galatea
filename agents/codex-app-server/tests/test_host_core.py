@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -15,6 +16,7 @@ from codex_agent.events import EventLog
 from codex_agent.host import AgentHost, HostNotReady
 from codex_agent.registry import ToolContext, ToolRegistry
 from codex_agent.state import AtomicJsonStore, OperationJournal
+from codex_agent.console.models import SnapshotQuery
 
 
 class FakeClient:
@@ -51,8 +53,8 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         root = Path(self.directory.name)
         self.store = AtomicJsonStore(root / "state")
-        self.events = EventLog(root / "events")
-        self.catalog = Catalog.load(ROOT / "config/contracts")
+        self.events = EventLog()
+        self.catalog = Catalog.load(ROOT / "tests/fixtures/dynamic-tools")
         self.calls = []
 
         def handler(context, arguments):
@@ -64,12 +66,13 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         self.client = FakeClient()
         self.host = AgentHost(registry=registry, event_log=self.events, store=self.store,
                               client_factory=lambda: self.client, reconciler=lambda: None,
-                              principal_id="p", project_ids={"project"}, campaign_ids={"campaign"},
+                              principal_id="p",
                               actions={"galatea_get_capabilities"})
         await self.host.start()
 
     async def asyncTearDown(self):
         await self.host.stop()
+        await self.events.close()
         self.directory.cleanup()
 
     async def test_session_message_is_idempotent_and_calls_native_client_once(self):
@@ -79,12 +82,64 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first, second)
         self.assertEqual(len(self.client.turns), 1)
         self.assertEqual(self.store.read("requests/request-1.json")["turn_id"], first["turn_id"])
+        await self.events.flush()
+        snapshot = await self.events.snapshot(SnapshotQuery('session-1'))
+        self.assertEqual([m['text'] for m in snapshot['messages']], ['hello'])
+
+    async def test_created_session_exposes_effective_native_defaults(self):
+        self.client.start_thread = AsyncMock(return_value={
+            'thread': {'id': 'inherited'}, 'model': 'native-model', 'reasoningEffort': 'high',
+            'approvalPolicy': 'never', 'sandbox': {'type': 'readOnly', 'networkAccess': False}})
+        session = await self.host.create_session('defaults')
+        self.assertEqual(session['settings']['approvalPolicy'], 'never')
+        self.assertEqual(session['settings']['sandboxPolicy']['type'], 'readOnly')
+        self.assertEqual(session['settings']['model'], 'native-model')
+        self.assertEqual(session['settings']['effort'], 'high')
+        self.assertNotIn('approvalPolicy', self.client.start_thread.call_args.kwargs)
+
+    async def test_native_settings_notification_updates_visible_settings_without_private_instructions(self):
+        session = await self.host.create_session('reload')
+        await self.host.handle_notification({'method': 'thread/settings/updated', 'params': {
+            'threadId': session['thread_id'], 'threadSettings': {
+                'approvalPolicy': 'never', 'sandboxPolicy': {'type': 'readOnly'}, 'summary': 'none',
+                'collaborationMode': {'mode': 'plan', 'settings': {'model': 'native', 'reasoning_effort': 'high',
+                    'developer_instructions': 'private built-in instructions'}},
+                'activePermissionProfile': None}}})
+        current = self.host.get_session('reload')['settings']
+        self.assertEqual(current['approvalPolicy'], 'never')
+        self.assertEqual(current['sandboxPolicy']['type'], 'readOnly')
+        self.assertEqual(current['summary'], 'none')
+        self.assertIsNone(current['collaborationMode']['settings']['developer_instructions'])
 
     async def test_conflicting_request_id_is_rejected(self):
         await self.host.create_session("session-1")
         await self.host.send_message("session-1", "request-1", "hello")
         with self.assertRaises(ValueError):
             await self.host.send_message("session-1", "request-1", "different")
+
+    async def test_durable_intent_failure_blocks_native_turn_and_accepted_message(self):
+        await self.host.create_session('session-1')
+        with patch.object(self.store, 'write', side_effect=OSError('synthetic disk failure')):
+            with self.assertRaises(OSError):
+                await self.host.send_message('session-1', 'request-1', 'hello')
+        self.assertEqual(self.client.turns, [])
+        self.assertIsNone(self.store.read('requests/request-1.json'))
+        await self.events.flush()
+        self.assertEqual((await self.events.snapshot(SnapshotQuery('session-1')))['messages'], [])
+
+    async def test_observation_commit_failure_does_not_change_durable_execution(self):
+        await self.host.create_session('session-1')
+        await self.events.flush()
+        with patch.object(self.events.store, 'commit', side_effect=OSError('synthetic observer failure')):
+            record = await self.host.send_message('session-1', 'request-1', 'hello')
+            await asyncio.sleep(.01)
+            self.assertEqual((await self.events.status())['observation']['status'], 'unavailable')
+            self.host.assert_ready()
+            self.assertEqual(record['status'], 'accepted')
+            self.assertEqual(self.store.read('requests/request-1.json')['status'], 'accepted')
+            self.assertEqual(len(self.client.turns), 1)
+        await self.events.retry()
+        await self.events.flush()
 
     async def test_dynamic_tool_request_is_bound_to_session_and_returns_envelope(self):
         session = await self.host.create_session("session-1")
@@ -145,7 +200,7 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         await self.host.stop()
         replacement = AgentHost(registry=self.host.registry, event_log=self.events, store=self.store,
                                 client_factory=lambda: self.client, reconciler=lambda: None,
-                                principal_id="p", project_ids={"project"}, campaign_ids={"campaign"},
+                                principal_id="p",
                                 actions={"galatea_get_capabilities"})
         await replacement.start()
         response = await replacement.handle_tool_call({"id": 9, "params": {

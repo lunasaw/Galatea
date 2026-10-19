@@ -17,10 +17,34 @@ class ConfigContractTests(unittest.TestCase):
             "qwen3-1.7b-lora.yaml", "qlora-4b.yaml", "local-chat.yaml", "screenplay.yaml",
             "formal-sft-v2-baseline.yaml", "formal-sft-v2-trial.yaml",
             "formal-sft-v2-champion.yaml", "formal-sft-v2-champion-trial.yaml",
-            "formal-sft-v2-evaluate.yaml",
+            "formal-sft-v2-evaluate.yaml", "rag-private-hybrid.yaml",
+            "gpt-prelabel-v1-baseline.yaml", "daily-memory-gpt-v1.yaml",
+            "daily-topic-sft.yaml",
         }
         self.assertEqual(expected, {p.name for p in (ROOT / "configs").glob("*.yaml")})
         for path in (ROOT / "configs").glob("*.yaml"):
+            if path.name == "daily-topic-sft.yaml":
+                from wechat_persona.topic_candidates import load_policy
+                topic_config = load_policy(path)
+                self.assertEqual(["train"], topic_config["allowed_splits"])
+                self.assertEqual(
+                    {
+                        "schema_version", "timezone", "target_role", "allowed_splits",
+                        "selection", "context", "encoding", "governance",
+                    },
+                    set(topic_config),
+                )
+                continue
+            if path.name == "daily-memory-gpt-v1.yaml":
+                config = load_project_config(path)
+                self.assertEqual("wechat-persona-memory-daily-v1", config["schema_version"])
+                self.assertEqual("candidate", config["governance"]["result_status"])
+                self.assertFalse(config["governance"]["training_run"])
+                self.assertEqual(
+                    "compatible_constraints_v1",
+                    config["extraction"]["wire_schema_mode"],
+                )
+                continue
             self.assertEqual([], validate_project_config(load_project_config(path)), path.name)
 
     def test_training_config_requires_governed_backend_resources(self):
@@ -36,6 +60,25 @@ class ConfigContractTests(unittest.TestCase):
             self.assertEqual(role, config["run"]["role"])
             self.assertRegex(config["model"]["model_revision"], r"^[a-f0-9]{40}$")
             self.assertEqual(config["model"]["model_revision"], config["model"]["tokenizer_revision"])
+            self.assertEqual(
+                "qwen3_5_conditional_generation",
+                config["model"]["architecture"],
+            )
+
+    def test_qwen35_rejects_implicit_or_causal_lm_architecture(self):
+        config = load_project_config(ROOT / "configs/formal-sft-v2-baseline.yaml")
+        for architecture in (None, "qwen3_5_causal_lm"):
+            model = {**config["model"]}
+            if architecture is None:
+                model.pop("architecture")
+            else:
+                model["architecture"] = architecture
+            errors = validate_project_config({**config, "model": model})
+            self.assertIn(
+                "Qwen/Qwen3.5-0.8B requires "
+                "model.architecture=qwen3_5_conditional_generation",
+                errors,
+            )
 
     def test_no_secrets_or_raw_paths_in_configs(self):
         for path in (ROOT / "configs").glob("*.yaml"):

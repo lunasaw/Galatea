@@ -1,0 +1,65 @@
+schema_version: wechat-persona-config-v1
+project: wechat-persona
+platform_project_id: wechat-persona-gpt-prelabel-v1
+task: causal-language-model-sft-lora
+dataset:
+  dataset_id: wechat-gpt-prelabel-v1-d413908f703d967d6a0e
+  source_sha256: 63ce0e55db1dcefa69366db39bd752103edfb5ebf68aa1a2a10166ebc3891219
+  manifest_sha256: 90674f0926e60a98ad6a6e93a92708c3bf63110accbbcc03d2b7f910d6204f2a
+  split_sha256: e859c4f43cf9ae74fb2e685b918d4dfdfbec612725483861851ad66e7d736289
+  consent_scope: processing+persona_style+evaluation
+  consent_digest: c96dee7bcad9e52806d9f760cfe85524ae06b6af20e067f481e9f6af5bd16182
+  preprocessing_version: wechat-persona-data-v2+wechat-normalization-v1+wechat-session-v2+wechat-privacy-boundary-v1+girlfriend-assistant-usefulness-v1+gpt-prelabel-v1
+  formal_dataset_ready: false
+  experimental_prelabel_ready: true
+  counts: {train: 2652, validation: 725, test: 8225}
+governance:
+  quality_status: experimental_only
+  review_method: gpt-prelabel-v1
+  review_state_sha256: 9ec39987f78408cb4c042f280cbdab1ab8bd8c7113b65323c7fe0614b0b9d0ae
+  authorization_id: user-request-20260912-gpt-prelabel
+  authorization_digest: 59638ad6ade2dac0be4ea21c8d69e06e55ded08002ccf219d23822134ef0e7b9
+  experimental_training_authorized: true
+  machine_review_completed: true
+  parent_human_review_completed: true
+  human_review_completed: false
+  formal_training_eligible: false
+  withdrawn: false
+  pii_scan_passed: true
+  canary_scan_passed: true
+  cross_split_session_count: 0
+  canary_scan_evidence:
+    scanner_version: wechat-canary-scanner-v1
+    report_sha256: 7936739970b8aa42e933f4d5126001b6f3d51a658b0f2a66586dc2e278425be1
+    scanned_sample_count: 3377
+    match_count: 0
+model:
+  model_id: Qwen/Qwen3.5-0.8B
+  architecture: qwen3_5_conditional_generation
+  model_revision: 2fc06364715b967f1860aea9cf38778875588b17
+  tokenizer_revision: 2fc06364715b967f1860aea9cf38778875588b17
+  dtype: bfloat16
+training:
+  max_steps: null
+  epochs: 1
+  batch_size: 4
+  eval_batch_size: 4
+  learning_rate: 0.0001
+  max_length: 1024
+  seed: 42
+lora: {rank: 8, alpha: 16, dropout: 0.05, target_modules: [q_proj, v_proj]}
+execution:
+  backend: ray
+  resources:
+    cpus: 24
+    memory_gb: 40
+    num_gpus: 0
+    placement: single_node_cpu
+    max_seconds: 21600
+run: {role: baseline, promotable: false}
+evaluation:
+  protocol_version: wechat-persona-style-v1
+  objective_metric: val_loss
+  objective_direction: min
+  test_access: untouched
+  evaluate_test: false

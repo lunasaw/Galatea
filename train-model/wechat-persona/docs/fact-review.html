@@ -1,0 +1,1179 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Galatea 事实审核</title>
+  <style>
+    :root {
+      --bg: #eef1f3;
+      --surface: #f9faf9;
+      --surface-raised: #fdfefd;
+      --surface-muted: #f2f4f4;
+      --text: #1d2725;
+      --text-secondary: #53615e;
+      --text-tertiary: #74807d;
+      --line: #d8dedd;
+      --line-strong: #b8c2bf;
+      --accent: #126a58;
+      --accent-hover: #0c5849;
+      --accent-soft: #dceee9;
+      --danger: #a33f48;
+      --danger-soft: #f7e6e7;
+      --warning: #8a631b;
+      --warning-soft: #f5ecd6;
+      --info: #3f6077;
+      --info-soft: #e3ebef;
+      --focus: #17856e;
+      --radius: 6px;
+      --header-height: 62px;
+      --font-sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    :root[data-theme="dark"] {
+      --bg: #171c1b;
+      --surface: #1d2422;
+      --surface-raised: #222a28;
+      --surface-muted: #28312f;
+      --text: #edf2f0;
+      --text-secondary: #b8c4c1;
+      --text-tertiary: #8f9d99;
+      --line: #36413e;
+      --line-strong: #53615d;
+      --accent: #5ab49e;
+      --accent-hover: #74c5b1;
+      --accent-soft: #203b34;
+      --danger: #ed9198;
+      --danger-soft: #46292d;
+      --warning: #dfb75f;
+      --warning-soft: #413821;
+      --info: #9abed1;
+      --info-soft: #263842;
+      --focus: #71cbb4;
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      min-width: 320px;
+      min-height: 100dvh;
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button, select { cursor: pointer; }
+    button:active { transform: translateY(1px); }
+    button:disabled { cursor: not-allowed; opacity: .48; transform: none; }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .app-header {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      height: var(--header-height);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 20px;
+      padding: 0 20px;
+      color: var(--text);
+      background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(12px);
+    }
+    .brand {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: var(--radius);
+      color: #f4faf8;
+      background: #126a58;
+      font-weight: 750;
+    }
+    .brand-copy { min-width: 0; }
+    .brand-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 720;
+      line-height: 1.2;
+    }
+    .snapshot-label {
+      max-width: 56vw;
+      margin-top: 3px;
+      overflow: hidden;
+      color: var(--text-tertiary);
+      font: 11px/1.2 var(--font-mono);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .header-side {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-progress {
+      padding-right: 12px;
+      border-right: 1px solid var(--line);
+      color: var(--text-secondary);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .header-progress strong {
+      color: var(--text);
+      font: 700 13px/1 var(--font-mono);
+    }
+    .icon-button {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-raised);
+      font-size: 16px;
+    }
+    .icon-button:hover { border-color: var(--line-strong); background: var(--surface-muted); }
+
+    .workspace {
+      min-height: calc(100dvh - var(--header-height));
+      display: grid;
+      grid-template-columns: 292px minmax(460px, 1fr) 330px;
+      max-width: 1800px;
+      margin: 0 auto;
+      background: var(--surface-raised);
+      border-right: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+    }
+    .queue-pane,
+    .decision-pane {
+      min-width: 0;
+      background: var(--surface);
+    }
+    .queue-pane { border-right: 1px solid var(--line); }
+    .decision-pane { border-left: 1px solid var(--line); }
+    .pane-sticky {
+      position: sticky;
+      top: var(--header-height);
+      max-height: calc(100dvh - var(--header-height));
+      overflow: auto;
+    }
+    .queue-controls,
+    .decision-content { padding: 16px; }
+    .pane-heading {
+      margin: 0 0 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .search-wrap { position: relative; }
+    .search-input,
+    select,
+    .text-input {
+      width: 100%;
+      min-height: 36px;
+      padding: 7px 10px;
+      color: var(--text);
+      background: var(--surface-raised);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+    }
+    .search-input { padding-right: 34px; }
+    .search-input::placeholder,
+    .text-input::placeholder { color: var(--text-tertiary); opacity: 1; }
+    .search-clear {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text-tertiary);
+      font-size: 18px;
+    }
+    .search-clear:hover { color: var(--text); background: var(--surface-muted); }
+    .filter-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 9px;
+    }
+    .filter-grid .wide { grid-column: 1 / -1; }
+    select { font-size: 12px; }
+    .queue-summary {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 11px 16px;
+      color: var(--text-secondary);
+      background: var(--surface-muted);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      font-size: 11px;
+    }
+    .queue-list { min-height: 320px; }
+    .queue-item {
+      width: 100%;
+      display: block;
+      padding: 13px 16px;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .queue-item:hover { background: var(--surface-muted); }
+    .queue-item.active {
+      background: var(--accent-soft);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .queue-key {
+      display: block;
+      overflow: hidden;
+      font: 650 12px/1.35 var(--font-mono);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .queue-value {
+      display: block;
+      margin-top: 7px;
+      overflow: hidden;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .queue-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--text-tertiary);
+      font: 11px/1.2 var(--font-mono);
+    }
+    .queue-pagination {
+      display: grid;
+      grid-template-columns: 36px 1fr 36px;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--line);
+    }
+    .page-position {
+      text-align: center;
+      color: var(--text-secondary);
+      font: 11px/1 var(--font-mono);
+    }
+
+    .status-tag,
+    .meta-tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      color: var(--text-secondary);
+      background: var(--surface-muted);
+      border: 1px solid var(--line);
+      font-size: 11px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .status-tag.conflicted,
+    .meta-tag.warning { color: var(--warning); background: var(--warning-soft); border-color: color-mix(in srgb, var(--warning) 34%, var(--line)); }
+    .status-tag.insufficient,
+    .meta-tag.blocked { color: var(--danger); background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 28%, var(--line)); }
+    .status-tag.confirmed,
+    .meta-tag.eligible { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); }
+    .status-tag.deferred { color: var(--info); background: var(--info-soft); border-color: color-mix(in srgb, var(--info) 28%, var(--line)); }
+    .status-tag.rejected { color: var(--danger); background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 28%, var(--line)); }
+
+    .evidence-pane {
+      min-width: 0;
+      background: var(--surface-raised);
+    }
+    .evidence-toolbar {
+      position: sticky;
+      top: var(--header-height);
+      z-index: 2;
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 8px 20px;
+      background: color-mix(in srgb, var(--surface-raised) 96%, transparent);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+    }
+    .position-copy {
+      min-width: 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+    .position-copy strong { color: var(--text); font-family: var(--font-mono); }
+    .toolbar-buttons { display: flex; gap: 6px; }
+    .content-shell { padding: 22px 24px 48px; }
+    .fact-header {
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .fact-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+    .fact-key {
+      min-width: 0;
+      margin: 0;
+      overflow-wrap: anywhere;
+      font: 680 clamp(19px, 2vw, 27px)/1.25 var(--font-mono);
+      letter-spacing: 0;
+    }
+    .fact-badges {
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .fact-id {
+      margin-top: 8px;
+      color: var(--text-tertiary);
+      font: 11px/1.4 var(--font-mono);
+      overflow-wrap: anywhere;
+    }
+    .alias-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 14px;
+    }
+    .candidate-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 22px 0 10px;
+    }
+    .candidate-heading h3 { margin: 0; font-size: 14px; }
+    .candidate-heading span { color: var(--text-tertiary); font-size: 11px; }
+    .candidate-list { display: grid; gap: 10px; }
+    .candidate {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .candidate:hover { border-color: var(--line-strong); }
+    .candidate.selected {
+      border-color: var(--accent);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .candidate-select {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 10px;
+      padding: 15px 16px;
+      text-align: left;
+      border: 0;
+      background: transparent;
+    }
+    .candidate-select:hover { background: var(--surface-muted); }
+    .radio-mark {
+      width: 17px;
+      height: 17px;
+      margin-top: 2px;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      background: var(--surface-raised);
+    }
+    .candidate.selected .radio-mark {
+      border: 5px solid var(--accent);
+    }
+    .candidate-value {
+      display: block;
+      color: var(--text);
+      font-size: 16px;
+      font-weight: 680;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .candidate-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 14px;
+      margin-top: 7px;
+      color: var(--text-tertiary);
+      font: 11px/1.4 var(--font-mono);
+    }
+    .candidate-flags {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 5px;
+      max-width: 230px;
+    }
+    .candidate-evidence {
+      border-top: 1px solid var(--line);
+      background: var(--surface-raised);
+    }
+    details { border-bottom: 1px solid var(--line); }
+    details:last-child { border-bottom: 0; }
+    summary {
+      padding: 11px 16px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      list-style-position: inside;
+    }
+    summary:hover { color: var(--text); background: var(--surface-muted); }
+    .extraction-body { padding: 0 16px 15px 32px; }
+    .extraction-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+      margin-bottom: 10px;
+      color: var(--text-tertiary);
+      font: 11px/1.45 var(--font-mono);
+    }
+    .quote {
+      margin: 0;
+      padding: 10px 12px;
+      color: var(--text);
+      background: var(--surface-muted);
+      border-left: 3px solid var(--line-strong);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      font-size: 13px;
+      line-height: 1.65;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+    .quote + .quote { margin-top: 8px; }
+    .unresolved {
+      margin-top: 10px;
+      padding: 8px 10px;
+      color: var(--warning);
+      background: var(--warning-soft);
+      border-radius: var(--radius);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .decision-content { padding-bottom: 30px; }
+    .decision-summary {
+      margin: 0 -16px 17px;
+      padding: 0 16px 15px;
+      border-bottom: 1px solid var(--line);
+    }
+    .decision-summary strong {
+      display: block;
+      margin-top: 5px;
+      overflow-wrap: anywhere;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .field { margin-top: 14px; }
+    .field-label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .decision-options {
+      display: grid;
+      gap: 7px;
+    }
+    .decision-option {
+      width: 100%;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 11px;
+      text-align: left;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--surface-raised);
+      font-weight: 650;
+      white-space: nowrap;
+    }
+    .decision-option:hover { background: var(--surface-muted); }
+    .decision-option.active {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .decision-option[data-decision="rejected"].active {
+      color: var(--danger);
+      border-color: var(--danger);
+      background: var(--danger-soft);
+    }
+    .decision-option[data-decision="deferred"].active {
+      color: var(--info);
+      border-color: var(--info);
+      background: var(--info-soft);
+    }
+    .decision-check { font-family: var(--font-mono); font-size: 12px; }
+    .primary-button,
+    .secondary-button {
+      min-height: 38px;
+      padding: 8px 12px;
+      border-radius: var(--radius);
+      font-weight: 680;
+      white-space: nowrap;
+    }
+    .primary-button {
+      color: #f4faf8;
+      background: #126a58;
+      border: 1px solid #126a58;
+    }
+    .primary-button:hover { background: #0c5849; border-color: #0c5849; }
+    .secondary-button {
+      color: var(--text);
+      background: var(--surface-raised);
+      border: 1px solid var(--line-strong);
+    }
+    .secondary-button:hover { background: var(--surface-muted); }
+    .save-button { width: 100%; margin-top: 18px; }
+    .governance-box {
+      margin-top: 18px;
+      padding: 11px 12px;
+      color: var(--text-secondary);
+      background: var(--surface-muted);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      font-size: 11px;
+      line-height: 1.65;
+    }
+    .governance-box strong { color: var(--text); }
+    .status-line {
+      min-height: 20px;
+      margin-top: 10px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .status-line.error { color: var(--danger); }
+    .status-line.success { color: var(--accent); }
+
+    .empty,
+    .error-state,
+    .loading-state {
+      min-height: calc(100dvh - var(--header-height) - 52px);
+      display: grid;
+      place-items: center;
+      padding: 40px 24px;
+      text-align: center;
+    }
+    .state-inner { max-width: 420px; }
+    .state-inner strong { display: block; margin-bottom: 7px; font-size: 17px; }
+    .state-inner p { margin: 0; color: var(--text-secondary); line-height: 1.6; }
+    .state-inner .secondary-button { margin-top: 16px; }
+    .skeleton { width: min(560px, 88%); display: grid; gap: 12px; }
+    .skeleton-line,
+    .skeleton-block {
+      background: var(--surface-muted);
+      border-radius: var(--radius);
+    }
+    .skeleton-line { width: 62%; height: 20px; }
+    .skeleton-block { height: 126px; border: 1px solid var(--line); }
+    @media (prefers-reduced-motion: no-preference) {
+      .skeleton-line, .skeleton-block { animation: breathe 1.4s ease-in-out infinite alternate; }
+      @keyframes breathe { from { opacity: .52; } to { opacity: 1; } }
+    }
+
+    @media (max-width: 1180px) {
+      .workspace { grid-template-columns: 260px minmax(430px, 1fr); }
+      .decision-pane { grid-column: 2; border-top: 1px solid var(--line); border-left: 0; }
+      .decision-pane .pane-sticky { position: static; max-height: none; }
+      .decision-content {
+        display: grid;
+        grid-template-columns: minmax(180px, .8fr) minmax(260px, 1.2fr);
+        gap: 0 22px;
+      }
+      .decision-summary { grid-column: 1 / -1; }
+      .save-button, .governance-box, .status-line { grid-column: 1 / -1; }
+    }
+    @media (max-width: 760px) {
+      :root { --header-height: 58px; }
+      .app-header { padding: 0 12px; }
+      .snapshot-label { max-width: 48vw; }
+      .header-progress { display: none; }
+      .workspace { display: block; border: 0; }
+      .queue-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .queue-pane .pane-sticky { position: static; max-height: none; }
+      .queue-list { max-height: 320px; min-height: 0; overflow: auto; }
+      .evidence-toolbar { top: var(--header-height); padding: 8px 12px; }
+      .content-shell { padding: 18px 14px 36px; }
+      .fact-title-row { display: block; }
+      .fact-badges { justify-content: flex-start; margin-top: 12px; }
+      .candidate-select { grid-template-columns: 22px minmax(0, 1fr); }
+      .candidate-flags { grid-column: 2; justify-content: flex-start; max-width: none; }
+      .decision-content { display: block; }
+      .decision-pane { border-top: 1px solid var(--line); }
+      .extraction-body { padding-left: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">G</div>
+      <div class="brand-copy">
+        <h1 class="brand-title">事实审核</h1>
+        <div class="snapshot-label" id="snapshot-label">正在校验快照</div>
+      </div>
+    </div>
+    <div class="header-side">
+      <div class="header-progress"><strong id="pending-count">0</strong> 待审核 / <span id="total-count">0</span></div>
+      <button class="icon-button" id="refresh-button" type="button" title="刷新审核队列" aria-label="刷新审核队列">↻</button>
+      <button class="icon-button" id="theme-button" type="button" title="切换明暗主题" aria-label="切换明暗主题" aria-pressed="false">◐</button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <aside class="queue-pane">
+      <div class="pane-sticky">
+        <div class="queue-controls">
+          <h2 class="pane-heading">审核队列</h2>
+          <div class="search-wrap">
+            <label class="sr-only" for="search-input">搜索事实</label>
+            <input class="search-input" id="search-input" type="search" placeholder="搜索事实键、别名或值" autocomplete="off">
+            <button class="search-clear" id="search-clear" type="button" title="清空搜索" aria-label="清空搜索">×</button>
+          </div>
+          <div class="filter-grid">
+            <label class="sr-only" for="status-filter">审核状态</label>
+            <select id="status-filter">
+              <option value="pending">待审核</option>
+              <option value="all">全部状态</option>
+              <option value="confirmed">已确认</option>
+              <option value="deferred">已延期</option>
+              <option value="rejected">已排除</option>
+            </select>
+            <label class="sr-only" for="conflict-filter">冲突状态</label>
+            <select id="conflict-filter">
+              <option value="all">全部证据状态</option>
+              <option value="conflicted">有冲突</option>
+              <option value="insufficient">证据不足</option>
+              <option value="none">单一可靠值</option>
+            </select>
+            <label class="sr-only" for="risk-filter">确认资格</label>
+            <select class="wide" id="risk-filter">
+              <option value="all">全部确认资格</option>
+              <option value="eligible">可确认</option>
+              <option value="blocked">不可确认</option>
+              <option value="unresolved">存在 unresolved</option>
+            </select>
+          </div>
+        </div>
+        <div class="queue-summary"><span id="result-count">0 个结果</span><span id="conflict-summary">冲突 0</span></div>
+        <div class="queue-list" id="queue-list" aria-live="polite"></div>
+        <div class="queue-pagination">
+          <button class="icon-button" id="page-prev" type="button" title="上一页" aria-label="上一页">←</button>
+          <span class="page-position" id="page-position">0 / 0</span>
+          <button class="icon-button" id="page-next" type="button" title="下一页" aria-label="下一页">→</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="evidence-pane">
+      <div class="evidence-toolbar">
+        <div class="position-copy" id="position-copy">等待载入</div>
+        <div class="toolbar-buttons">
+          <button class="icon-button" id="item-prev" type="button" title="上一条" aria-label="上一条">←</button>
+          <button class="icon-button" id="item-next" type="button" title="下一条" aria-label="下一条">→</button>
+        </div>
+      </div>
+      <div id="review-area" class="loading-state">
+        <div class="skeleton" aria-label="正在载入事实组">
+          <div class="skeleton-line"></div>
+          <div class="skeleton-block"></div>
+          <div class="skeleton-block"></div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="decision-pane">
+      <div class="pane-sticky decision-content">
+        <div class="decision-summary">
+          <h2 class="pane-heading">审核判定</h2>
+          <span class="field-label">当前选择</span>
+          <strong id="selected-value">未选择候选值</strong>
+        </div>
+        <div>
+          <span class="field-label">结论</span>
+          <div class="decision-options" id="decision-options">
+            <button class="decision-option" data-decision="confirmed" type="button" aria-pressed="true"><span>确认所选值</span><span class="decision-check" aria-hidden="true"></span></button>
+            <button class="decision-option" data-decision="deferred" type="button" aria-pressed="false"><span>延期复核</span><span class="decision-check" aria-hidden="true"></span></button>
+            <button class="decision-option" data-decision="rejected" type="button" aria-pressed="false"><span>排除此事实组</span><span class="decision-check" aria-hidden="true"></span></button>
+          </div>
+        </div>
+        <div>
+          <div class="field">
+            <label class="field-label" for="reason-select">结构化原因</label>
+            <select id="reason-select"></select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="reviewer-input">审核人标识</label>
+            <input class="text-input" id="reviewer-input" type="text" maxlength="128" placeholder="例如 owner" autocomplete="off">
+          </div>
+        </div>
+        <button class="primary-button save-button" id="save-button" type="button">保存并进入下一条</button>
+        <div class="governance-box">
+          <strong>输出边界</strong><br>
+          审核事件：可写入<br>
+          Confirmed cards：未构建<br>
+          RAG 索引：未构建<br>
+          训练资格：否
+        </div>
+        <div class="status-line" id="status-line" aria-live="polite"></div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    (() => {
+      const PAGE_SIZE = 40;
+      const reasonOptions = {
+        confirmed: [["evidence_confirmed", "逐字证据已确认"]],
+        deferred: [
+          ["conflict_unresolved", "冲突暂无法消解"],
+          ["needs_more_context", "需要更多上下文"],
+          ["temporal_unresolved", "时间或指代未解析"],
+          ["other", "其他待复核原因"]
+        ],
+        rejected: [
+          ["not_owner_fact", "不是当前 owner 的事实"],
+          ["quoted_or_hypothetical", "引用、假设或玩笑"],
+          ["negative_or_uncertain", "否定或不确定表达"],
+          ["duplicate_or_malformed", "重复或结构异常"],
+          ["not_durable_memory", "不属于持久记忆"],
+          ["other", "其他排除原因"]
+        ]
+      };
+      const labels = {
+        conflict: { none: "单一可靠值", conflicted: "有冲突", insufficient: "证据不足" },
+        review: { pending: "待审核", confirmed: "已确认", deferred: "已延期", rejected: "已排除" },
+        risk: {
+          unresolved_reference: "unresolved",
+          no_positive_evidence: "无正向证据",
+          non_direct_claim: "非直接陈述",
+          mixed_or_non_positive_polarity: "含否定或不确定",
+          quoted_or_hypothetical: "引用或假设",
+          unknown_date_basis: "日期依据未知"
+        }
+      };
+      const state = {
+        bootstrap: null,
+        rows: [],
+        offset: 0,
+        total: 0,
+        index: -1,
+        group: null,
+        selectedCandidate: null,
+        decision: "confirmed",
+        loading: true,
+        saving: false,
+        filter: { status: "pending", conflict: "all", risk: "all", search: "" }
+      };
+      const $ = (id) => document.getElementById(id);
+      const els = {
+        snapshot: $("snapshot-label"), pending: $("pending-count"), total: $("total-count"),
+        refresh: $("refresh-button"), theme: $("theme-button"), search: $("search-input"),
+        searchClear: $("search-clear"), statusFilter: $("status-filter"), conflictFilter: $("conflict-filter"),
+        riskFilter: $("risk-filter"), resultCount: $("result-count"), conflictSummary: $("conflict-summary"),
+        queue: $("queue-list"), pagePrev: $("page-prev"), pageNext: $("page-next"),
+        pagePosition: $("page-position"), itemPrev: $("item-prev"), itemNext: $("item-next"),
+        position: $("position-copy"), area: $("review-area"), selectedValue: $("selected-value"),
+        decisionOptions: $("decision-options"), reason: $("reason-select"), reviewer: $("reviewer-input"),
+        save: $("save-button"), message: $("status-line")
+      };
+
+      const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+      const valueText = (value) => typeof value === "string" ? value : JSON.stringify(value);
+      const shortValue = (value, limit = 56) => {
+        const text = valueText(value);
+        return text.length > limit ? `${text.slice(0, limit)}...` : text;
+      };
+      const setMessage = (message, kind = "") => {
+        els.message.textContent = message;
+        els.message.className = `status-line ${kind}`;
+      };
+
+      class ApiError extends Error {
+        constructor(status, message) { super(message); this.status = status; }
+      }
+
+      async function fetchJson(path, options = {}) {
+        let response;
+        try {
+          response = await fetch(path, { cache: "no-store", ...options });
+        } catch (error) {
+          throw new ApiError(0, "无法连接审核服务，请确认 loopback 服务仍在运行。");
+        }
+        const text = await response.text();
+        let value = {};
+        try { value = text ? JSON.parse(text) : {}; } catch (error) { value = {}; }
+        if (!response.ok) throw new ApiError(response.status, value.error || `HTTP ${response.status}`);
+        return value;
+      }
+
+      function currentRow() {
+        return state.index >= 0 && state.index < state.rows.length ? state.rows[state.index] : null;
+      }
+
+      function setTheme(theme) {
+        document.documentElement.dataset.theme = theme;
+        localStorage.setItem("galatea-fact-review-theme", theme);
+        const dark = theme === "dark";
+        els.theme.setAttribute("aria-pressed", String(dark));
+        els.theme.title = dark ? "切换为浅色主题" : "切换为深色主题";
+        els.theme.setAttribute("aria-label", els.theme.title);
+      }
+
+      function initializeTheme() {
+        const stored = localStorage.getItem("galatea-fact-review-theme");
+        const initial = stored === "light" || stored === "dark" ? stored : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        setTheme(initial);
+      }
+
+      function renderBootstrap() {
+        const data = state.bootstrap;
+        if (!data) return;
+        els.snapshot.textContent = `${data.snapshot.snapshot_id}  sha256:${data.snapshot.manifest_sha256.slice(0, 12)}`;
+        els.pending.textContent = data.review.status_counts.pending.toLocaleString();
+        els.total.textContent = data.snapshot.fact_group_count.toLocaleString();
+        els.conflictSummary.textContent = `冲突 ${data.snapshot.conflict_counts.conflicted.toLocaleString()}`;
+      }
+
+      function queueTag(row) {
+        if (row.review_status !== "pending") return `<span class="status-tag ${esc(row.review_status)}">${esc(labels.review[row.review_status])}</span>`;
+        return `<span class="status-tag ${esc(row.conflict_status)}">${esc(labels.conflict[row.conflict_status])}</span>`;
+      }
+
+      function renderQueue() {
+        els.resultCount.textContent = `${state.total.toLocaleString()} 个结果`;
+        const start = state.total ? state.offset + 1 : 0;
+        const end = state.offset + state.rows.length;
+        els.pagePosition.textContent = `${start}-${end} / ${state.total}`;
+        els.pagePrev.disabled = state.loading || state.offset === 0;
+        els.pageNext.disabled = state.loading || state.offset + state.rows.length >= state.total;
+        if (state.loading) {
+          els.queue.innerHTML = Array.from({ length: 7 }, () => '<div class="queue-item"><span class="skeleton-line" style="display:block;height:12px;width:72%"></span></div>').join("");
+          return;
+        }
+        if (!state.rows.length) {
+          els.queue.innerHTML = '<div class="empty" style="min-height:260px"><div class="state-inner"><strong>没有匹配的事实组</strong><p>调整筛选条件后重试。</p></div></div>';
+          return;
+        }
+        els.queue.innerHTML = state.rows.map((row, index) => {
+          const preview = row.candidate_values.slice(0, 2).map((value) => shortValue(value, 34)).join(" / ");
+          return `<button class="queue-item ${index === state.index ? "active" : ""}" data-index="${index}" type="button">
+            <span class="queue-key">${esc(row.fact_key)}</span>
+            <span class="queue-value">${esc(preview)}</span>
+            <span class="queue-meta"><span>${row.candidate_count} 候选 / ${row.support_count} 证据</span>${queueTag(row)}</span>
+          </button>`;
+        }).join("");
+        els.queue.querySelectorAll("[data-index]").forEach((button) => button.addEventListener("click", () => selectIndex(Number(button.dataset.index))));
+      }
+
+      function renderLoading() {
+        els.area.className = "loading-state";
+        els.area.innerHTML = '<div class="skeleton" aria-label="正在载入事实组"><div class="skeleton-line"></div><div class="skeleton-block"></div><div class="skeleton-block"></div></div>';
+      }
+
+      function renderEmpty() {
+        els.position.textContent = "无匹配结果";
+        els.area.className = "empty";
+        els.area.innerHTML = '<div class="state-inner"><strong>当前队列为空</strong><p>可以切换审核状态或证据筛选继续查看。</p></div>';
+        state.group = null;
+        state.selectedCandidate = null;
+        renderDecision();
+      }
+
+      function renderError(message) {
+        els.position.textContent = "载入失败";
+        els.area.className = "error-state";
+        els.area.innerHTML = `<div class="state-inner"><strong>无法读取审核数据</strong><p>${esc(message)}</p><button class="secondary-button" id="retry-button" type="button">重试</button></div>`;
+        $("retry-button").addEventListener("click", () => loadPage(state.offset, state.index));
+      }
+
+      function renderExtraction(extraction, index) {
+        const unresolved = extraction.unresolved_references || [];
+        const evidence = (extraction.evidence || []).map((item) => `<blockquote class="quote">${esc(item.quote)}</blockquote>`).join("");
+        const warning = unresolved.length ? `<div class="unresolved">未解析：${esc(unresolved.join("、"))}</div>` : "";
+        return `<details ${index === 0 ? "open" : ""}>
+          <summary>${esc(extraction.day_id)} / ${esc(extraction.claim_type)} / ${esc(extraction.polarity)} / 置信度 ${Number(extraction.confidence).toFixed(2)}</summary>
+          <div class="extraction-body">
+            <div class="extraction-meta"><span>${esc(extraction.session_id)}</span><span>${esc(extraction.date_basis)}</span><span>${esc(extraction.extraction_id)}</span></div>
+            ${evidence}${warning}
+          </div>
+        </details>`;
+      }
+
+      function renderCandidate(candidate, index) {
+        const selected = state.selectedCandidate === candidate.candidate_sha256;
+        const flags = [
+          `<span class="meta-tag ${candidate.confirmation_eligible ? "eligible" : "blocked"}">${candidate.confirmation_eligible ? "可确认" : "不可确认"}</span>`,
+          ...(candidate.risk_flags || []).map((risk) => `<span class="meta-tag ${risk === "unresolved_reference" ? "warning" : ""}">${esc(labels.risk[risk] || risk)}</span>`)
+        ].join("");
+        const days = candidate.source_days || [];
+        const dayRange = days.length > 1 ? `${days[0]} 至 ${days[days.length - 1]}` : (days[0] || "未知日期");
+        return `<article class="candidate ${selected ? "selected" : ""}" data-candidate="${esc(candidate.candidate_sha256)}">
+          <button class="candidate-select" type="button" aria-pressed="${selected}">
+            <span class="radio-mark" aria-hidden="true"></span>
+            <span><span class="candidate-value">${esc(valueText(candidate.normalized_value))}</span><span class="candidate-stats"><span>${candidate.support_count} 条证据</span><span>${esc(dayRange)}</span><span>${esc(candidate.precision)}</span></span></span>
+            <span class="candidate-flags">${flags}</span>
+          </button>
+          <div class="candidate-evidence">${candidate.extractions.map(renderExtraction).join("")}</div>
+        </article>`;
+      }
+
+      function renderGroup() {
+        const group = state.group;
+        if (!group) { renderEmpty(); return; }
+        const row = currentRow();
+        const globalPosition = state.offset + state.index + 1;
+        els.position.innerHTML = `<strong>${globalPosition.toLocaleString()}</strong> / ${state.total.toLocaleString()}  当前筛选`;
+        const aliases = group.aliases.length ? `<div class="alias-list">${group.aliases.map((alias) => `<span class="meta-tag">${esc(alias)}</span>`).join("")}</div>` : "";
+        els.area.className = "content-shell";
+        els.area.innerHTML = `<section class="fact-header">
+          <div class="fact-title-row"><h2 class="fact-key">${esc(group.fact_key)}</h2><div class="fact-badges"><span class="status-tag ${esc(group.conflict_status)}">${esc(labels.conflict[group.conflict_status])}</span><span class="status-tag ${esc(group.review_status)}">${esc(labels.review[group.review_status])}</span></div></div>
+          <div class="fact-id">${esc(group.fact_group_id)} / lineage ${esc(group.lineage_digest.slice(0, 16))}</div>${aliases}
+        </section>
+        <div class="candidate-heading"><h3>候选值与证据</h3><span>${group.candidates.length} 个候选</span></div>
+        <section class="candidate-list">${group.candidates.map(renderCandidate).join("")}</section>`;
+        els.area.querySelectorAll("[data-candidate] .candidate-select").forEach((button) => button.addEventListener("click", async () => {
+          if (state.saving) return;
+          const candidateSha = button.closest("[data-candidate]").dataset.candidate;
+          const candidate = group.candidates.find((item) => item.candidate_sha256 === candidateSha);
+          const autoConfirm = group.review_status === "pending" && candidate?.confirmation_eligible;
+          state.selectedCandidate = candidateSha;
+          state.decision = "confirmed";
+          renderGroup();
+          renderDecision();
+          if (autoConfirm) await saveDecision();
+        }));
+        els.itemPrev.disabled = state.loading || (state.offset === 0 && state.index <= 0);
+        els.itemNext.disabled = state.loading || (globalPosition >= state.total);
+        if (row && row.review_status !== group.review_status) row.review_status = group.review_status;
+      }
+
+      function selectedCandidate() {
+        if (!state.group || !state.selectedCandidate) return null;
+        return state.group.candidates.find((candidate) => candidate.candidate_sha256 === state.selectedCandidate) || null;
+      }
+
+      function renderReasonOptions() {
+        const options = reasonOptions[state.decision] || [];
+        const previous = els.reason.value;
+        els.reason.innerHTML = options.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join("");
+        if (options.some(([value]) => value === previous)) els.reason.value = previous;
+        els.reason.disabled = state.decision === "confirmed";
+      }
+
+      function renderDecision() {
+        const candidate = selectedCandidate();
+        els.selectedValue.textContent = candidate ? valueText(candidate.normalized_value) : "未选择候选值";
+        els.decisionOptions.querySelectorAll("[data-decision]").forEach((button) => {
+          const active = button.dataset.decision === state.decision;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-pressed", String(active));
+          button.querySelector(".decision-check").textContent = active ? "✓" : "";
+        });
+        renderReasonOptions();
+        const confirmBlocked = state.decision === "confirmed" && (!candidate || !candidate.confirmation_eligible);
+        els.save.disabled = state.saving || !state.group || confirmBlocked || !els.reviewer.value.trim();
+        if (state.saving) els.save.textContent = "正在保存";
+        else if (confirmBlocked && candidate) els.save.textContent = "所选候选不可确认";
+        else if (confirmBlocked) els.save.textContent = "请选择可确认候选";
+        else els.save.textContent = "保存并进入下一条";
+      }
+
+      async function selectIndex(index) {
+        if (index < 0 || index >= state.rows.length) return;
+        state.index = index;
+        state.group = null;
+        state.selectedCandidate = null;
+        renderQueue();
+        renderLoading();
+        setMessage("");
+        const row = currentRow();
+        try {
+          const group = await fetchJson(`./api/group?fact_group_id=${encodeURIComponent(row.fact_group_id)}`);
+          if (currentRow()?.fact_group_id !== group.fact_group_id) return;
+          state.group = group;
+          state.selectedCandidate = group.decision?.selected_candidate_sha256 || (group.candidates.length === 1 ? group.candidates[0].candidate_sha256 : null);
+          state.decision = group.review_status === "pending" ? "confirmed" : group.review_status;
+          renderGroup();
+          renderDecision();
+        } catch (error) {
+          renderError(error.message);
+        }
+      }
+
+      async function loadPage(offset = 0, targetIndex = 0) {
+        state.loading = true;
+        state.offset = Math.max(0, offset);
+        renderQueue();
+        const query = new URLSearchParams({
+          offset: String(state.offset),
+          limit: String(PAGE_SIZE),
+          status: state.filter.status,
+          conflict: state.filter.conflict,
+          risk: state.filter.risk
+        });
+        if (state.filter.search) query.set("search", state.filter.search);
+        try {
+          const page = await fetchJson(`./api/groups?${query.toString()}`);
+          state.rows = page.rows;
+          state.total = page.total;
+          state.offset = page.offset;
+          state.index = state.rows.length ? Math.min(Math.max(0, targetIndex), state.rows.length - 1) : -1;
+          state.loading = false;
+          renderQueue();
+          if (state.index >= 0) await selectIndex(state.index);
+          else renderEmpty();
+        } catch (error) {
+          state.loading = false;
+          state.rows = [];
+          state.total = 0;
+          renderQueue();
+          renderError(error.message);
+        }
+      }
+
+      async function refreshBootstrap() {
+        state.bootstrap = await fetchJson("./api/bootstrap");
+        renderBootstrap();
+      }
+
+      async function saveDecision() {
+        const candidate = selectedCandidate();
+        if (!state.group || state.saving) return;
+        if (!els.reviewer.value.trim()) {
+          setMessage("请填写审核人标识", "error");
+          els.reviewer.focus();
+          return;
+        }
+        state.saving = true;
+        setMessage("");
+        renderDecision();
+        try {
+          const response = await fetchJson("./api/decision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fact_group_id: state.group.fact_group_id,
+              lineage_digest: state.group.lineage_digest,
+              review_status: state.decision,
+              selected_candidate_sha256: state.decision === "confirmed" ? candidate?.candidate_sha256 : null,
+              reason_code: els.reason.value,
+              reviewer_id: els.reviewer.value.trim()
+            })
+          });
+          localStorage.setItem("galatea-fact-reviewer", els.reviewer.value.trim());
+          setMessage(`已保存 revision ${response.event.revision}`, "success");
+          await refreshBootstrap();
+          const targetIndex = state.index >= state.rows.length - 1 ? Math.max(0, state.index - 1) : state.index;
+          await loadPage(state.offset, targetIndex);
+        } catch (error) {
+          setMessage(error.message, "error");
+        } finally {
+          state.saving = false;
+          renderDecision();
+        }
+      }
+
+      async function moveItem(direction) {
+        const target = state.index + direction;
+        if (target >= 0 && target < state.rows.length) {
+          await selectIndex(target);
+          return;
+        }
+        if (direction > 0 && state.offset + state.rows.length < state.total) await loadPage(state.offset + PAGE_SIZE, 0);
+        if (direction < 0 && state.offset > 0) await loadPage(Math.max(0, state.offset - PAGE_SIZE), PAGE_SIZE - 1);
+      }
+
+      function applyFilters() {
+        state.filter.status = els.statusFilter.value;
+        state.filter.conflict = els.conflictFilter.value;
+        state.filter.risk = els.riskFilter.value;
+        state.filter.search = els.search.value.trim();
+        loadPage(0, 0);
+      }
+
+      let searchTimer = null;
+      els.search.addEventListener("input", () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(applyFilters, 250);
+      });
+      els.searchClear.addEventListener("click", () => { els.search.value = ""; applyFilters(); els.search.focus(); });
+      [els.statusFilter, els.conflictFilter, els.riskFilter].forEach((element) => element.addEventListener("change", applyFilters));
+      els.pagePrev.addEventListener("click", () => loadPage(Math.max(0, state.offset - PAGE_SIZE), 0));
+      els.pageNext.addEventListener("click", () => loadPage(state.offset + PAGE_SIZE, 0));
+      els.itemPrev.addEventListener("click", () => moveItem(-1));
+      els.itemNext.addEventListener("click", () => moveItem(1));
+      els.decisionOptions.querySelectorAll("[data-decision]").forEach((button) => button.addEventListener("click", () => {
+        state.decision = button.dataset.decision;
+        renderDecision();
+      }));
+      els.reviewer.addEventListener("input", renderDecision);
+      els.save.addEventListener("click", saveDecision);
+      els.refresh.addEventListener("click", async () => {
+        try { await refreshBootstrap(); await loadPage(state.offset, Math.max(0, state.index)); }
+        catch (error) { renderError(error.message); }
+      });
+      els.theme.addEventListener("click", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
+
+      async function initialize() {
+        initializeTheme();
+        els.reviewer.value = localStorage.getItem("galatea-fact-reviewer")?.trim() || "owner";
+        try {
+          await refreshBootstrap();
+          await loadPage(0, 0);
+        } catch (error) {
+          state.loading = false;
+          renderError(error.message);
+        }
+      }
+      initialize();
+    })();
+  </script>
+</body>
+</html>

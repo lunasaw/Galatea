@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -84,8 +85,14 @@ def _validated_class_records(
         try:
             if path.stat().st_size == 0:
                 raise OSError("empty image")
-            with Image.open(path) as image:
-                image.verify()
+            # ``verify`` checks container metadata, but some JPEGs still fail
+            # while decoding pixels in the training input pipeline.
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                with Image.open(path) as image:
+                    image.verify()
+                with Image.open(path) as image:
+                    image.load()
             valid.append(
                 {
                     "relative_path": relative_path,
@@ -95,7 +102,7 @@ def _validated_class_records(
                     "sha256": _file_sha256(path),
                 }
             )
-        except (OSError, UnidentifiedImageError) as error:
+        except (OSError, UnidentifiedImageError, Warning) as error:
             invalid.append(
                 {
                     "relative_path": relative_path,
@@ -284,6 +291,56 @@ def prepare_dataset(config: DatasetSettings, seed: int) -> PreparedDataset:
         source_uri=source_uri,
         manifest_path=manifest_path,
         profile=json.loads(json.dumps(profile)),
+    )
+
+
+def load_frozen_manifest(config: ProjectConfig) -> PreparedDataset:
+    """Recover metadata only; final planning/Driver must not open test images."""
+
+    path = config.evaluation.manifest_path
+    if path is None or not path.is_absolute() or path.is_symlink():
+        raise RuntimeError("Champion requires an explicit previously validated frozen manifest")
+    manifest = pd.read_csv(path)
+    expected = {"relative_path", "class_name", "label", "bytes", "sha256", "split"}
+    if set(manifest.columns) != expected or manifest.empty:
+        raise RuntimeError("Frozen manifest is empty or malformed")
+    if manifest["relative_path"].duplicated().any():
+        raise RuntimeError("Frozen manifest has duplicate paths")
+    for record in manifest.to_dict(orient="records"):
+        relative = Path(record["relative_path"])
+        if (
+            relative.is_absolute() or ".." in relative.parts
+            or record["class_name"] not in CLASS_NAMES
+            or record["label"] != CLASS_NAMES.index(record["class_name"])
+            or not isinstance(record["sha256"], str) or len(record["sha256"]) != 64
+        ):
+            raise RuntimeError("Frozen manifest contains an invalid identity")
+    content, split = _digest_manifest(manifest)
+    if path.name != f"manifest-{content[:16]}-{split[:16]}.csv":
+        raise RuntimeError("Frozen manifest identity differs from its immutable name")
+    counts = manifest.groupby(["split", "class_name"]).size().unstack(fill_value=0)
+    if set(counts.index) != {"training", "validation", "test"} or (counts <= 0).any().any():
+        raise RuntimeError("Frozen manifest lacks complete splits")
+    if config.data.expected_valid_images and len(manifest) != config.data.expected_valid_images:
+        raise RuntimeError("Frozen manifest row count differs")
+    source = config.data.source_uri or (config.data.root / "PetImages").as_uri()
+    profile = {
+        "dataset_name": "microsoft-cats-vs-dogs",
+        "dataset_version": f"sha256-{content[:16]}",
+        "source_uri": source,
+        "content_sha256": content,
+        "split_sha256": split,
+        "preprocessing_version": config.data.preprocessing_version,
+        "valid_images": len(manifest),
+        "total_bytes": int(manifest["bytes"].sum()),
+        "split_counts": {
+            name: {key: int(value) for key, value in row.items()}
+            for name, row in counts.to_dict(orient="index").items()
+        },
+        "source_validation": "reused-frozen-manifest; test bytes checked only after claim",
+    }
+    return PreparedDataset(
+        manifest, (), profile["dataset_version"], content, split, source, path, profile
     )
 
 

@@ -1,5 +1,10 @@
 # 架构纠偏与验收依据
 
+> **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
+> 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
+> 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](../../agents/codex-app-server/docs/README.md)。
+
 更新：2026-09-06。结论：目标架构可以按 Python 独立实现；当前交付为设计，尚未上线。
 本次核对本地 Galatea `7ef8377`、Codex 源码 `459a79e`，未重新连接远端，也未调用模型或启动训练。
 
@@ -7,13 +12,13 @@
 
 | 上一版安排 | 本次修正 | 原因 |
 | --- | --- | --- |
-| 抽取 plugins/dsh-galatea 的 TS policy/controller | 独立 Python MCP，旧插件完整保留 | TS 文件属于 DeepSeek 工作流，不是新架构基础 |
-| 旧插件改接领域服务或关闭写入口 | 删除迁移/切换要求，部署和任务来源独立 | 用户明确要求现有 plugin 能力不动 |
+| 平台依赖其他 Agent Runtime | 独立 Python MCP + Codex Host | 平台约束与 Agent 生命周期分离 |
+| 多个 Runtime 维护独立入口 | 当前统一使用 Codex | 源码归属见当前架构文档 |
 | Node/TS Codex Runtime adapter | 官方 openai_codex Python SDK → 原版 app-server | 按已有 Python 流程实施，不复制 TS 调用形状 |
 | 平台 PostgreSQL + Runner SQLite | 本地 JSON 清单、原子写入、单实例进程锁 | 有界串行任务不需要新业务数据库 |
 | training-control、提交 outbox、独立 dispatcher | MCP 包内普通 Python 模块与后台对账 | 避免新增控制平台成为接入前提 |
 | 每轮 DecisionGrant/epoch、多实例租约 | 单 Runner 与受监督 worker，受限固定身份 | 首版不承诺跨主机自动接管 |
-| 把现有插件测试通过当新路线支撑 | 新 MCP/Runner 分别做 Python 契约与故障验收 | 两条实现路径独立 |
+| 用其他组件的测试替代当前验收 | MCP/Host 分别做契约与故障验收 | 测试证据绑定被测组件 |
 
 MLflow 的现有数据库、MinIO 对象持久化和 Codex 自有会话存储仍然有用；
 本次移除的是额外业务数据库方案，不是删除平台状态或改造原版 Runtime 存储。
@@ -38,7 +43,7 @@ MLflow 的现有数据库、MinIO 对象持久化和 Codex 自有会话存储仍
 - 提交前持久记录稳定 ID，超时先对账；不是只在 Runner 内存保留 job_id。
 - 同一逻辑计算通过 step/attempt 去重，重建 Thread 不增加 Trial。
 - 单写进程和本地卷是前提；未知提交、损坏文件或孤儿 worker 不明时停止自动重发。
-- 首版保守预算只覆盖新 MCP 入口，不声称统一控制旧插件的资源和费用。
+- 首版保守预算只覆盖 MCP 入口，不声称统一控制共享集群上其他入口的资源和费用。
 - 数据/split/配置/Release 身份必须成立；测试隔离不能只靠 Skill。
 - 验证集选优、干净重训、一次最终测试和 Artifact 恢复仍需实施验收。
 - Turn 数/时长可在 Runner 强制限制，Token 用量只作观测阈值；未知用量不当零。

@@ -1,0 +1,39 @@
+schema_version: wechat-persona-config-v1
+project: wechat-persona
+task: memory_rag
+dataset:
+  dataset_id: wechat_35ad187b65c0ff1cb4e7
+  source_sha256: 63ce0e55db1dcefa69366db39bd752103edfb5ebf68aa1a2a10166ebc3891219
+  manifest_sha256: c8d31f053de74421552c9287b0c6915d85181e7765b8df1e7a44005917473cb6
+  split_sha256: 5c349dca8e87de306a86c6f459838dd70615c50edf5b7b24577549b093f54bbc
+  consent_scope: memory_rag
+  preprocessing_version: wechat-persona-data-v2+wechat-normalization-v1+wechat-session-v2+wechat-privacy-boundary-v1
+model:
+  model_id: none
+  model_revision: none
+  tokenizer_revision: BAAI/bge-small-zh-v1.5@7999e1d3359715c523056ef9478215996d62a620
+rag:
+  backend: hybrid
+  index_version: private-hybrid-v1
+  embedding_model_revision: BAAI/bge-small-zh-v1.5@7999e1d3359715c523056ef9478215996d62a620
+  embedding_model_digest: be65a6d7b7dec966de7d7e484383efd59acd4ec5000412e4375ac2ace91f65f5
+  pooling: cls-normalized
+  embedding_max_length: 512
+  tokenizer_revision: tokenizer-cjk-char-bigram-v2
+  lexical_weight: 0.35
+  semantic_weight: 0.65
+  min_score: 0.45
+  owner_scope_required: true
+  exclude_high_sensitivity: true
+  chunk_max_chars: 700
+  chunk_max_messages: 12
+execution:
+  backend: local-private-build
+  resources: {cpus: 4, memory_gb: 8, num_gpus: 0, placement: local}
+run: {role: evaluation, promotable: false}
+evaluation:
+  protocol_version: wechat-persona-rag-v2
+  objective_metric: recall_at_5
+  objective_direction: max
+  test_access: historical_test_included_in_memory_corpus
+  future_holdout_policy: post_index_temporal

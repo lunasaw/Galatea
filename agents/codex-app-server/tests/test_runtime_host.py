@@ -18,35 +18,31 @@ from codex_agent.host import AgentHost
 from codex_agent.process import ManagedProcess
 from codex_agent.registry import ToolRegistry
 from codex_agent.state import AtomicJsonStore, OperationJournal
+from codex_agent.console.models import EventQuery, SnapshotQuery
 
 
-@unittest.skipUnless(os.environ.get('GALATEA_TEST_RUNTIME_PACKAGE'), 'real runtime opt-in required')
+@unittest.skipUnless(os.environ.get('CODEX_TEST_RUNTIME_PACKAGE'), 'real runtime opt-in required')
 class RealHostTests(unittest.IsolatedAsyncioTestCase):
     async def test_native_tool_completion_and_cross_process_resume(self):
-        with tempfile.TemporaryDirectory() as directory, MockModel() as model:
+        with tempfile.TemporaryDirectory() as directory, MockModel("galatea", "galatea_get_capabilities", {"protocol_version": "galatea.tools/v1"}) as model:
             root = Path(directory)
-            package = Path(os.environ['GALATEA_TEST_RUNTIME_PACKAGE'])
+            package = Path(os.environ['CODEX_TEST_RUNTIME_PACKAGE'])
             (root / 'codex-home').mkdir()
             (root / 'codex-home/config.toml').write_text(mock_config(model.server.server_port))
-            config = AgentConfig.from_dict({'schema_version': 'codex-agent/v1', 'paths': {
-                'codex_home': 'codex-home', 'runtime_dir': str(package), 'state_dir': 'state', 'event_dir': 'events',
-                'workspace_dir': 'workspace', 'contracts': str(ROOT / 'config/contracts/tools.json'),
-                'catalog_metadata': str(ROOT / 'config/contracts/catalog-metadata.json')},
-                'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.153.4'},
-                'galatea': {'principal': {'principal_id': 'p', 'actions': ['galatea_get_capabilities']}}}, root)
-            catalog = Catalog.load(config.contracts.parent)
-            compatibility = RuntimeContract.load(config.contracts.parent / 'runtime-compatibility.json', catalog)
-            store, events, calls = AtomicJsonStore(config.state_dir), EventLog(config.event_dir), []
+            config = AgentConfig.from_dict({'schema_version': 'codex-agent/v2', 'paths': {'codex_home': 'codex-home', 'runtime_dir': str(package), 'state_dir': 'state', 'workspace_dir': 'workspace'}, 'codex': {'binary': str(package / 'bin/codex'), 'runtime_version': 'codex-cli 0.163.0'}, 'agent': {'id': 'p'}, 'tools': {'catalog_dir': str(ROOT / 'tests/fixtures/dynamic-tools'), 'actions': ['galatea_get_capabilities'], 'providers': [{'path': str(ROOT / 'tests/fixtures/dynamic-tools/provider.py')}]}}, root)
+            catalog = Catalog.load(config.catalog_dir)
+            compatibility = RuntimeContract.load(config.catalog_dir / 'runtime-compatibility.json', catalog)
+            store, events, calls = AtomicJsonStore(config.state_dir), EventLog(), []
             def handler(context, args):
                 calls.append(context.call_id)
                 return {'protocol_version': 'galatea.tools/v1'}
             registry = ToolRegistry(catalog, OperationJournal(store), {name: handler for name in catalog.schemas})
             def build():
-                process = ManagedProcess(config)
+                process = ManagedProcess(config, observer=events.observer, diagnostic=events.diagnostic)
                 async def start():
                     return await process.start(host.handle_tool_call, notification=host.handle_notification, on_failure=host.runtime_failed)
                 host = AgentHost(registry=registry, event_log=events, store=store, client_factory=start,
-                    client_stop=process.stop, reconciler=lambda: None, principal_id='p', project_ids=set(), campaign_ids=set(),
+                    client_stop=process.stop, reconciler=lambda: None, principal_id='p',
                     actions={'galatea_get_capabilities'}, workspace_dir=config.workspace_dir)
                 return host
             async def completed(host):
@@ -58,14 +54,23 @@ class RealHostTests(unittest.IsolatedAsyncioTestCase):
             host = build()
             try:
                 await host.start()
-                config_digest = digest(await host.client.read_config(str(config.workspace_dir)))
                 await host.create_session('real')
+                config_digest = digest(await host.client.read_config(str(config.workspace_dir)))
                 await host.send_message('real', 'request-1', 'Synthetic read-only protocol fixture')
                 await completed(host)
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(store.read('requests/request-1.json')['status'], 'completed')
                 self.assertEqual(len(model.requests), 2)
                 self.assertIn('galatea.tools/v1', str(model.requests[1]['input']))
+                await events.flush()
+                native = (await events.read_events(EventQuery(limit=1000)))['events']
+                self.assertTrue(any(row['method'] == 'initialize' for row in native))
+                self.assertTrue(any(row['method'] == 'item/tool/call' for row in native))
+                first_runtime = (await events.status())['runtime_instance_id']
+                trace = await events.snapshot(SnapshotQuery('real'))
+                self.assertEqual(len([step for step in trace['steps'] if step['type'] == 'tool']), 1)
+                self.assertEqual(len([message for message in trace['messages'] if message['role'] == 'user']), 1)
+                self.assertTrue(any(message['role'] == 'assistant' and message['text'] for message in trace['messages']))
             finally:
                 await host.stop()
             host = build()
@@ -79,5 +84,9 @@ class RealHostTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(calls), 1)
                 for request in model.requests:
                     compatibility.assert_request(request, {'galatea_get_capabilities'})
+                await events.flush()
+                self.assertNotEqual((await events.status())['runtime_instance_id'], first_runtime)
+                self.assertEqual((await events.status())['observation']['status'], 'ready')
             finally:
                 await host.stop()
+                await events.close()

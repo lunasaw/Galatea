@@ -1,27 +1,30 @@
 # 现状与 Python 接入依据
 
+> **阅读范围（2026-10-16）**：第 1 节同步当前组件归属；后续 Python SDK 源码与部署资料是历史依据。
+> 独立 Runner 已删除。当前通用 Host 通过配置连接 Skill、外部 MCP 和可选 Provider，
+> 不内置 Galatea Service；历史 SDK 配对不能替代当前 Runtime 协议验收。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](../../agents/codex-app-server/docs/README.md)。
+
 核对日期：2026-09-06。本地 Galatea：`7ef8377`；本地 Codex 源码：`459a79e`。
 本文的 SDK 结论来自本地源码，不代表已安装 Python 发布包或远端完成兼容性验收。
 
-## 1. DeepSeek 插件与新方案独立
+## 1. 当前源码归属
 
-现有 [dsh-galatea](../../plugins/dsh-galatea/README.md) 是 DeepSeek Harness/Cordis 插件。
-[注册代码](../../plugins/dsh-galatea/src/index.ts) 注入 tools、approval、permissionPresets、
-sessionProjections、systemPrompt；[工具包装](../../plugins/dsh-galatea/src/tools/index.ts)
-和 [项目选择](../../plugins/dsh-galatea/src/session-selection.ts) 使用 Harness Agent/Session。
-这些是旧工作流的实现，不是新 Python 架构需要消除的代码缺陷。
+2026-10-16：Agent Runtime 统一为 Codex；Host 已移除内置 Galatea Adapter 和业务依赖，
+通过原生 MCP 或可选通用 Provider 接入外部能力。当前实现以
+[`agents/codex-app-server`](../../agents/codex-app-server/README.md)为准。
+本文后面的 Python SDK 源码核对是历史依据，不能替代当前 app-server 协议与版本验收。
 
-| 资产 | 新方案如何对待 |
+| 资产 | 当前归属 |
 | --- | --- |
-| `plugins/dsh-galatea/src/**/*.ts` | 保持不动；只在理解旧业务规则时参考，不抽取、不运行、不作为依赖 |
-| `plugins/dsh-galatea/tests/` 与 harness-tests | 继续验证旧能力，不把它们通过当作新 MCP 的证据 |
-| [旧 Agent 文档](../agent-galatea.md) | 独立旧路线，保持有效 |
-| `train-model/<project>/` | 经契约检查后使用项目本来的 Python 入口和不可变 Release |
-| 仓库 MLflow / Ray 方法资料 | 参考方法和数据契约；新包自行发布所需参考资料 |
+| `agents/codex-app-server/` | 原生 app-server Host、Console、Dynamic Tool Registry 与恢复边界 |
+| `services/galatea-mcp/` | Python 平台领域服务、MCP transport、Campaign 与证据约束 |
+| `packages/galatea-governance/` | 项目 YAML 固定入口需要的独立 Release、证据与提交校验 |
+| `train-model/<project>/` | 项目自身入口、环境、配置、测试和不可变 Release |
+| `.codex/skills/`、`packages/galatea-training-skills/` | 仓库工作流和可独立发布的训练方法 |
 
-新 MCP 的注册表与状态目录独立于旧插件。两条路线的 Run 使用不同来源标识和提交 ID 前缀；
-默认使用独立新 Campaign。若共用 Ray 集群，各自预算只约束各自入口，不能声称覆盖对方的作业。
-需要全局资源隔离时在部署层划分资源或集群，不以改动旧插件为前置条件。
+共享 Ray 不提供全局预算隔离；需要全局配额或不同信任方隔离时，在部署层分配专用资源。
+业务状态只能有一个 writer。当前架构见 [Codex 与 Galatea](../agent-galatea.md)。
 
 ## 2. Python Codex SDK 已有实际源码
 
@@ -40,7 +43,7 @@ sessionProjections、systemPrompt；[工具包装](../../plugins/dsh-galatea/src
 | 权限模式 | `ApprovalMode.deny_all` / `auto_review`，`Sandbox` | [_approval_mode.py](../../../codex/sdk/python/src/openai_codex/_approval_mode.py) |
 
 文档中原来的 TS `startThread/resumeThread/runStreamed` 主线已替换。
-Python SDK 直接接原版 app-server，无需自写 JSON-RPC 协议、修改 Core 或内嵌 DeepSeek Harness。
+Python SDK 直接接原版 app-server，无需自写 JSON-RPC 协议、修改 Core 或引入其他 Agent Runtime。
 SDK 文档声明安装 `openai-codex` 会匹配 `openai-codex-cli-bin`；实际部署仍须锁定并验证发布版组合，
 不能只凭本地 checkout 宣称任意已发布版本都具有相同接口。
 

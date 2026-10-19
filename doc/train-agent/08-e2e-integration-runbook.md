@@ -1,4 +1,13 @@
-# 独立训练 Agent：部署、恢复与端到端验收
+# 独立训练 Agent：部署、恢复与端到端验收（历史归档）
+
+> **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
+> 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
+> 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](../../agents/codex-app-server/docs/README.md)。
+
+> 本手册依赖的 `agents/training-agent-runtime` 已于 2026-09-22 删除。它只保留历史验收记录；
+> 当前 Codex app-server 方案的协议、部署和验收以 [`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md)
+> 为准，本文中的 Runner 制品、unit 和命令不可执行。
 
 更新：2026-09-07。适用 Python MCP、独立 Runner/Skill 和已注册 Ray workload。
 本地结果见 [本地验证记录](09-local-validation.md)；本文是实际部署操作手册，
@@ -13,8 +22,7 @@ MCP、Runner 各有环境，训练节点按 workload 的环境文件安装；不
 
 - MCP wheel、公开 `contracts/*.json`、[配置](../../services/galatea-mcp/deploy/config.example.json)、
   [清单模板](../../services/galatea-mcp/deploy/inventory.example.yaml)。
-- Runner wheel、[配置](../../agents/training-agent-runtime/deploy/config.example.json)、
-  [Runtime 锁](../../agents/training-agent-runtime/deploy/runtime-lock.json)。
+- 历史 Runner wheel、配置和 Runtime 锁（已删除，不是当前发布材料）。
 - 自包含 Skill 归档、归档 `MANIFEST.json`、固定官方 SDK/Runtime 制品及摘要。
 - workload 的不可变代码 ZIP、config、生成的 Registry、批准 Campaign 和冻结数据引用。
 
@@ -37,25 +45,11 @@ MCP、Runner 各有环境，训练节点按 workload 的环境文件安装；不
 }
 ```
 
-## 2. 可重复的独立包安装检查
+## 2. 历史独立包安装检查
 
-先在构建环境准备依赖 wheelhouse，包含 MCP 和 Runner `pyproject.toml` 声明的依赖及传递依赖，
-保留包摘要和解析版本。然后从仓库根执行：
-
-```bash
-/path/to/python3.11 scripts/verify_train_agent_installation.py \
-  --wheelhouse /secure/build/wheelhouse \
-  --output /secure/build/new-installation-check
-```
-
-输出目录必须是仓库外的新目录。脚本离线构建两个 wheel，在两个不继承系统 site-packages 的
-venv 中安装，清除 `PYTHONPATH/PYTHONHOME`，删除临时构建源码后检查 CLI、Schema、包独立性、
-包内测试与 `pip check`；Skill 解包后也独立运行校验和测试。结果、日志、依赖快照、制品摘要写入
-该目录。构建解释器需预装满足 pyproject 要求的 setuptools/wheel；脚本不下载依赖。
-
-MCP 基础包不安装 Codex、Runner 或 Ray/MLflow；Runner 不安装 MCP 服务或 Ray/MLflow。
-这证明基础发布包独立性，真实 MCP 主机还需安装匹配 wheel 的 `platform` extra 并核实平台版本。
-workload 通过自己的不可变 ZIP 发布与验证，不以 Runner 环境中的源码 import 作为部署方案。
+旧版本使用的双 wheel 安装脚本和 Runner 包已删除，下面的历史命令不再可执行。当前实现应按
+[`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md) 的阶段 0/1 验收，
+并分别验证 Galatea MCP 制品、Codex runtime manifest、dynamicTools 协议和 Host 状态恢复。
 
 ## 3. 部署 MCP
 
@@ -132,32 +126,12 @@ manifest/split/holdout 身份、代码 revision、环境身份、MLflow Experime
 只有固定 Release → MCP Plan/授权 → 签名 Ray Driver 可以启动拟合；不运行 Driver shell 命令或
 通用 `ray job submit`。对象权限拒绝测试使用隔离账号和受控探针，不在日志中输出测试样本或标签。
 
-## 5. 部署 Runner 与官方 Runtime 验收
+## 5. 当前 Agent Host 验收入口
 
-创建 `training-agent` 专用账号，其 home、Codex 会话、workspace 和状态均在受保护持久卷。
-安装 Runner wheel 和经独立验收的官方 SDK/Runtime，保留对应版本制品。
-解包完整 Skill 到 `/opt/galatea-training-skills`，入口为
-`/opt/galatea-training-skills/skills/training-campaign/SKILL.md`，整包只读并保留旧版本供恢复。
-
-官方 SDK/Runtime 的真实验收遵循 [Runner 的八步清单](../../agents/training-agent-runtime/README.md#real-environment-end-to-end-acceptance)。
-先在隔离账号以有预算的官方 SDK 探针验证原生 start/resume、SkillInput、结构化输出和进程清理，
-保留证据后由管理员填写 runtime-lock 并批准 `acceptance_status=accepted`。
-源码级 fake 测试不能据此将随包 pending 锁改为 accepted。
-锁校验已覆盖安装的 SDK 版本、Runtime 实际可执行文件摘要/版本输出和完整 Skill 包摘要；
-SDK 制品及传递依赖的来源核验仍由发布流程承担。
-
-```bash
-/opt/training-agent/bin/training-agent --config /etc/training-agent/config.json register \
-  --revision 1 --prompt 'Execute the registered, authorized campaign within its approved slots and budget'
-/opt/training-agent/bin/training-agent --config /etc/training-agent/config.json preflight
-systemd-analyze verify agents/training-agent-runtime/deploy/training-agent.service
-/opt/training-agent/bin/training-agent --config /etc/training-agent/config.json run --once
-```
-
-`run --once` 可能触发真实模型和已批准计算，只有获得明确模型/训练预算后执行。
-注册与 pending 锁不会自动授予执行权。完整服务使用同一命令去掉 `--once`；安装并启动
-[Runner unit](../../agents/training-agent-runtime/deploy/training-agent.service) 前确认旧 Runner 不在运行。
-即使 Runtime 暂不可用，现有任务的观察和取消仍通过 MCP 完成。
+旧 Runner、systemd unit 和八步清单已删除。Codex app-server Host 的 runtime 复制、experimental
+API 握手、有效工具面、Console、恢复和故障注入以
+[`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md) 为唯一当前入口。
+本历史手册中的 MCP/Release 数据准入章节仍可作为平台背景，但不能替代 Host 验收。
 
 ## 6. 故障恢复与回退
 
@@ -190,7 +164,7 @@ Codex 自有会话卷，以及匹配的只读 Release、Registry、config、Skil
 升级/回退顺序：暂停新 Turn/提交 → 处理旧 worker 和不明提交 → 备份 → 切换兼容制品 →
 保留原 IDs 与 test-once marker → API 对账 → 恢复调度。旧版本不支持当前 Schema 时停止回退并做
 显式转换，不能清空状态。跨主机恢复必须搬迁受保护卷并确认旧执行组已停止；首版无自动接管。
-`plugins/` 不承担新服务的代发或回退，不修改其源码、配置、Release 或运行入口。
+当前恢复与回退使用 Codex Host 的状态和接纳记录，不通过其他 Runtime 代发作业。
 
 ## 7. 真实上线判定
 

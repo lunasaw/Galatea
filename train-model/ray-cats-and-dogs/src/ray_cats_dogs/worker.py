@@ -242,6 +242,19 @@ def _unwrapped_model(model: Any) -> Any:
 
 
 def train_loop_per_worker(loop_config: dict[str, Any]) -> None:
+    import torch.distributed as dist
+
+    try:
+        _train_loop_per_worker(loop_config)
+    finally:
+        # Ray 2.53 initializes a process group even for one worker, but its
+        # Torch backend only destroys groups with more than one worker.
+        # Leave multi-worker shutdown to Ray to avoid destroying it twice.
+        if dist.is_available() and dist.is_initialized() and dist.get_world_size() == 1:
+            dist.destroy_process_group()
+
+
+def _train_loop_per_worker(loop_config: dict[str, Any]) -> None:
     import torch
     from ray import train
     from ray.train import Checkpoint

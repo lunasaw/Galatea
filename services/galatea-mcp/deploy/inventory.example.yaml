@@ -17,17 +17,6 @@ components:
     listen: 127.0.0.1:8791
     secret_file_ref: /etc/galatea-mcp/service.env
     signing_key_ref: /etc/galatea-mcp/execution-private.pem
-  runner:
-    artifact: training_agent_runtime-0.1.0-py3-none-any.whl
-    sha256: null
-    python: null
-    dependency_lock_sha256: null
-    config: /etc/training-agent/config.json
-    runtime_lock: /etc/training-agent/runtime-lock.json
-    account: training-agent
-    state_volume: /var/lib/training-agent
-    secret_file_ref: /etc/training-agent/runtime.env
-    codex_session_volume: REPLACE_DEDICATED_ACCOUNT_SESSION_PATH
   skills:
     artifact: galatea-training-skills.tar.gz
     sha256: null

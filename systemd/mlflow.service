@@ -9,11 +9,11 @@ After=network-online.target minio.service
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/data/ai/chenzhangyue/code/galatea
-Environment="PATH=/data/conda/envs/attend-ray-py312/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+WorkingDirectory=/data/ai/chenzhangyue/galatea-model/galatea
+Environment="PATH=/data/ai/chenzhangyue/galatea-model/platform-data/mlflow/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 EnvironmentFile=/etc/minio/mlflow-s3.env
-ExecStart=/data/conda/envs/attend-ray-py312/bin/mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////data/ai/chenzhangyue/code/galatea/platform-data/mlflow/mlflow.db --serve-artifacts --artifacts-destination s3://mlflow-artifacts --allowed-hosts localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,qcloud-bj06-gc50-01,10.19.20.26,10.69.16.176,coder.vdian.net --cors-allowed-origins https://coder.vdian.net
+ExecStart=/data/ai/chenzhangyue/galatea-model/platform-data/mlflow/venv/bin/mlflow server --host 0.0.0.0 --port 18103 --backend-store-uri sqlite:////data/ai/chenzhangyue/galatea-model/platform-data/mlflow/mlflow.db --serve-artifacts --artifacts-destination s3://mlflow-artifacts --allowed-hosts localhost,localhost:18103,127.0.0.1,127.0.0.1:18103,10.26.0.140,10.26.0.140:18103,10.69.31.253,10.69.31.253:18103,idc-bj08-5090-01,idc-bj08-5090-01:18103 --cors-allowed-origins '*'
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s

@@ -3,7 +3,7 @@ project: wechat-persona
 task: causal-language-model-sft-lora
 dataset: {dataset_id: fixture-wechat-persona, source_sha256: "0000000000000000000000000000000000000000000000000000000000000000", manifest_sha256: "0000000000000000000000000000000000000000000000000000000000000000", split_sha256: "0000000000000000000000000000000000000000000000000000000000000000", consent_scope: persona_style, preprocessing_version: wechat-persona-preprocess-v1}
 governance: {formal_training_eligible: false, human_review_completed: false, withdrawn: false, pii_scan_passed: false, canary_scan_passed: false, cross_split_session_count: 0}
-model: {model_id: Qwen/Qwen3.5-0.8B, model_revision: immutable, tokenizer_revision: immutable, dtype: bfloat16}
+model: {model_id: Qwen/Qwen3.5-0.8B, architecture: qwen3_5_conditional_generation, model_revision: immutable, tokenizer_revision: immutable, dtype: bfloat16}
 training: {max_steps: null, epochs: 1, batch_size: 1, learning_rate: 0.0001, seed: 42}
 lora: {rank: 8, alpha: 16, dropout: 0.05, target_modules: [q_proj, v_proj]}
 execution: {backend: ray, release_id: required, readiness_digest: required, execution_identity: required, resources: {cpus: 4, memory_gb: 16, num_gpus: 1, placement: single_gpu}}

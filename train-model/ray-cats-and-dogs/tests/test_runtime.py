@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,7 @@ from ray_cats_dogs.runtime import (  # noqa: E402
     build_runtime_env,
     controller_pickle_by_value,
     execution_provenance,
+    require_governed_execution,
     ray_init_runtime_env,
     worker_runtime_env,
 )
@@ -27,6 +29,13 @@ from ray_cats_dogs.worker import train_loop_per_worker  # noqa: E402
 
 
 class RuntimeEnvTest(unittest.TestCase):
+    def test_training_rejects_local_and_incomplete_metadata_before_ray_init(self) -> None:
+        for environment in ({}, {RAY_JOB_CONFIG_ENV: '{"metadata":{}}'}):
+            with patch.dict(os.environ, environment, clear=True), patch("ray.init") as init:
+                with self.assertRaisesRegex(RuntimeError, "Galatea-authorized"):
+                    require_governed_execution("demo-project", False)
+                init.assert_not_called()
+
     def test_project_directory_and_src_package_are_uploaded(self) -> None:
         runtime_env = build_runtime_env(PROJECT_ROOT)
 
@@ -84,6 +93,33 @@ class RuntimeEnvTest(unittest.TestCase):
                 {RAY_JOB_CONFIG_ENV: json.dumps({"metadata": metadata})},
             ),
         )
+        metadata["galatea.promotable"] = "false"
+        self.assertEqual(
+            metadata,
+            execution_provenance(
+                "demo-project",
+                {RAY_JOB_CONFIG_ENV: json.dumps({"metadata": metadata})},
+            ),
+        )
+
+    def test_training_rejects_metadata_from_another_driver(self) -> None:
+        metadata = {
+            "galatea.execution.mode": "governed-ray-job",
+            "galatea.promotable": "false",
+            "galatea.submission.id": "a-real-job",
+        }
+        with (
+            patch("ray_cats_dogs.runtime.execution_provenance", return_value=metadata),
+            patch("ray.job_submission.JobSubmissionClient") as client,
+            patch("ray.is_initialized", return_value=True),
+            patch("ray.get_runtime_context") as context,
+        ):
+            client.return_value.get_job_info.return_value = SimpleNamespace(
+                job_id="another-driver", status="RUNNING", metadata=metadata,
+            )
+            context.return_value.get_job_id.return_value = "this-driver"
+            with self.assertRaisesRegex(RuntimeError, "actual running Ray Driver"):
+                require_governed_execution("demo-project", False)
 
     def test_uploaded_runtime_env_is_forwarded_to_workers(self) -> None:
         runtime_context = SimpleNamespace(

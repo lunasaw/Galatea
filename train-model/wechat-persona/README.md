@@ -1,5 +1,9 @@
 # wechat-persona
 
+The consolidated project documentation is [`docs/README.md`](docs/README.md). The current governed
+execution and preprocessing documents live beside it. Superseded dated documents were merged and
+removed; Git history remains the audit source.
+
 `wechat-persona` is the governed, local-only workload for the project 5–9 design.  It keeps
 data engineering, removable relationship memory, style adaptation, evaluation, and prototypes
 as separate contracts.  The package is intentionally dependency-light so contract checks can run
@@ -20,6 +24,7 @@ python train-model/wechat-persona/scripts/import_chat.py \
   --check --source <controlled-export> --consent <controlled-consent.json> \
   --speaker-map-file <controlled-speaker-map.json>
 python train-model/wechat-persona/scripts/build_dataset.py --config train-model/wechat-persona/configs/import.yaml --plan
+python train-model/wechat-persona/scripts/build_topic_reply_candidates.py --check
 python train-model/wechat-persona/scripts/review_app.py
 python -m unittest discover -s train-model/wechat-persona/tests -p 'test_*.py'
 ```
@@ -104,6 +109,12 @@ Review events and deletion receipts contain object IDs and hashes, never chat te
 `submit_train.py --run`, `evaluate.py --run`, and all model-producing actions require the
 Galatea-authorized Ray boundary.  Until consent and human review are verified, configs remain
 diagnostic/blocked and synthetic fixtures cannot be represented as real-data evidence.
+
+The GPT-prelabel experimental baseline is recorded in
+[`docs/gpt-prelabel-strategy.md`](docs/gpt-prelabel-strategy.md). Its MLflow Run
+`52f43f68fb6e421da68f7a8550d29990` is validation-only evidence from machine-reviewed data:
+`human_review_completed=false`, `formal_training_eligible=false`, `promotable=false`, and
+`test.access=untouched` remain in force.
 
 ## Code-only Release builder
 

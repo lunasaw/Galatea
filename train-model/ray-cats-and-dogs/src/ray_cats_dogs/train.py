@@ -8,6 +8,8 @@ import os
 import tempfile
 import time
 from dataclasses import asdict
+from contextlib import ExitStack
+from types import SimpleNamespace
 from pathlib import Path
 from typing import Any
 
@@ -19,16 +21,18 @@ from ray_cats_dogs.config import ProjectConfig
 from ray_cats_dogs.data import (
     PreparedDataset,
     build_ray_datasets,
+    load_frozen_manifest,
     prepare_dataset,
     validate_equal_shards,
 )
 from ray_cats_dogs.evaluate import evaluate_checkpoint
+from ray_cats_dogs.finalization import FINAL_PROTOCOL, recover_frozen_checkpoint, state_root
 from ray_cats_dogs.integrity import build_integrity_report, integrity_digest
 from ray_cats_dogs.runtime import (
     controller_pickle_by_value,
-    execution_provenance,
     ray_init_runtime_env,
     worker_runtime_env,
+    require_governed_execution,
 )
 from ray_cats_dogs.tracking import (
     RayMlflowCallback,
@@ -79,6 +83,11 @@ def config_plan(
             "training_workers": config.ray.num_workers,
             "cpu_per_worker": config.ray.cpus_per_worker,
             "gpu_per_worker": 1 if config.ray.use_gpu else 0,
+            # Galatea maps these fields to Ray Job Driver reservations.
+            # GPUs are reserved separately by the Train placement group.
+            "cpus": 1,
+            "num_gpus": 0,
+            "memory_gb": 1,
             "memory_per_worker_bytes": config.ray.memory_per_worker_bytes,
             "ray_data_decode_workers": config.ray.data_decode_workers,
             "ray_data_num_blocks": config.ray.data_num_blocks,
@@ -95,7 +104,10 @@ def config_plan(
 
 def read_only_plan(config: ProjectConfig) -> dict[str, Any]:
     tracking = inspect_tracking(config)
-    dataset = prepare_dataset(config.data, config.run.seed)
+    dataset = (
+        load_frozen_manifest(config) if config.run.role == "champion"
+        else prepare_dataset(config.data, config.run.seed)
+    )
     validate_equal_shards(dataset, config.ray.num_workers)
     code = code_identity(config)
     integrity = build_integrity_report(config, dataset, include_test=config.run.role == "champion")
@@ -219,6 +231,25 @@ def _log_checkpoint_and_selection(
         downloaded_digest = hashlib.sha256(
             Path(downloaded_model).read_bytes()
         ).hexdigest()
+        if downloaded_digest != local_model_digest:
+            raise RuntimeError("MLflow checkpoint Artifact failed SHA-256 verification")
+        # Load the retrieved checkpoint in a fresh CPU process before accepting
+        # the artifact. This forward-only fixture never reads holdout images.
+        import subprocess
+        import sys
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(config.project_root / "scripts" / "verify_checkpoint.py"),
+                downloaded_model,
+            ],
+            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
     if downloaded_digest != local_model_digest:
         raise RuntimeError("MLflow checkpoint Artifact failed SHA-256 verification")
     mlflow.log_dict(
@@ -230,6 +261,7 @@ def _log_checkpoint_and_selection(
             "ray_checkpoint_uri": str(result.checkpoint.path),
             "best_model_sha256": local_model_digest,
             "mlflow_artifact_roundtrip_verified": True,
+            "fresh_process_load_verified": True,
             "test_evaluated_during_selection": False,
         },
         "reports/model-selection.json",
@@ -247,9 +279,13 @@ def _run_test_evaluation(
     config: ProjectConfig,
     dataset: PreparedDataset,
     checkpoint: Any,
+    freeze: dict[str, Any],
+    run_id: str,
 ) -> dict[str, Any]:
     test_frame = dataset.split_frame("test")
     task = ray_module.remote(evaluate_checkpoint).options(
+        max_retries=0,
+        runtime_env=worker_runtime_env(ray_module),
         num_cpus=config.ray.evaluation_cpus,
         num_gpus=config.ray.evaluation_gpus,
         memory=config.ray.evaluation_memory_bytes,
@@ -257,10 +293,23 @@ def _run_test_evaluation(
     return ray_module.get(
         task.remote(
             checkpoint,
-            test_frame[["relative_path", "label"]].to_dict(orient="records"),
+            test_frame[["relative_path", "label", "sha256"]].to_dict(orient="records"),
             str(config.data.root / "PetImages"),
             config.image_size,
             config.training.per_worker_batch_size,
+            str(state_root(config)),
+            {
+                "checkpoint_sha256": freeze["checkpoint_sha256"],
+                "split_sha256": freeze["split_sha256"],
+                "protocol": FINAL_PROTOCOL,
+                "submission_id": freeze["submission_id"],
+                "execution_identity": freeze["execution_identity"],
+                "candidate_run_id": freeze["candidate_run_id"],
+                "candidate_evidence_digest": freeze["candidate_evidence_digest"],
+                "readiness_digest": freeze["readiness_digest"],
+                "release_id": freeze["release_id"],
+                "run_id": run_id,
+            },
         )
     )
 
@@ -275,6 +324,7 @@ def _log_evaluation(
     prediction_payload = predictions.to_csv(index=False, lineterminator="\n").encode()
     prediction_digest = hashlib.sha256(prediction_payload).hexdigest()
     quality_passed = metrics["test_accuracy"] >= config.evaluation.minimum_test_accuracy
+    mlflow.log_dict(evaluation["test_once_claim"], "reports/test-once-claim.json")
     mlflow.log_metrics(metrics)
     mlflow.log_table(predictions, "outputs/test-predictions.json")
     mlflow.log_dict(
@@ -310,6 +360,7 @@ def _log_mlflow_model(
     import torch
     from mlflow.models import infer_signature
 
+    from ray_cats_dogs.model_artifacts import model_code_paths, verify_packaged_model
     from ray_cats_dogs.models import build_model
 
     with checkpoint.as_directory() as checkpoint_directory:
@@ -334,7 +385,7 @@ def _log_mlflow_model(
             name="model",
             signature=infer_signature(input_example, output_example),
             input_example=input_example,
-            code_paths=[str(Path(__file__).resolve().parents[1])],
+            code_paths=model_code_paths(),
             serialization_format="pickle",
             metadata={
                 "class_names": ["Cat", "Dog"],
@@ -353,6 +404,8 @@ def _log_mlflow_model(
         )
         if not (Path(downloaded_model) / "MLmodel").is_file():
             raise RuntimeError("MLflow Logged Model is missing its MLmodel descriptor")
+        verification = verify_packaged_model(Path(downloaded_model), config.image_size)
+        mlflow.log_dict(verification, "verification/model-fresh-process-load.json")
         mlflow.log_artifacts(downloaded_model, artifact_path="model")
     with tempfile.TemporaryDirectory(
         prefix="ray-cats-dogs-run-model-check-"
@@ -367,16 +420,39 @@ def _log_mlflow_model(
     return f"runs:/{run_id}/model"
 
 
-@mlflow.trace(name="ray_cats_dogs_training", span_type=SpanType.WORKFLOW)
+@mlflow.trace(name="ray_cats_dogs.training", span_type=SpanType.CHAIN)
 def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any]:
     """Run one idempotent Ray Train workload and one authoritative MLflow Run."""
 
+    mlflow.update_current_trace(
+        tags={
+            "project": config.project_name,
+            "run.role": config.run.role,
+            "execution.type": "ray-train",
+        },
+        metadata={
+            "mlflow.trace.session": config.project_name,
+            "training.objective_metric": config.training.objective_metric,
+            "training.objective_mode": config.training.objective_mode,
+            "ray.num_workers": str(config.ray.num_workers),
+        },
+    )
+    provenance = require_governed_execution(config.project_name, config.run.promotable)
     tracking = preflight_tracking(config)
-    dataset = prepare_dataset(config.data, config.run.seed)
+    dataset = (
+        load_frozen_manifest(config) if config.run.role == "champion"
+        else prepare_dataset(config.data, config.run.seed)
+    )
     validate_equal_shards(dataset, config.ray.num_workers)
     code = code_identity(config)
     integrity = build_integrity_report(config, dataset, include_test=config.run.role == "champion")
     identity_key = idempotency_key(config, dataset, code["source_sha256"], integrity_digest(integrity))
+    if config.run.role == "champion":
+        if not config.evaluation.evaluate_test or not provenance.get("candidate_run_id"):
+            raise RuntimeError("Champion requires a frozen Trial and final evaluation")
+        identity_key = hashlib.sha256(
+            (identity_key + provenance["galatea.execution.identity"]).encode()
+        ).hexdigest()
     prior_runs = runs_for_identity(tracking, identity_key)
     existing = successful_run(prior_runs)
     if existing is not None and not force:
@@ -410,6 +486,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
             runtime_env=ray_init_runtime_env(config.project_root),
             ignore_reinit_error=True,
         )
+    cleanup = ExitStack()
     try:
         available_resources = _check_cluster_resources(ray, config)
         train_worker_runtime_env = worker_runtime_env(ray)
@@ -435,7 +512,7 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
             "ray.task_timeline.requested": str(
                 config.ray.record_task_timeline
             ).lower(),
-            **execution_provenance(config.project_name),
+            **provenance,
         }
         phase = "run-setup"
         with mlflow.start_run(
@@ -467,81 +544,102 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                 mlflow.log_dict(
                     available_resources, "ray/available-resources-at-start.json"
                 )
-                if "://" not in config.ray.storage_path:
-                    Path(config.ray.storage_path).mkdir(parents=True, exist_ok=True)
-                phase = "ray-data-preparation"
-                data_started_at = time.perf_counter()
-                ray_datasets = build_ray_datasets(dataset, config)
-                data_preparation_seconds = time.perf_counter() - data_started_at
-                mlflow.log_metric(
-                    "data_preparation_seconds", data_preparation_seconds
-                )
-                mlflow.log_dict(
-                    {
-                        "decode_workers": config.ray.data_decode_workers,
-                        "configured_blocks": config.ray.data_num_blocks,
-                        "decode_batch_size": config.ray.data_decode_batch_size,
-                        "prefetch_batches": config.ray.data_prefetch_batches,
-                        "cache_decoded": config.ray.data_cache_decoded,
-                        "preparation_seconds": data_preparation_seconds,
-                    },
-                    "ray/data-pipeline.json",
-                )
-                phase = "ray-training"
-                with controller_pickle_by_value():
-                    trainer = TorchTrainer(
-                        train_loop_per_worker=train_loop_per_worker,
-                        train_loop_config=_worker_loop_config(
-                            config, run_id, identity_key, dataset
-                        ),
-                        scaling_config=ScalingConfig(
-                            num_workers=config.ray.num_workers,
-                            use_gpu=config.ray.use_gpu,
-                            resources_per_worker={
-                                "CPU": config.ray.cpus_per_worker,
-                                "memory": config.ray.memory_per_worker_bytes,
-                            },
-                            placement_strategy=config.ray.placement_strategy,
-                        ),
-                        dataset_config=DataConfig(
-                            datasets_to_split=["training", "validation"]
-                        ),
-                        datasets=ray_datasets,
-                        run_config=RunConfig(
-                            name=f"{run_name}-ray",
-                            storage_path=str(config.ray.storage_path),
-                            failure_config=FailureConfig(
-                                max_failures=config.ray.max_failures
-                            ),
-                            checkpoint_config=CheckpointConfig(num_to_keep=1),
-                            callbacks=[
-                                RayMlflowCallback(
-                                    config.mlflow.tracking_uri, run_id
-                                )
-                            ],
-                            worker_runtime_env=train_worker_runtime_env,
-                        ),
+                freeze = None
+                if config.run.role == "champion":
+                    phase = "frozen-checkpoint-validation"
+                    destination = Path(cleanup.enter_context(tempfile.TemporaryDirectory(
+                        prefix="ray-cats-dogs-frozen-trial-"
+                    )))
+                    checkpoint, freeze = recover_frozen_checkpoint(
+                        config, dataset, provenance, destination
                     )
-                    result = trainer.fit()
+                    result = SimpleNamespace(checkpoint=checkpoint)
+                    mlflow.log_dict(freeze, "reports/candidate-freeze.json")
+                    mlflow.set_tags({
+                        "candidate.run_id": freeze["candidate_run_id"],
+                        "candidate.checkpoint_sha256": freeze["checkpoint_sha256"],
+                        "candidate.evidence_digest": freeze["candidate_evidence_digest"],
+                        "training.started": "false",
+                        "execution.type": "ray-frozen-checkpoint-evaluation",
+                    })
+                else:
+                    if "://" not in config.ray.storage_path:
+                        Path(config.ray.storage_path).mkdir(parents=True, exist_ok=True)
+                    phase = "ray-data-preparation"
+                    data_started_at = time.perf_counter()
+                    ray_datasets = build_ray_datasets(dataset, config)
+                    data_preparation_seconds = time.perf_counter() - data_started_at
+                    mlflow.log_metric(
+                        "data_preparation_seconds", data_preparation_seconds
+                    )
+                    mlflow.log_dict(
+                        {
+                            "decode_workers": config.ray.data_decode_workers,
+                            "configured_blocks": config.ray.data_num_blocks,
+                            "decode_batch_size": config.ray.data_decode_batch_size,
+                            "prefetch_batches": config.ray.data_prefetch_batches,
+                            "cache_decoded": config.ray.data_cache_decoded,
+                            "preparation_seconds": data_preparation_seconds,
+                        },
+                        "ray/data-pipeline.json",
+                    )
+                    phase = "ray-training"
+                    with controller_pickle_by_value():
+                        trainer = TorchTrainer(
+                            train_loop_per_worker=train_loop_per_worker,
+                            train_loop_config=_worker_loop_config(
+                                config, run_id, identity_key, dataset
+                            ),
+                            scaling_config=ScalingConfig(
+                                num_workers=config.ray.num_workers,
+                                use_gpu=config.ray.use_gpu,
+                                resources_per_worker={
+                                    "CPU": config.ray.cpus_per_worker,
+                                    "memory": config.ray.memory_per_worker_bytes,
+                                },
+                                placement_strategy=config.ray.placement_strategy,
+                            ),
+                            dataset_config=DataConfig(
+                                datasets_to_split=["training", "validation"]
+                            ),
+                            datasets=ray_datasets,
+                            run_config=RunConfig(
+                                name=f"{run_name}-ray",
+                                storage_path=str(config.ray.storage_path),
+                                failure_config=FailureConfig(
+                                    max_failures=config.ray.max_failures
+                                ),
+                                checkpoint_config=CheckpointConfig(num_to_keep=1),
+                                callbacks=[
+                                    RayMlflowCallback(
+                                        config.mlflow.tracking_uri, run_id
+                                    )
+                                ],
+                                worker_runtime_env=train_worker_runtime_env,
+                            ),
+                        )
+                        result = trainer.fit()
 
                 phase = "checkpoint-logging"
                 _log_checkpoint_and_selection(result, config, run_id)
-                quality_passed = None
-                test_metrics: dict[str, float] = {}
-                if config.evaluation.evaluate_test:
-                    phase = "final-test-evaluation"
-                    evaluation = _run_test_evaluation(
-                        ray, config, dataset, result.checkpoint
-                    )
-                    test_metrics = evaluation["metrics"]
-                    quality_passed = _log_evaluation(evaluation, config, dataset)
-                    mlflow.set_tag("test.evaluated", "true")
-
                 model_uri = None
                 if config.run.log_model:
                     phase = "model-logging"
                     model_uri = _log_mlflow_model(result.checkpoint, config, run_id)
                     mlflow.set_tag("model.uri", model_uri)
+
+
+                quality_passed = None
+                test_metrics: dict[str, float] = {}
+                if config.evaluation.evaluate_test:
+                    phase = "final-test-evaluation"
+                    evaluation = _run_test_evaluation(
+                        ray, config, dataset, result.checkpoint, freeze, run_id
+                    )
+                    test_metrics = evaluation["metrics"]
+                    quality_passed = _log_evaluation(evaluation, config, dataset)
+                    mlflow.set_tag("test.evaluated", "true")
+
 
                 if config.ray.record_task_timeline:
                     phase = "ray-task-timeline-logging"
@@ -577,7 +675,8 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                     "test_metrics": test_metrics,
                     "quality_gate_passed": quality_passed,
                     "ray_task_timeline": timeline_metadata,
-                    "training_started": True,
+                    "training_started": config.run.role != "champion",
+                    "candidate_run_id": freeze["candidate_run_id"] if freeze else None,
                 }
             except BaseException as error:
                 failure_tags = {
@@ -607,5 +706,6 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
                 mlflow.set_tags(failure_tags)
                 raise
     finally:
+        cleanup.close()
         if initialized_here:
             ray.shutdown()

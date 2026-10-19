@@ -1,0 +1,86 @@
+method,handling,source_references
+error,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/file-search.ts:13; frontend/src/file-search.ts:34; frontend/src/messages.ts:80; frontend/src/messages.ts:218; frontend/src/native-events.ts:5; frontend/src/realtime-session.ts:21; frontend/src/store.ts:114; frontend/src/store.ts:189; frontend/src/store.ts:224; frontend/src/store.ts:227; frontend/src/store.ts:238; frontend/src/store.ts:583; frontend/src/store.ts:645; frontend/src/store.ts:724; frontend/src/store.ts:736; frontend/src/store.ts:762; frontend/src/store.ts:858; frontend/src/store.ts:873; frontend/src/store.ts:990; frontend/src/store.ts:1007; frontend/src/store.ts:1079; frontend/src/store.ts:1112; frontend/src/terminal-sessions.ts:8; frontend/src/terminal-sessions.ts:114; frontend/src/terminal-sessions.ts:126; frontend/src/account-management.tsx:20; frontend/src/apps-panel.tsx:17; frontend/src/chat-controls.tsx:307; frontend/src/components/assistant-ui/elements/attachment.aui.tsx:144; frontend/src/components/assistant-ui/elements/attachment.aui.tsx:145; frontend/src/components/assistant-ui/elements/attachment.aui.tsx:153; frontend/src/components/assistant-ui/elements/attachment.aui.tsx:157; frontend/src/composer-skill-mentions.tsx:19; frontend/src/composer-skill-mentions.tsx:36; frontend/src/composer-skill-mentions.tsx:38; frontend/src/integrations.tsx:19; frontend/src/integrations.tsx:83; frontend/src/main.tsx:633; frontend/src/main.tsx:655; frontend/src/mcp-app-view.tsx:62; frontend/src/native-item-details.tsx:70; frontend/src/native-ui.tsx:65; frontend/src/native-ui.tsx:98; frontend/src/runtime-settings.tsx:32; frontend/src/thread-export-menu.tsx:55; frontend/src/tool-ui.tsx:120; frontend/src/tool-ui.tsx:251; frontend/src/workspace-file-view.tsx:97; src/codex_agent/console/projection.py:174; src/codex_agent/console/server.py:107; src/codex_agent/console/server.py:151; src/codex_agent/console/server.py:212; src/codex_agent/console/server.py:213; src/codex_agent/console/server.py:223; src/codex_agent/console/server.py:243; src/codex_agent/console/server.py:245; src/codex_agent/console/server.py:309; src/codex_agent/console/server.py:335; src/codex_agent/console/server.py:395; src/codex_agent/console/server.py:397; src/codex_agent/console/server.py:399; src/codex_agent/console/server.py:401; src/codex_agent/console/server.py:403; src/codex_agent/console/server.py:405; src/codex_agent/console/server.py:407; src/codex_agent/console/server.py:409; src/codex_agent/console/service.py:160; src/codex_agent/console/service.py:173; src/codex_agent/host.py:311; src/codex_agent/host.py:318; src/codex_agent/native.py:40; src/codex_agent/native.py:87; src/codex_agent/native.py:92; src/codex_agent/native.py:118; src/codex_agent/native.py:149; src/codex_agent/native.py:234; src/codex_agent/registry.py:47; src/codex_agent/registry.py:52; src/codex_agent/registry.py:121; src/codex_agent/rpc.py:96; src/codex_agent/rpc.py:108; src/codex_agent/rpc.py:137; src/codex_agent/rpc.py:138
+thread/started,原生观察链路；动态/前缀订阅由所属模块处理，无独立界面动作,
+thread/status/changed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/host.py:339; src/codex_agent/host.py:346
+thread/readState/changed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:21; src/codex_agent/host.py:337; src/codex_agent/host.py:340
+thread/archived,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/host.py:380; src/codex_agent/host.py:381
+thread/deleted,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/host.py:377
+thread/unarchived,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/host.py:380
+thread/closed,原生观察链路；动态/前缀订阅由所属模块处理，无独立界面动作,
+thread/reverted,原生观察链路；动态/前缀订阅由所属模块处理，无独立界面动作,
+skills/changed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:20
+thread/name/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:20; src/codex_agent/host.py:333
+thread/attachment/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:20
+thread/goal/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:21
+thread/prediction/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:9; src/codex_agent/host.py:337; src/codex_agent/host.py:342
+thread/goal/cleared,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:21
+thread/queue/changed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/store.ts:1218
+project/changed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:20; frontend/src/store.ts:1214
+thread/project/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:20; frontend/src/store.ts:1214; src/codex_agent/host.py:339; src/codex_agent/host.py:344
+thread/environment/connected,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:22; src/codex_agent/host.py:338
+thread/environment/disconnected,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:9; frontend/src/native-notifications.ts:22; src/codex_agent/host.py:338
+thread/settings/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:21; src/codex_agent/host.py:352
+thread/tokenUsage/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:156; src/codex_agent/host.py:415
+turn/started,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:153; src/codex_agent/console/projection.py:155; src/codex_agent/host.py:393
+hook/started,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:188
+turn/completed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:153; src/codex_agent/host.py:398
+hook/completed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:188; src/codex_agent/console/projection.py:192
+turn/diff/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:181
+turn/plan/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/messages.ts:73; frontend/src/messages.ts:219; frontend/src/tool-ui.tsx:74; frontend/src/tool-ui.tsx:110; frontend/src/tool-ui.tsx:227; frontend/src/workbench.tsx:291; src/codex_agent/console/projection.py:174
+item/started,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:111; src/codex_agent/host.py:415
+item/autoApprovalReview/started,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:193
+item/autoApprovalReview/completed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:193
+autoApprovalReview/strictReviewRequired,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:4; src/codex_agent/console/projection.py:183
+item/completed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:92; src/codex_agent/console/projection.py:111; src/codex_agent/console/projection.py:117; src/codex_agent/console/projection.py:129; src/codex_agent/console/projection.py:131; src/codex_agent/console/projection.py:135; src/codex_agent/host.py:415
+item/agentMessage/delta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:109; src/codex_agent/host.py:415
+item/plan/delta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:168
+command/exec/outputDelta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/terminal-sessions.ts:52
+process/outputDelta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/terminal-sessions.ts:52
+process/exited,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/terminal-sessions.ts:55
+item/commandExecution/outputDelta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:197
+item/commandExecution/terminalInteraction,原生观察链路；动态/前缀订阅由所属模块处理，无独立界面动作,
+item/fileChange/outputDelta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:197
+item/fileChange/patchUpdated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:178
+serverRequest/resolved,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/host.py:327
+item/mcpToolCall/progress,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:171
+mcpServer/oauthLogin/completed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:23
+mcpServer/startupStatus/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:23
+mcpServer/event/stream/notification,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/mcp-capabilities.tsx:64
+account/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:19; frontend/src/store.ts:1215
+account/gatewayOAuth/changed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:8; frontend/src/native-notifications.ts:19; src/codex_agent/console/projection.py:26; src/codex_agent/host.py:324
+account/rateLimits/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:19
+app/list/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/apps-panel.tsx:155
+remoteControl/status/changed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:22
+externalAgentConfig/import/progress,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:10; frontend/src/native-notifications.ts:24
+externalAgentConfig/import/completed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:10; frontend/src/native-notifications.ts:24
+fs/changed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/file-capabilities.tsx:16
+item/reasoning/summaryTextDelta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/messages.ts:136; src/codex_agent/console/projection.py:158
+item/reasoning/summaryPartAdded,原生观察链路；动态/前缀订阅由所属模块处理，无独立界面动作,
+item/reasoning/textDelta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,src/codex_agent/console/projection.py:36
+thread/compacted,原生观察链路；动态/前缀订阅由所属模块处理，无独立界面动作,
+model/rerouted,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:4; src/codex_agent/console/projection.py:183
+model/verification,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:5; src/codex_agent/console/projection.py:184
+modelProvider/authRecoveryStarted,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:5; src/codex_agent/console/projection.py:184
+modelProvider/authRecoveryCompleted,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:6; src/codex_agent/console/projection.py:184
+turn/moderationMetadata,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/messages.ts:58
+model/safetyBuffering/updated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:7; src/codex_agent/console/projection.py:185
+warning,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/messages.ts:58; frontend/src/messages.ts:79; frontend/src/native-item-details.tsx:70; frontend/src/runtime-settings.tsx:33; frontend/src/tool-ui.tsx:72; frontend/src/tool-ui.tsx:118; frontend/src/tool-ui.tsx:251; src/codex_agent/console/projection.py:174; src/codex_agent/console/projection.py:186
+guardianWarning,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:3; src/codex_agent/console/projection.py:183
+deprecationNotice,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:3
+configWarning,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:3
+fuzzyFileSearch/sessionUpdated,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/file-search.ts:37
+fuzzyFileSearch/sessionCompleted,原生观察链路；动态/前缀订阅由所属模块处理，无独立界面动作,
+thread/realtime/started,原生观察链路；动态/前缀订阅由所属模块处理，无独立界面动作,
+thread/realtime/itemAdded,原生观察链路；动态/前缀订阅由所属模块处理，无独立界面动作,
+thread/realtime/item/started,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/voice-transcript.ts:9
+thread/realtime/item/transcript/delta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/voice-transcript.ts:6
+thread/realtime/item/completed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/voice-transcript.ts:9
+thread/realtime/transcript/delta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/voice-transcript.ts:16
+thread/realtime/transcript/done,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/voice-transcript.ts:16
+thread/realtime/outputAudio/delta,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/realtime-session.ts:96
+thread/realtime/sdp,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/realtime-session.ts:95
+thread/realtime/error,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/realtime-session.ts:97
+thread/realtime/closed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/realtime-session.ts:98; frontend/src/voice-controls.tsx:83
+windows/worldWritableWarning,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:7
+windowsSandbox/setupCompleted,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/runtime-settings.tsx:159
+account/login/completed,原生观察链路；另有功能订阅/投影/状态消费，见源码索引,frontend/src/native-notifications.ts:8; frontend/src/native-notifications.ts:19; frontend/src/store.ts:1215; frontend/src/account-management.tsx:20

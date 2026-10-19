@@ -1,0 +1,416 @@
+"""Versioned native protocol bridge and human response broker.
+
+The schema is exported by the pinned runtime, including experimental fields.
+Business tools continue through ToolRegistry; this module never executes tools.
+"""
+from __future__ import annotations
+
+import asyncio
+import copy
+import json
+import time
+import uuid
+
+from jsonschema import Draft7Validator
+
+from .console.observer import observation_context
+from .console.projection import redact
+from .state import payload_digest
+from .rpc import RpcError
+from .mcp_app_context import with_app_context
+from .runtime_version import PROTOCOL_PATH
+
+
+class NativeProtocol:
+    def __init__(self):
+        self.bundle = json.loads(PROTOCOL_PATH.read_text())
+        self.methods = {row['properties']['method']['enum'][0]: row
+                        for row in self.bundle['client']['oneOf']}
+
+    def schema(self, method):
+        row = self.methods.get(method)
+        if not row:
+            raise ValueError('unknown native method')
+        return {**row['properties'].get('params', {'type': 'object'}),
+                'definitions': self.bundle['client']['definitions']}
+
+    @staticmethod
+    def validate(schema, value):
+        error = next(Draft7Validator(schema).iter_errors(value), None)
+        if error:
+            # Do not include rejected values (which can contain credentials).
+            path = '.'.join(str(p) for p in error.absolute_path) or 'params'
+            raise ValueError(f'invalid {path}: {error.validator}')
+
+    def catalog(self):
+        return {'version': self.bundle['version'], 'methods': sorted(set(self.methods) - {'initialize'}),
+                'definitions': self.bundle['client']['definitions'],
+                'params': {key: value['properties'].get('params', {}) for key, value in self.methods.items()
+                           if key != 'initialize'}}
+
+
+PROTOCOL = NativeProtocol()
+
+
+class NativeBridge:
+    def __init__(self, host):
+        self.host = host
+        self.pending = {}
+        self.completed = {}
+        self.auth_handoffs = {}
+
+    def gateway_changed(self, params):
+        provider = params.get('providerId')
+        if not isinstance(provider, str):
+            return
+        url = params.get('authUrl')
+        if params.get('status') == 'started' and isinstance(url, str) and url.startswith(('https://', 'http://')):
+            self.auth_handoffs[provider] = {'providerId': provider, 'authUrl': url,
+                                            'expiresAt': time.time() + 600}
+        elif params.get('status') != 'started':
+            self.auth_handoffs.pop(provider, None)
+
+    def list_auth_handoffs(self):
+        now = time.time()
+        self.auth_handoffs = {key: row for key, row in self.auth_handoffs.items() if row['expiresAt'] > now}
+        return copy.deepcopy(list(self.auth_handoffs.values()))
+
+    async def request(self, message):
+        method, params = message['method'], message.get('params', {})
+        if method == 'currentTime/read':
+            return {'result': {'currentTimeAt': int(time.time())}}
+        if method in {'attestation/generate', 'account/chatgptAuthTokens/refresh'}:
+            # These are client integrations, not human approvals. The Web Host
+            # has neither a platform attestation provider nor external ChatGPT
+            # token ownership. Match the CLI's unsupported-client behavior;
+            # never queue a credential/attestation JSON form in the browser.
+            return {'error': {'code': -32601, 'message': (
+                'Client attestation is not available in this Web Host.'
+                if method == 'attestation/generate' else
+                'External ChatGPT token refresh is not configured in this Web Host.')}}
+        if method not in PROTOCOL.bundle['responses']:
+            return {'error': {'code': -32601, 'message': 'Unknown server request'}}
+        thread_id = params.get('threadId', params.get('conversationId'))
+        session = self.host._session_for_thread(thread_id)
+        # Requests from subagents are deliberately visible with their native
+        # thread identity; they must not be assigned to an unrelated chat.
+        key = 'approval-' + uuid.uuid4().hex
+        future = asyncio.get_running_loop().create_future()
+        row = {'id': key, 'rpc_id': message['id'], 'method': method, 'params': copy.deepcopy(params),
+               'session_id': session['id'] if session else None, 'created_at': time.time(),
+               'response_schema': PROTOCOL.bundle['responses'][method]}
+        self.pending[key] = (row, future)
+        self.host.events.append(row['session_id'], {'kind': 'interaction_pending', 'thread_id': thread_id,
+                                                   'public': {'id': key, 'method': method}})
+        try:
+            return await future
+        finally:
+            self.pending.pop(key, None)
+            self.host.events.append(row['session_id'], {'kind': 'interaction_resolved', 'thread_id': thread_id,
+                                                       'public': {'id': key}})
+
+    def list_pending(self):
+        return [copy.deepcopy(row) for row, future in self.pending.values() if not future.done()]
+
+    def respond(self, key, result=None, error=None):
+        if (result is None) == (error is None):
+            raise ValueError('supply either result or error')
+        response = {'result': result} if error is None else {'error': error}
+        digest = payload_digest(response)
+        if key in self.completed:
+            if self.completed[key] != digest:
+                raise ValueError('response already submitted')
+            return {'status': 'submitted'}
+        if key not in self.pending:
+            raise ValueError('request expired or runtime restarted')
+        row, future = self.pending[key]
+        if future.done():
+            raise ValueError('request expired')
+        if error is None:
+            PROTOCOL.validate(row['response_schema'], result)
+            decisions = row['params'].get('availableDecisions')
+            if decisions is not None and result.get('decision') not in decisions:
+                raise ValueError('decision is not offered by the runtime')
+            if row['method'] == 'item/tool/requestUserInput':
+                ids = {q['id'] for q in row['params']['questions']}
+                if set(result['answers']) != ids:
+                    raise ValueError('answer every question')
+        elif not isinstance(error, dict) or type(error.get('code')) is not int or not isinstance(error.get('message'), str):
+            raise ValueError('invalid RPC error')
+        self.completed[key] = digest
+        future.set_result(response)
+        return {'status': 'submitted'}
+
+    def cancel(self, thread_id=None, turn_id=None):
+        for row, future in self.pending.values():
+            params = row['params']
+            if ((thread_id is None or params.get('threadId', params.get('conversationId')) == thread_id)
+                    and (turn_id is None or params.get('turnId') == turn_id) and not future.done()):
+                future.set_result({'error': {'code': -32000, 'message': 'Request cancelled'}})
+
+    async def call(self, method, params, request_id):
+        if method in {'thread/fork', 'thread/archive', 'thread/unarchive', 'thread/delete', 'thread/revert'}:
+            async with self.host._admission:
+                return await self._call(method, params, request_id)
+        return await self._call(method, params, request_id)
+
+    async def _call(self, method, params, request_id):
+        host = self.host
+        if method == 'initialize' or method not in PROTOCOL.methods:
+            raise ValueError('method is managed by Host or unknown')
+        PROTOCOL.validate(PROTOCOL.schema(method), params)
+        await host._check_admission()
+        if method.startswith(('config/value/', 'config/batch')) or method in {
+                'externalAgentConfig/import', 'externalAgentConfig/import/recordHistory',
+                'experimentalFeature/enablement/set', 'skills/config/write', 'skills/extraRoots/set',
+                'plugin/install', 'plugin/uninstall', 'plugin/reconcile',
+                'marketplace/add', 'marketplace/remove', 'marketplace/upgrade'}:
+            if not host.configuration_changed:
+                raise ValueError('immutable release configuration; use a development Host to edit settings')
+            changes_config = True
+        else:
+            changes_config = False
+        thread_id = (params or {}).get('threadId')
+        session = host._session_for_thread(thread_id)
+        if method == 'turn/settings/update' and (
+                not session or params['turnId'] != session.get('active_turn_id')):
+            raise ValueError('turn identity changed')
+        if method == 'thread/start':
+            options = dict(params)
+            options.pop('dynamicTools', None)
+            session = await host.create_session('session-' + request_id, options=options)
+            return {'thread': {'id': session['thread_id']}, 'session': session}
+        if method == 'turn/start':
+            if not session:
+                raise ValueError('resume the thread before starting a turn')
+            options = {k: v for k, v in params.items() if k not in {'threadId', 'input'}}
+            text = '\n'.join(p['text'] for p in params['input'] if p['type'] == 'text')
+            return await host.send_message(session['id'], request_id, text, input_items=params['input'], options=options)
+        if method == 'turn/interrupt' and session:
+            if params['turnId'] != session.get('active_turn_id'):
+                raise ValueError('turn identity changed')
+            return await host.interrupt(session['id'])
+        if method == 'turn/steer' and session:
+            if params['expectedTurnId'] != session.get('active_turn_id'):
+                raise ValueError('turn identity changed')
+            params = with_app_context(host.store, session['id'], params)
+        if method == 'thread/resume' and session:
+            if params.get('path') or params.get('history'):
+                raise ValueError('resume a Host session by its thread identity')
+            options = {k: v for k, v in params.items() if k != 'threadId'}
+            return {'session': await host.resume(session['id'], options=options)}
+        if session and (session.get('active_turn_id') or session['status'] in {'starting', 'running', 'interrupting', 'closing'}) and method in {
+                'thread/resume', 'thread/fork', 'thread/archive', 'thread/delete', 'thread/revert', 'review/start'}:
+            raise ValueError('stop the active turn first')
+        auxiliary_shell = (method == 'thread/shellCommand' and session
+                           and session['status'] == 'running' and session.get('active_turn_id'))
+        if method == 'thread/shellCommand' and not auxiliary_shell and session and session['status'] != 'ready':
+            raise ValueError('wait for the active turn identity before running a shell command')
+        context = {'thread_id': thread_id, 'session_id': session['id'] if session else None,
+                   'host_request_id': request_id}
+        # Reviews and queued submissions start agent turns, so reserve their
+        # admission slot before the native notification can arrive.
+        starts_turn = method in {'review/start', 'thread/queue/start', 'thread/shellCommand'} and not auxiliary_shell
+        detached = method == 'review/start' and params.get('delivery') == 'detached'
+        if starts_turn:
+            async with host._admission:
+                await host._check_admission()
+                if not session or session['id'] not in host._attached or session['status'] != 'ready':
+                    raise ValueError('start a turn on a ready session')
+                if host._active_turns >= host.max_active_turns:
+                    raise ValueError('active turn limit reached')
+                host.store.write(f'requests/{request_id}.json', {'request_id': request_id,
+                    'session_id': session['id'], 'thread_id': thread_id, 'status': 'intent_recorded'})
+                session.update(status='starting', active_request_id=request_id, active_turn_id=None)
+                host._save(session)
+                host._active_turns += 1
+        try:
+            with observation_context(**context):
+                timeout = 600 if method in {
+                    'command/exec', 'mcpServer/tool/call', 'account/login/start', 'mcpServer/oauth/login'} else 60
+                if method == 'command/exec' and params.get('tty') and params.get('disableTimeout'):
+                    timeout = float('inf')
+                result = await host.client.peer.request(method, params, timeout=timeout)
+        except BaseException as error:
+            if starts_turn:
+                # A definite native rejection consumed no turn; uncertain transport
+                # failures keep the reservation until the session is reconciled.
+                if isinstance(error, RpcError) and not session.get('active_turn_id'):
+                    session.update(status='ready', active_request_id=None)
+                    host._active_turns = max(0, host._active_turns - 1)
+                    host.store.write(f'requests/{request_id}.json', {'request_id': request_id, 'status': 'failed'})
+                else:
+                    session['status'] = 'recovery_required'
+                host._save(session)
+            raise
+        if detached:
+            # Native detached review forks and starts a different thread. Transfer
+            # the reserved slot to that identity before reading its current state;
+            # early notifications are reconciled from the native transcript.
+            child_id = result['reviewThreadId']
+            if child_id == thread_id:
+                session['status'] = 'recovery_required'
+                host._save(session)
+                raise ValueError('detached review returned the source thread')
+            child = {'id': 'session-' + request_id, 'thread_id': child_id,
+                     'principal_id': host.principal_id, **host.bindings,
+                     'status': 'running', 'active_turn_id': result['turn']['id'],
+                     'active_request_id': request_id, 'cwd': session.get('cwd', str(host.workspace_dir)),
+                     'settings': dict(session.get('settings', {}))}
+            async with host._admission:
+                session.update(status='ready', active_request_id=None, active_turn_id=None)
+                host._save(session)
+                host._save(child)
+                host._attached.add(child['id'])
+                host.events.bind(child['id'], child_id)
+                host.store.write(f'requests/{request_id}.json', {'request_id': request_id,
+                    'session_id': child['id'], 'thread_id': child_id, 'turn_id': result['turn']['id'], 'status': 'accepted'})
+            try:
+                thread = (await host.client.read_thread(child_id))['thread']
+                host.restore_thread(child['id'], thread)
+                active = next((t for t in reversed(thread.get('turns', [])) if t.get('status') == 'inProgress'), None)
+                record = host.store.read(f'requests/{request_id}.json')
+                # Completion may arrive while read_thread is in flight. Its
+                # newer event must win over an already captured transcript.
+                if record['status'] not in {'completed', 'failed', 'interrupted'}:
+                    child.update(status='running' if active else 'ready', active_turn_id=active['id'] if active else None,
+                                 active_request_id=request_id if active else None)
+                    if not active:
+                        record['status'] = next((t.get('status', 'completed') for t in thread.get('turns', []) if t['id'] == result['turn']['id']), 'completed')
+                        host.store.write(f'requests/{request_id}.json', record)
+            except BaseException:
+                child['status'] = 'recovery_required'
+                raise
+            finally:
+                host._save(child)
+                host._active_turns = host._count_active_turns()
+            result['session'] = dict(child)
+        elif starts_turn:
+            path = f'requests/{request_id}.json'
+            record = host.store.read(path)
+            if record['status'] not in {'completed', 'failed', 'interrupted'}:
+                turn_id = result.get('turn', {}).get('id') or session.get('active_turn_id')
+                record.update(turn_id=turn_id, status='accepted')
+                host.store.write(path, record)
+                session.update(status='running' if turn_id else 'starting', active_turn_id=turn_id)
+                host._save(session)
+        if changes_config:
+            await host.configuration_changed()
+        if method == 'skills/extraRoots/set':
+            host.store.write('console/skill-roots.json', {'roots': params['extraRoots']})
+            host.skill_roots = list(params['extraRoots'])
+        if method == 'thread/unarchive':
+            result = await host.client.resume(thread_id)
+        if method in {'thread/resume', 'thread/fork', 'thread/unarchive'}:
+            if host.configuration_changed:
+                await host.configuration_changed()
+            source_settings = dict(session.get('settings', {})) if session else {}
+            thread = result['thread']
+            if thread.get('historyMode') == 'paginated':
+                thread = (await host.client.read_thread(thread['id']))['thread']
+            session = host._session_for_thread(thread['id'])
+            if not session:
+                session = {'id': 'session-' + request_id, 'thread_id': thread['id'], 'principal_id': host.principal_id,
+                           **host.bindings, 'status': 'ready', 'active_turn_id': None, 'active_request_id': None}
+            active = next((turn for turn in reversed(thread.get('turns', [])) if turn.get('status') == 'inProgress'), None)
+            session.update(status='running' if active else 'ready', archived=False,
+                           active_turn_id=active['id'] if active else None, active_request_id=None,
+                           cwd=result.get('cwd', thread.get('cwd', str(host.workspace_dir))))
+            session['settings'] = {**source_settings, **session.get('settings', {}),
+                **{key: result[key] for key in ('model', 'modelProvider', 'approvalPolicy', 'approvalsReviewer',
+                   'sandboxPolicy', 'permissions', 'cwd') if key in result}}
+            if 'reasoningEffort' in result:
+                session['settings']['effort'] = result['reasoningEffort']
+            if isinstance(result.get('sandbox'), dict):
+                session['settings']['sandboxPolicy'] = result['sandbox']
+                session['settings'].pop('sandbox', None)
+            host._save(session)
+            host._attached.add(session['id'])
+            host._active_turns = host._count_active_turns()
+            host.events.bind(session['id'], thread['id'])
+            host.restore_thread(session['id'], thread)
+            result['session'] = dict(session)
+        if session and method in {'thread/archive', 'thread/unarchive', 'thread/delete', 'thread/name/set'}:
+            if method == 'thread/name/set':
+                session['name'] = params['name']
+            else:
+                session.update(archived=method != 'thread/unarchive')
+                if method == 'thread/delete':
+                    host.mark_deleted(session)
+                elif method == 'thread/archive':
+                    host._attached.discard(session['id'])
+                    host._active_turns = host._count_active_turns()
+                    if session['status'] != 'closed':
+                        session['status'] = 'recovery_required'
+            host._save(session)
+        if session and method == 'thread/revert':
+            thread = (await host.client.read_thread(thread_id))['thread']
+            host.restore_thread(session['id'], thread)
+        if session and method in {'thread/settings/update', 'turn/settings/update'}:
+            key = 'turn_settings' if method == 'turn/settings/update' else 'settings'
+            if key == 'turn_settings' and params['turnId'] != session.get('active_turn_id'):
+                return redact(result)[0]
+            settings = dict(session.get(key, {}))
+            if params.get('permissions'):
+                settings.pop('sandboxPolicy', None)
+                settings.pop('sandbox', None)
+            elif params.get('sandboxPolicy'):
+                settings.pop('permissions', None)
+            settings.update({k: v for k, v in params.items() if k not in {'threadId', 'turnId'}})
+            session[key] = settings
+            if params.get('cwd'):
+                session['cwd'] = params['cwd']
+            host._save(session)
+        if session and method == 'thread/memoryMode/set':
+            session['settings'] = {**session.get('settings', {}), 'memoryMode': params['mode']}
+            host._save(session)
+        if session and method == 'thread/metadata/update' and params.get('projectId') is not None:
+            session['settings'] = {**session.get('settings', {}), 'projectId': params['projectId']}
+            host._save(session)
+        if session and method == 'thread/read' and 'projectId' in result.get('thread', {}):
+            session['settings'] = {**session.get('settings', {}), 'projectId': result['thread']['projectId'] or ''}
+            session['section_id'] = (result['thread'].get('section') or {}).get('id')
+            host._save(session)
+        if session and method in {'thread/read', 'thread/readState/update'}:
+            read_state = result.get('readState')
+            if read_state is not None:
+                session['read_state'] = read_state
+                host._save(session)
+        if method == 'thread/list':
+            for thread in result.get('data', []):
+                member = host._session_for_thread(thread['id'])
+                if member and 'projectId' in thread:
+                    member['settings'] = {**member.get('settings', {}), 'projectId': thread['projectId'] or ''}
+                    member['section_id'] = (thread.get('section') or {}).get('id')
+                    host._save(member)
+                if member and thread['id'] in (result.get('readStates') or {}):
+                    member['read_state'] = result['readStates'][thread['id']]
+                    host._save(member)
+        if session and method == 'thread/section/move':
+            session['section_id'] = params['sectionId']
+            host._save(session)
+        if method == 'project/delete':
+            for member in host._sessions.values():
+                if member.get('settings', {}).get('projectId') == params['projectId']:
+                    member['settings']['projectId'] = ''
+                    host._save(member)
+        if method in {'account/gatewayOAuth/cancel', 'account/logout'}:
+            self.auth_handoffs.clear()
+        public = redact(result, method=method)[0]
+        if method in {'userVerification/status', 'userVerification/enroll', 'userVerification/delete'} and 'credentialId' in result:
+            # This is a public key identifier, not a secret credential. In
+            # particular, null must remain null so the UI can detect enrollment.
+            public['credentialId'] = result['credentialId']
+        if method == 'userVerification/verify' and isinstance(result.get('proof'), dict):
+            # The user requested a challenge signature to pass to its verifier.
+            # Preserve only the protocol's public proof fields; audit redaction
+            # still applies independently to the underlying RPC observation.
+            public['proof'] = {key: result['proof'][key] for key in ('credentialId', 'signature')}
+        if method in {'account/login/start', 'mcpServer/oauth/login', 'account/gatewayOAuth/read', 'account/gatewayOAuth/login'}:
+            # OAuth authorization URLs are user-facing protocol output, not
+            # bearer credentials. Keep them usable while audit logs redact.
+            for key in ('authorizationUrl', 'authUrl', 'verificationUrl', 'url'):
+                value = result.get(key)
+                if isinstance(value, str) and value.startswith(('https://', 'http://')):
+                    public[key] = value
+        return public

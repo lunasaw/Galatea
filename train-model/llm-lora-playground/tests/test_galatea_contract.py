@@ -34,7 +34,7 @@ class GalateaContractTests(unittest.TestCase):
         self.assertEqual("succeeded", evidence["requiredTags"]["run.outcome"])
 
     def test_job_schema_requires_release_and_readiness_binding(self):
-        path = ROOT.parents[1] / "doc/train-llm/2026-09-05-project-2-4-toy-lora-ray/schemas/job-metadata.schema.json"
+        path = ROOT / "schemas/job-metadata.schema.json"
         schema = json.loads(path.read_text(encoding="utf-8"))
         required = set(schema["required"])
         self.assertTrue({"release_id", "readiness_digest", "execution_identity"}.issubset(required))

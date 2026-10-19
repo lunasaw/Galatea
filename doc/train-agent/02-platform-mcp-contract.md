@@ -1,13 +1,16 @@
 # 独立 Python Galatea MCP 契约
 
-下列 `galatea_` 工具为新协议 `galatea.tools/v1` 草案，尚未实现。
-名称即使与旧插件相同，也不表示共享其实现、Session、权限或配置。
+更新：2026-10-16。`galatea.tools/v1` 已在独立
+[`galatea-mcp`](../../services/galatea-mcp/README.md) 实现；实际参数以
+[工具 Schema 源码](../../services/galatea-mcp/src/galatea_mcp/contracts.py) 为准。
+本页说明业务服务契约，Host 接入边界见 [当前架构](../agent-galatea.md)。
 
 ## 1. 实现与身份
 
 官方 Python MCP SDK → 输入与身份校验 → Python 项目/作业/证据模块 → Ray / MLflow / S3 API。
 所有模块放在一个独立 MCP 包中，首版不增加领域控制微服务或私有 HTTP 控制 API。
-服务不 import Codex、DeepSeek Harness 或 `plugins/dsh-galatea`。
+服务不 import Agent Runtime；Codex 通过原生 MCP 客户端调用独立 transport。当前通用 Host
+不内置该 Service 或 Galatea Registry，不能把可选 Provider 机制当作现成的平台适配器。
 
 由管理员登记项目根、Release 根及批准任务清单；模型仅提交 `project_id/campaign_id` 和不可变引用。
 认证入口将凭据映射到允许的项目、Campaign 与动作；不能信任请求中的 `approved=true`。
@@ -68,7 +71,7 @@ Plan 绑定需求版本、项目、配置/Release 摘要、数据/split 身份�
 
 首版将每次已开始或可能已开始的计算按批准最大资源时长累计占用，不自动按提前结束退款。
 搜索必须保留最后重训与评价的额度。真实用量作为报告证据另列，不把这个保守上界称为实际账单。
-限制覆盖此 MCP 入口的 Campaign，不能阻止旧插件或管理员使用共享集群。
+限制覆盖此 MCP 入口的 Campaign，不能阻止其他入口或管理员使用共享集群。
 
 ## 4. 结果、错误与对账
 
@@ -96,7 +99,8 @@ Run 可由 Ray driver 稍后创建，`run_id=null` 不能被当作提交失败�
 超时且可能已提交时返回 unknown/reconcile，不能返回“未执行”诱导新建 Job。
 平台状态和可核验 Artifact 是依据，Agent 输出或单独的 Ray SUCCEEDED 都不是质量通过证据。
 
-默认每页 50、最多 100；日志摘要 8 KiB、小证据 64 KiB，超出返回分页或下载引用。
+默认每页 50、最多 100；小证据 64 KiB，结果 envelope 最大 256 KiB。当前实现禁用原始日志，
+capabilities 返回 `raw_logs=false`、`log_bytes=0`；旧设计的 8 KiB 日志额度不是已开放能力。
 游标与身份/筛选条件绑定；关键决策前重新读取当前状态。MCP RPC 不等待数小时训练完成。
 
 ## 5. 数据和制品边界

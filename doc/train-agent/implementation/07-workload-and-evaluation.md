@@ -1,11 +1,16 @@
 # 方案 07：Workload、最终评价与交付实施计划
 
+> **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
+> 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
+> 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+
 > 后续实现使用 superpowers:executing-plans；模型代码与测试遵守 model-project-structure。
 
 **目标：**先完成一个契约完整 workload 的训练/评价闭环，再接真实 LoRA。
 **架构：**Python MCP 检查阶段和证据，workload 执行计算，MLflow 保存 Run 与 Artifact。
 **技术栈：**项目 Python、Ray、MLflow；少量候选字段和不可覆盖测试使用文件。
-**共同约束：**遵守 [实施索引](README.md)，验证集选优、干净重训、一次最终测试，不改旧插件。
+**共同约束：**遵守 [实施索引](README.md)，验证集选优、干净重训、一次最终测试，保持平台约束独立。
 
 ## 1. 文件与接入边界
 
@@ -19,7 +24,7 @@
 | 后续 llm-lora-playground 的项目内配置/评价/跟踪/测试 | 真实 LoRA 合同，独立评审 |
 
 先参考成熟 digits/表格项目的 manifest 与 Python 入口，不修改它们的旧执行行为来配合插件迁移。
-若需要新增评价边界，用新的明确配置/Release，或独立接入 workload，保持旧插件所用 Release 和契约可用。
+若需要新增评价边界，用新的明确配置/Release，或独立接入 workload，保留现有任务所用 Release 和契约以供对账。
 缺少独立评价能力的项目先不开放 accepted 终态，不能暗中改写原测试语义。
 
 ## 2. 阶段与候选
@@ -85,4 +90,4 @@ MCP 生成确定性证据清单与报告引用，Agent 可补解释；模型额�
 
 服务根执行：`python -m unittest discover -s tests -p 'test_evaluation.py' -v`，再 test_delivery.py。
 项目测试按自己的 README/环境执行；真实训练只用明确小预算，不用最终测试调试搜索算法。
-回退保留候选、使用标记和原 Run/Artifact，旧插件始终使用其现有配置与 Release。
+回退保留候选、使用标记和原 Run/Artifact，恢复时继续绑定任务原有配置与 Release。

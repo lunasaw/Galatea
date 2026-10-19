@@ -1,0 +1,71 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { chromium } = require('../frontend/node_modules/playwright');
+(async () => {
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE,
+    args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
+  try {
+    const context = await browser.newContext({ permissions: ['microphone'], viewport: { width: 1582, height: 1022 } });
+    const page = await context.newPage(); const calls = []; const messages = []; const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('request', (request) => {
+      if (request.url().endsWith('/api/native/call')) calls.push(request.postDataJSON());
+      if (/\/api\/sessions\/[^/]+\/messages$/.test(request.url())) messages.push(request.postDataJSON());
+    });
+    await page.addInitScript(() => {
+      window.voiceTracks = [];
+      const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (...args) => { const stream = await capture(...args); window.voiceTracks.push(...stream.getTracks()); return stream; };
+    });
+    await page.goto(process.env.CONSOLE_TEST_URL);
+    await page.getByRole('button', { name: '录音作为消息附件', exact: true }).click();
+    const recording = page.getByRole('region', { name: '录音附件', exact: true });
+    await recording.getByText('正在录音', { exact: true }).waitFor();
+    await recording.locator('time').getByText('0:01', { exact: true }).waitFor();
+    await recording.getByRole('button', { name: '停止并添加附件', exact: true }).click();
+    await page.waitForFunction(() => window.voiceTracks.length && window.voiceTracks.every(t => t.readyState === 'ended'));
+    const sent = page.waitForRequest(r => /\/api\/sessions\/[^/]+\/messages$/.test(r.url()));
+    await page.locator('#send').click(); await sent;
+    assert.ok(messages.some(m => m.input_items?.some(p => p.type === 'audio' && p.url.startsWith('data:audio/wav;base64,UklGR'))), JSON.stringify(messages));
+    await page.getByRole('button', { name: '开始实时语音对话', exact: true }).click();
+    const realtime = page.getByRole('region', { name: '实时语音', exact: true });
+    await realtime.getByText('实时语音已连接', { exact: true }).waitFor();
+    await page.waitForFunction(() => window.voiceTracks.some(t => t.readyState === 'live'));
+    await realtime.getByLabel('语音对话文字', { exact: true }).fill('测试文字补充');
+    await realtime.getByRole('button', { name: '发送文字', exact: true }).click();
+    await realtime.getByText('语音回复：测试文字补充', { exact: false }).waitFor();
+    await realtime.getByRole('button', { name: '静音麦克风', exact: true }).click();
+    assert.equal(await page.evaluate(() => window.voiceTracks.filter(t => t.readyState === 'live').every(t => !t.enabled)), true);
+    await realtime.getByLabel('语音对话文字', { exact: true }).fill('请朗读这句');
+    await realtime.getByLabel('朗读这段文字', { exact: true }).check();
+    await realtime.getByRole('button', { name: '发送文字', exact: true }).click();
+    await realtime.getByText('语音回复：请朗读这句', { exact: false }).waitFor();
+    if (process.env.CONSOLE_SCREENSHOTS) await page.screenshot({ path: process.env.CONSOLE_SCREENSHOTS + '/voice.png' });
+    await realtime.getByRole('button', { name: '结束语音', exact: true }).click();
+    await realtime.getByRole('button', { name: '收起语音记录', exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.voiceTracks.every(t => t.readyState === 'ended')), true);
+    await realtime.locator('summary').click(); await realtime.getByText('历史语音文字', { exact: true }).waitFor();
+    await page.reload();
+    await page.getByRole('button', { name: '会话操作', exact: true }).click();
+    await page.getByRole('menuitem', { name: '语音记录', exact: true }).click();
+    await realtime.locator('summary').click(); await realtime.getByText('历史语音文字', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.voiceTracks.length), 0, 'Reading history must not open the microphone');
+    await realtime.getByRole('button', { name: '收起语音记录', exact: true }).click();
+    await page.getByRole('button', { name: '开始实时语音对话', exact: true }).click();
+    await realtime.getByText('实时语音已连接', { exact: true }).waitFor();
+    await page.locator('[data-slot="aui_thread-list-new"]').click();
+    await realtime.waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => window.voiceTracks.every(t => t.readyState === 'ended'));
+    await page.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Permission denied', 'NotAllowedError'); }; });
+    await page.getByRole('button', { name: '录音作为消息附件', exact: true }).click();
+    await recording.getByRole('alert').waitFor();
+    await recording.getByRole('button', { name: '取消录音', exact: true }).click();
+    await recording.waitFor({ state: 'hidden' });
+    assert.ok(calls.some(c => c.method === 'thread/realtime/appendAudio' && c.params.audio.sampleRate === 24000));
+    assert.ok(calls.some(c => c.method === 'thread/realtime/appendText'));
+    assert.ok(calls.some(c => c.method === 'thread/realtime/appendSpeech'));
+    assert.ok(calls.some(c => c.method === 'thread/realtime/stop'));
+    assert.deepEqual(errors, []);
+    console.log('Voice: WAV, native audio/transcript, text/speech, mute, stop, history reload, chat switching and permission rejection passed.');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

@@ -17,16 +17,34 @@ ID 时，同一 Release、Entrypoint 和 `submission_id` 对应的 Job 正在运
 默认执行完整流水线：
 
 ```bash
-cd /data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs
+cd /data/ai/chenzhangyue/galatea-model/galatea/train-model/ray-cats-and-dogs
 
-/data/conda/envs/attend-ray-py312/bin/python job/ci.py
+/data/miniconda3/envs/attend-ray-py312/bin/python job/ci.py
 ```
 
 默认 CD 模式为 `check-config`，会提交 Ray Job 验证 Runtime Env 和配置，但不会启动训练。
-只有显式传入 `--mode train` 才会训练。
+通用 CD 的 `--mode train` 已禁用；训练使用 `governed.mjs`，参见项目 README。
+
+`governed.mjs` 由 Codex 仓库工作流调用，使用独立的
+[`galatea-governance`](../../../packages/galatea-governance/README.md)校验 Release、
+Readiness 和提交授权。首次使用先在仓库根目录安装该库的锁定依赖：
+
+```bash
+npm ci --prefix packages/galatea-governance
+```
+
+Web Agent 使用 [`Codex app-server Host`](../../../agents/codex-app-server/README.md)；
+接入其 Campaign 工具集需要单独登记 workload 与批准配置。
+
+新机器和同机多集群先读 [`平台运行记忆`](../../../doc/platform-runtime-memory.md)。本页通用
+CI/CD 中的 loopback 默认值只适用于核对过的同机目标；选择其他集群时显式设置
+`RAY_API_SERVER_ADDRESS` 或传 `--address`，不能据此推算生产地址。训练提交器要求显式
+`GALATEA_RAY_PROFILE`、`RAY_ADDRESS`、`RAY_API_SERVER_ADDRESS` 和 `MLFLOW_TRACKING_URI`。
+必要上传遵循当前任务已授予的目标/Prefix 范围，不重复请求同一授权；发布用 publisher，下载用
+Head/Worker 继承的 reader，MLflow Artifact 使用服务端代理。
 
 正式发布默认使用节点预装的固定 Conda 前缀
-`/data/conda/envs/ray-cats-and-dogs-py312`。`conda.yaml` 仍是权威来源，环境文件 SHA-256
+`/data/miniconda3/envs/ray-cats-and-dogs-py312`。`conda.yaml` 仍是权威来源，环境文件 SHA-256
 和前缀会写入 `release.json`；Ray Job 的 `runtime_env.conda` 只携带绝对路径，不会在启动时
 重新创建或下载 Torch/Ray。所有节点必须使用相同路径和内容。首次部署或新环境 hash 可显式
 使用 `--runtime-mode conda` 让 Ray 执行一次动态环境预热；pip 仅用于兼容性 Smoke：
@@ -37,22 +55,22 @@ python job/ci.py --runtime-mode pip \
 ```
 
 可用 `--pip-package 'transformers @ git+https://...@<commit>'` 重复追加固定包。生产
-Trial/Champion 不应依赖共享环境中的包版本；节点需要设置 `RAY_CONDA_HOME=/data/conda`。
+Trial/Champion 不应依赖共享环境中的包版本；节点需要设置 `RAY_CONDA_HOME=/data/miniconda3`。
 
 ### 部署窗口：每个节点预装并验证一次
 
 ```bash
-source /data/conda/etc/profile.d/conda.sh
-export RAY_CONDA_HOME=/data/conda
+source /data/miniconda3/etc/profile.d/conda.sh
+export RAY_CONDA_HOME=/data/miniconda3
 export CONDA_DEFAULT_CHANNELS=
-export CONDA_PKGS_DIRS=/data/conda/pkgs
+export CONDA_PKGS_DIRS=/data/miniconda3/pkgs
 export PIP_CACHE_DIR=/var/cache/ray/pip
 
-/data/conda/bin/conda env create \
+/data/miniconda3/bin/conda env create \
   --file train-model/ray-cats-and-dogs/conda.yaml \
-  --prefix /data/conda/envs/ray-cats-and-dogs-py312
+  --prefix /data/miniconda3/envs/ray-cats-and-dogs-py312
 
-/data/conda/envs/ray-cats-and-dogs-py312/bin/python job/warmup.py
+/data/miniconda3/envs/ray-cats-and-dogs-py312/bin/python job/warmup.py
 ```
 
 `warmup.py` 会导入 `ray`、`torch`、`mlflow`，输出版本/CUDA 信息并执行 `pip check`。多节点
@@ -71,10 +89,10 @@ python job/ci.py --runtime-mode conda --mode check-config
 
 | 配置 | 默认值 |
 | --- | --- |
-| Python | `/data/conda/envs/attend-ray-py312/bin/python` |
-| Ray Job Conda prefix | `/data/conda/envs/ray-cats-and-dogs-py312` |
+| Python | `/data/miniconda3/envs/attend-ray-py312/bin/python` |
+| Ray Job Conda prefix | `/data/miniconda3/envs/ray-cats-and-dogs-py312` |
 | Ray Dashboard | `http://127.0.0.1:8265` |
-| MinIO S3 Endpoint | `http://127.0.0.1:9000` |
+| MinIO S3 Endpoint | `http://127.0.0.1:18101` |
 | 凭据文件 | `/etc/minio/training-data-s3.env` |
 | Bucket | `training-data` |
 | Object Prefix | `ray-runtime/ray-cats-and-dogs` |
@@ -89,23 +107,23 @@ python job/ci.py --runtime-mode conda --mode check-config
 完整流水线 Dry Run 不连接 MinIO 或 Ray：
 
 ```bash
-cd /data/ai/chenzhangyue/code/galatea/train-model/ray-cats-and-dogs
+cd /data/ai/chenzhangyue/galatea-model/galatea/train-model/ray-cats-and-dogs
 
-/data/conda/envs/attend-ray-py312/bin/python \
+/data/miniconda3/envs/attend-ray-py312/bin/python \
   job/ci.py --dry-run
 ```
 
 只构建并上传，不执行 CD：
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python \
+/data/miniconda3/envs/attend-ray-py312/bin/python \
   job/ci.py --no-cd
 ```
 
 上传 MinIO 后只校验 CD 请求、不连接 Ray：
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python \
+/data/miniconda3/envs/attend-ray-py312/bin/python \
   job/ci.py --cd-dry-run
 ```
 
@@ -126,9 +144,9 @@ Wheel 作为 `py_modules` 使用，避免远程 Module ZIP 顶层目录解包语
 确认 MinIO 健康并执行真实发布：
 
 ```bash
-curl -fsS http://127.0.0.1:9000/minio/health/live
+curl -fsS http://127.0.0.1:18101/minio/health/live
 
-/data/conda/envs/attend-ray-py312/bin/python \
+/data/miniconda3/envs/attend-ray-py312/bin/python \
   job/ci.py
 ```
 
@@ -141,7 +159,7 @@ Runtime Package 内容摘要；如果同一个 Key 已存在，脚本只接受�
 ```bash
 RAY_JOB_S3_BUCKET=ray-runtime \
 RAY_JOB_S3_PREFIX=projects/ray-cats-and-dogs \
-/data/conda/envs/attend-ray-py312/bin/python \
+/data/miniconda3/envs/attend-ray-py312/bin/python \
   job/ci.py --env-file /etc/minio/ray-runtime-publisher.env
 ```
 
@@ -157,10 +175,10 @@ Head 和每台 Worker 必须在执行 `ray start` 前获得以下变量，并预
 AWS_ACCESS_KEY_ID=ray-runtime-reader
 AWS_SECRET_ACCESS_KEY=<由受控密钥系统注入>
 AWS_DEFAULT_REGION=us-east-1
-AWS_ENDPOINT_URL_S3=http://127.0.0.1:9000
+AWS_ENDPOINT_URL_S3=http://127.0.0.1:18101
 ```
 
-当前单节点环境通过 `ray-head.service` 注入专用只读凭据：
+当前开发 Head 通过 `ray-head.service` 注入专用只读凭据，各 Worker 必须同样注入：
 
 ```bash
 systemctl show ray-head.service \
@@ -191,8 +209,9 @@ unable to access bucket ... working-dir.zip
 
 不要通过公开 Bucket 或把长期密钥写入 `runtime-env.yaml` 来绕过这个错误。
 
-当前 MinIO 只监听 loopback，所以 `127.0.0.1` 只适用于单节点 Ray。多节点部署必须换成所有
-Ray 节点可达的受控私网或 HTTPS 地址，并用防火墙或认证代理保护，不能直接暴露到公网。
+当前机器 MinIO 入口为 `http://10.26.0.140:18101`。`127.0.0.1` 仅适用于 MinIO 同机进程；
+多节点必须使用所有 Ray 节点可达的端点。当前实际服务配置见
+[`当前机器服务部署`](../../../doc/local-services-18100.md)。
 
 ## 4. 单独执行 CD Dry Run
 
@@ -201,7 +220,7 @@ Ray 节点可达的受控私网或 HTTPS 地址，并用防火墙或认证代理
 ```bash
 MANIFEST_PATH=/tmp/ray-cats-and-dogs-job/<release-id>/release.json
 
-/data/conda/envs/attend-ray-py312/bin/python \
+/data/miniconda3/envs/attend-ray-py312/bin/python \
   job/cd.py \
   --manifest "$MANIFEST_PATH" \
   --dry-run
@@ -218,7 +237,7 @@ python scripts/train.py --config configs/smoke.yaml --check-config
 先提交无训练开销的配置检查：
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python \
+/data/miniconda3/envs/attend-ray-py312/bin/python \
   job/cd.py \
   --manifest "$MANIFEST_PATH"
 ```
@@ -226,43 +245,49 @@ python scripts/train.py --config configs/smoke.yaml --check-config
 读取输出中的 `job_id`，然后查询：
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/ray job status \
+/data/miniconda3/envs/attend-ray-py312/bin/ray job status \
   --address http://127.0.0.1:8265 <job-id>
 
-/data/conda/envs/attend-ray-py312/bin/ray job logs \
+/data/miniconda3/envs/attend-ray-py312/bin/ray job logs \
   --address http://127.0.0.1:8265 <job-id>
 ```
 
 只读计划验证使用：
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python \
+/data/miniconda3/envs/attend-ray-py312/bin/python \
   job/cd.py \
   --manifest "$MANIFEST_PATH" \
   --mode plan
 ```
 
-只有明确要启动训练时才使用：
+训练统一使用项目 README 中的 `node job/governed.mjs`，先生成真实 Galatea Readiness，
+再绑定授权提交固定 Ray Driver。通用 CD 仅允许配置检查和只读计划。
 
-```bash
-/data/conda/envs/attend-ray-py312/bin/python \
-  job/cd.py \
-  --manifest "$MANIFEST_PATH" \
-  --mode train \
-  --config configs/smoke.yaml
+## 当前主机的数据与复现
+
+数据源固定为 `shaunthesheep/microsoft-catsvsdogs-dataset` 的版本 1。
+Kaggle 凭据保存在 `/root/.kaggle/access_token`（权限 0600），不写入仓库或命令行。
+独立下载环境为 `platform-data/kaggle/venv`，数据下载缓存为 `train-data/.kagglehub`。
+
+```python
+import os
+os.environ["KAGGLEHUB_CACHE"] = "/data/ai/chenzhangyue/galatea-model/train-data/.kagglehub"
+import kagglehub
+path = kagglehub.dataset_download("shaunthesheep/microsoft-catsvsdogs-dataset/versions/1")
+print(path)
 ```
 
-`--set training.learning_rate=0.0003` 可以重复传入。不要把 `--force` 当作普通重试方式；它会
-要求训练入口为同一个幂等身份创建新的 Attempt。
+固定入口 `train-data/microsoft-cats-vs-dogs` 指向该版本缓存。下载共 25,000 张图片，
+验证排除 3 张损坏图片后，训练/验证/测试分别为 22,497 / 1,250 / 1,250 张。
 
-也可以由 CI 直接提交训练，但必须显式启用：
+只读计划和提交均显式指定 Attempt；同一 Attempt 用于重试查询，新训练使用新 Attempt：
 
 ```bash
-/data/conda/envs/attend-ray-py312/bin/python \
-  job/ci.py \
-  --mode train \
-  --config configs/baseline.yaml
+export GALATEA_RAY_PROFILE=dev
+export RAY_ADDRESS=10.26.0.140:18104
+export RAY_API_SERVER_ADDRESS=http://10.26.0.140:8265
+export MLFLOW_TRACKING_URI=http://10.26.0.140:18103
+node job/governed.mjs plan configs/smoke.yaml "$RELEASE_MANIFEST" - smoke-01
+node job/governed.mjs submit configs/smoke.yaml "$RELEASE_MANIFEST" danger-full-access smoke-01
 ```
-
-命令输出的 `cd.submission_id` 和 `cd.job_id` 是本次自动生成的 ID。需要让重复调用幂等地
-复用同一个 Ray Job 时，仍可显式传入 `--submission-id ray-cats-dogs-baseline-<attempt-id>`。

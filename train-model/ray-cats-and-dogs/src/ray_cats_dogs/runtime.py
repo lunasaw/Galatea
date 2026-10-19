@@ -80,7 +80,7 @@ def execution_provenance(
     governed = (
         len(values) == len(GALATEA_PROVENANCE_KEYS)
         and values["galatea.execution.mode"] == "governed-ray-job"
-        and values["galatea.promotable"] == "true"
+        and values["galatea.promotable"] in {"true", "false"}
         and values["galatea.project"] == project_name
     )
     if governed:
@@ -91,6 +91,46 @@ def execution_provenance(
         "galatea.promotable": "false",
         "galatea.project": project_name,
     }
+
+
+def require_governed_execution(project_name: str, promotable: bool) -> dict[str, str]:
+    """Check provenance against the actual Jobs API before any training write."""
+
+    values = execution_provenance(project_name)
+    if values["galatea.execution.mode"] != "governed-ray-job":
+        raise RuntimeError("Training requires an immutable Release and Galatea-authorized Ray Job")
+    if values["galatea.promotable"] != str(promotable).lower():
+        raise RuntimeError("Ray Job promotability differs from the workload config")
+    from ray.job_submission import JobSubmissionClient
+
+    address = os.environ.get("RAY_DASHBOARD_ADDRESS", "http://10.26.0.140:8265")
+    import ray
+    import time
+
+    if not ray.is_initialized():
+        ray.init(address=os.environ.get("RAY_ADDRESS", "10.26.0.140:18104"))
+    actual_job_id = ray.get_runtime_context().get_job_id()
+    client = JobSubmissionClient(address)
+    # The dashboard learns the Driver ID asynchronously after ray.init().
+    for attempt in range(10):
+        job = client.get_job_info(values["galatea.submission.id"])
+        if job.job_id is not None or attempt == 9:
+            break
+        time.sleep(0.5)
+    status = getattr(job.status, "value", job.status)
+    if job.job_id != actual_job_id or status != "RUNNING":
+        raise RuntimeError(
+            "Governed binding does not identify the actual running Ray Driver: "
+            f"expected={actual_job_id}, dashboard={job.job_id}, status={status}"
+        )
+    if any((job.metadata or {}).get(key) != value for key, value in values.items()):
+        raise RuntimeError("Governed binding differs from actual Ray Job metadata")
+    # Candidate fields come from the actual Jobs API, after Driver verification.
+    for key in ("candidate_run_id", "candidate_evidence_digest"):
+        value = (job.metadata or {}).get(key)
+        if isinstance(value, str) and value:
+            values[key] = value
+    return values
 
 
 def ray_init_runtime_env(

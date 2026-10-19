@@ -1,52 +1,28 @@
 {
-  "schema_version": "codex-agent/v1",
-  "agent": {
-    "id": "galatea-codex-agent",
-    "max_active_turns": 4
-  },
+  "schema_version": "codex-agent/v2",
+  "agent": {"id": "codex-agent", "max_active_turns": 4},
   "paths": {
     "codex_home": "./codex-home",
     "runtime_dir": "./runtime",
     "state_dir": "./state",
-    "event_dir": "./events",
-    "workspace_dir": "./workspaces",
-    "contracts": "./contracts/tools.json",
-    "catalog_metadata": "./contracts/catalog-metadata.json"
+    "workspace_dir": "./workspaces"
   },
   "codex": {
     "binary": "./runtime/bin/codex",
-    "app_server_args": [
-      "--listen",
-      "stdio://",
-      "--strict-config"
-    ],
-    "runtime_version": "REPLACE_WITH_ACCEPTED_VERSION",
-    "model_api_key_file": "/etc/galatea-agent/model-api-key"
+    "runtime_version": "codex-cli 0.163.0",
+    "inherit_env": []
   },
-  "galatea": {
-    "registry_path": "/absolute/path/to/registry.json",
-    "state_root": "/absolute/path/to/galatea-state",
-    "principal": {
-      "principal_id": "codex-agent",
-      "project_ids": [
-        "demo"
-      ],
-      "campaign_ids": [
-        "campaign-1"
-      ],
-      "actions": [
-        "galatea_get_capabilities"
-      ]
-    }
+  "skills": {"roots": []},
+  "image_generation": {
+    "enabled": false,
+    "connection": "current",
+    "model": "gpt-image-2",
+    "quality": "medium",
+    "size": "1024x1024"
   },
   "console": {
-    "allowed_origins": [
-      "http://127.0.0.1:18880"
-    ],
-    "token_file": "/absolute/path/to/console-token"
-  },
-  "release": {
-    "manifest": "./release/manifest.json",
-    "stage0_record": "./release/stage0.json"
+    "host": "0.0.0.0",
+    "port": 18880,
+    "storage": {"backend": "sqlite", "retention": "persistent"}
   }
 }

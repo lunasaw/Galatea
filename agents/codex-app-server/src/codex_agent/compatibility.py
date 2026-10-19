@@ -14,7 +14,7 @@ BINDINGS = frozenset({"codex_version", "runtime_binary_sha256", "runtime_package
 
 class RuntimeContract:
     def __init__(self, profile: dict, catalog: Catalog):
-        if profile.get("schema_version") != "galatea.runtime-compatibility/v1":
+        if profile.get("schema_version") != "codex-agent.runtime-compatibility/v1":
             raise GateError("Unsupported runtime compatibility profile")
         if profile.get("host_catalog_sha256") != catalog.digest:
             raise GateError("Compatibility profile does not bind the current host catalog")
@@ -25,9 +25,9 @@ class RuntimeContract:
         assert_tool_inventory({"tools": wire}, catalog.dynamic_tools({"*"}))
         if profile.get("model_tools_sha256") != digest(wire):
             raise GateError("Compatibility wire schema digest mismatch")
-        if wire[0].get("description") != catalog.metadata["description"]:
+        if wire and wire[0].get("description") != catalog.metadata["description"]:
             raise GateError("Compatibility namespace description mismatch")
-        for tool in wire[0]["tools"]:
+        for tool in wire[0]["tools"] if wire else []:
             if (tool.get("description") != catalog.metadata["tools"][tool["name"]]["description"]
                     or not isinstance(tool.get("parameters"), dict) or tool.get("strict") is not False):
                 raise GateError("Compatibility function metadata mismatch")

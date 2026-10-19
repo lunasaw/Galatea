@@ -1,0 +1,1676 @@
+{
+  "protocol_status": "passed",
+  "stage0_status": "blocked",
+  "checks": {
+    "experimental_negative": true,
+    "full": true,
+    "subset": true
+  },
+  "cases": {
+    "full": {
+      "tool_call_received": true,
+      "receipt_seen_by_model": true,
+      "resumed_in_new_process": true,
+      "surface_errors": [],
+      "inventory_errors": [],
+      "original_schema_differences": [
+        {
+          "request": 0,
+          "differences": [
+            {
+              "path": "/tools/0/tools/0/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/reason/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/reason/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/run_ids/items/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/run_ids/maxItems",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/run_ids/uniqueItems",
+              "expected": true,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/evidence_digest/pattern",
+              "expected": "^[a-f0-9]{64}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/run_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/artifact_ref/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/artifact_ref/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/run_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/4/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/4/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/5/parameters/properties/protocol_version/const",
+              "expected": "galatea.tools/v1",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/5/parameters/properties/protocol_version/enum",
+              "expected": {
+                "absent": true
+              },
+              "observed": [
+                "galatea.tools/v1"
+              ]
+            },
+            {
+              "path": "/tools/0/tools/5/parameters/properties/protocol_version/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/metric/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/metric/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/run_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/7/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/7/parameters/properties/operation_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/7/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/8/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/10/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/10/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/10/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/11/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/11/parameters/properties/operation_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/11/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/attempt/maximum",
+              "expected": 3,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/attempt/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/config_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/release_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/role/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/step_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/role/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/operation_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/reason/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/reason/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/idempotency_key/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/plan_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/16/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/16/parameters/properties/candidate_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/16/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            }
+          ]
+        },
+        {
+          "request": 1,
+          "differences": [
+            {
+              "path": "/tools/0/tools/0/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/reason/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/reason/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/run_ids/items/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/run_ids/maxItems",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/run_ids/uniqueItems",
+              "expected": true,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/evidence_digest/pattern",
+              "expected": "^[a-f0-9]{64}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/run_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/artifact_ref/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/artifact_ref/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/run_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/4/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/4/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/5/parameters/properties/protocol_version/const",
+              "expected": "galatea.tools/v1",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/5/parameters/properties/protocol_version/enum",
+              "expected": {
+                "absent": true
+              },
+              "observed": [
+                "galatea.tools/v1"
+              ]
+            },
+            {
+              "path": "/tools/0/tools/5/parameters/properties/protocol_version/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/metric/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/metric/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/run_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/7/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/7/parameters/properties/operation_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/7/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/8/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/10/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/10/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/10/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/11/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/11/parameters/properties/operation_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/11/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/attempt/maximum",
+              "expected": 3,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/attempt/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/config_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/release_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/role/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/step_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/role/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/operation_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/reason/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/reason/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/idempotency_key/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/plan_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/16/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/16/parameters/properties/candidate_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/16/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            }
+          ]
+        },
+        {
+          "request": 2,
+          "differences": [
+            {
+              "path": "/tools/0/tools/0/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/reason/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/reason/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/run_ids/items/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/run_ids/maxItems",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/1/parameters/properties/run_ids/uniqueItems",
+              "expected": true,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/evidence_digest/pattern",
+              "expected": "^[a-f0-9]{64}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/2/parameters/properties/run_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/artifact_ref/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/artifact_ref/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/3/parameters/properties/run_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/4/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/4/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/5/parameters/properties/protocol_version/const",
+              "expected": "galatea.tools/v1",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/5/parameters/properties/protocol_version/enum",
+              "expected": {
+                "absent": true
+              },
+              "observed": [
+                "galatea.tools/v1"
+              ]
+            },
+            {
+              "path": "/tools/0/tools/5/parameters/properties/protocol_version/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/metric/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/metric/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/6/parameters/properties/run_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/7/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/7/parameters/properties/operation_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/7/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/8/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/9/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/10/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/10/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/10/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/11/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/11/parameters/properties/operation_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/11/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/attempt/maximum",
+              "expected": 3,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/attempt/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/config_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/release_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/role/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            },
+            {
+              "path": "/tools/0/tools/12/parameters/properties/step_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/cursor/maxLength",
+              "expected": 2048,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/limit/maximum",
+              "expected": 100,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/limit/minimum",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/13/parameters/properties/role/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/operation_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/reason/maxLength",
+              "expected": 1024,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/14/parameters/properties/reason/minLength",
+              "expected": 1,
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/idempotency_key/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/plan_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/15/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/16/parameters/properties/campaign_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/16/parameters/properties/candidate_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/16/parameters/properties/project_id/pattern",
+              "expected": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "observed": {
+                "absent": true
+              }
+            }
+          ]
+        }
+      ],
+      "effective_config_sha256": "78855d80714fe9c84d9318cb46fcb07715724f44ed5e8301342e0b934698694b",
+      "first_pid": 3887904,
+      "resume_effective_config_sha256": "78855d80714fe9c84d9318cb46fcb07715724f44ed5e8301342e0b934698694b",
+      "model_requests": 3,
+      "mock_errors": []
+    },
+    "subset": {
+      "tool_call_received": true,
+      "receipt_seen_by_model": true,
+      "resumed_in_new_process": true,
+      "surface_errors": [],
+      "inventory_errors": [],
+      "original_schema_differences": [
+        {
+          "request": 0,
+          "differences": [
+            {
+              "path": "/tools/0/tools/0/parameters/properties/protocol_version/const",
+              "expected": "galatea.tools/v1",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/protocol_version/enum",
+              "expected": {
+                "absent": true
+              },
+              "observed": [
+                "galatea.tools/v1"
+              ]
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/protocol_version/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            }
+          ]
+        },
+        {
+          "request": 1,
+          "differences": [
+            {
+              "path": "/tools/0/tools/0/parameters/properties/protocol_version/const",
+              "expected": "galatea.tools/v1",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/protocol_version/enum",
+              "expected": {
+                "absent": true
+              },
+              "observed": [
+                "galatea.tools/v1"
+              ]
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/protocol_version/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            }
+          ]
+        },
+        {
+          "request": 2,
+          "differences": [
+            {
+              "path": "/tools/0/tools/0/parameters/properties/protocol_version/const",
+              "expected": "galatea.tools/v1",
+              "observed": {
+                "absent": true
+              }
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/protocol_version/enum",
+              "expected": {
+                "absent": true
+              },
+              "observed": [
+                "galatea.tools/v1"
+              ]
+            },
+            {
+              "path": "/tools/0/tools/0/parameters/properties/protocol_version/type",
+              "expected": {
+                "absent": true
+              },
+              "observed": "string"
+            }
+          ]
+        }
+      ],
+      "effective_config_sha256": "b8206129ff25cfd57cc9cc40cf4c2bd7b4fd3510dbf643286c57c02887089685",
+      "first_pid": 3888404,
+      "resume_effective_config_sha256": "b8206129ff25cfd57cc9cc40cf4c2bd7b4fd3510dbf643286c57c02887089685",
+      "model_requests": 3,
+      "mock_errors": []
+    }
+  },
+  "manifest": {
+    "codex_version": "codex-cli 0.154.0",
+    "package": {
+      "layoutVersion": 1,
+      "version": "0.154.0",
+      "target": "x86_64-unknown-linux-musl",
+      "variant": "codex",
+      "entrypoint": "bin/codex",
+      "resourcesDir": "codex-resources",
+      "pathDir": "codex-path"
+    },
+    "runtime_binary_sha256": "3188814c35471432d4123203e0eb38e5bddc60226e3d7ddf0e59e649ea140022",
+    "runtime_package_manifest_sha256": "b039964d28d57b2a7e929ee9986303582501c7cc9787f6c018b6d3c7b35c87d7",
+    "runtime_package_tree_sha256": "3cc41caee17e08d177a0213b881424d41eff0377627ace4d90ada506110ec3c1",
+    "app_server_protocol_schema_sha256": "2a6d036d1833df268e237997b3b88bea60682542da46ecc380f6b84276515943",
+    "dynamic_tool_catalog_sha256": "fa23fbb0966f69788d6a0e6af3aab14296f7d7c5f44eda7037ae94f81ce1e0cf",
+    "contract_sha256": "99b680b1098f03a1508d98f9643770eba1d2a5c1b59692ad024332409ad5d120",
+    "source_provenance": "unverified-development-fixture",
+    "runtime_compatibility_sha256": "06f7e10ff86690efcbe978656ffc40f7b36b30e599b9d6e209f2b7b48ee48b81"
+  }
+}

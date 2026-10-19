@@ -22,12 +22,7 @@ class CLITests(unittest.TestCase):
             binary.parent.mkdir()
             binary.write_text("#!/bin/sh\nexit 0\n")
             binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
-            config = {"schema_version": "codex-agent/v1", "paths": {
-                "codex_home": "home", "runtime_dir": "runtime", "state_dir": "state", "event_dir": "events",
-                "workspace_dir": "workspace", "contracts": str(ROOT / "config/contracts/tools.json"),
-                "catalog_metadata": str(ROOT / "config/contracts/catalog-metadata.json")},
-                "codex": {"binary": str(binary), "runtime_version": "codex-cli test"},
-                "galatea": {"principal": {"principal_id": "p", "actions": ["galatea_get_capabilities"]}}}
+            config = {'schema_version': 'codex-agent/v2', 'paths': {'codex_home': 'home', 'runtime_dir': 'runtime', 'state_dir': 'state', 'workspace_dir': 'workspace'}, 'codex': {'binary': str(binary), 'runtime_version': 'codex-cli test'}, 'agent': {'id': 'p'}, 'tools': {'catalog_dir': str(ROOT / 'tests/fixtures/dynamic-tools'), 'actions': ['galatea_get_capabilities'], 'providers': [{'path': str(ROOT / 'tests/fixtures/dynamic-tools/provider.py')}]}}
             path = root / "agent.json"
             path.write_text(json.dumps(config))
             with self.assertRaises(GateError):

@@ -28,6 +28,7 @@ node ../tests/test_sidebar_resize_browser.cjs
 node ../tests/test_copy_reply_browser.cjs
 node ../tests/test_thread_export_browser.cjs
 node ../tests/test_progressive_loading_browser.cjs
+node ../tests/test_immediate_send_browser.cjs
 node ../tests/test_conversation_panels.cjs
 node ../tests/test_review_picker_browser.cjs
 node ../tests/test_moderation_notices_browser.cjs
@@ -100,6 +101,9 @@ MCP Apps 验收覆盖消息/上下文桥、工具可见性和作用域、确认/
 启动恢复与用户切换的竞争，以及启动目录结果复用。
 `test_progressive_loading_browser.cjs` 通过挂起请求验证侧栏先于历史显示、聊天先于健康检查和项目目录显示，
 并检查状态核对期间禁止发送、后台补齐不清空草稿、快速切换不串会话。
+`test_immediate_send_browser.cjs` 挂起创建会话与发送请求，验证消息立即显示、输入框立即清空、
+重复发送保护、服务端记录去重、失败消息保留与原请求重试，以及切换聊天不影响其他草稿。
+`store.test.ts` 另验证首条消息不等待历史和目录加载、两种回执顺序、创建失败重试与切换时的模型归属。
 首次加载性能使用浏览器新建上下文，在相同带宽和延迟下比较 FCP 与 JS 传输字节，
 再用同一上下文重开验证版本缓存。拆包后应回归终端、文件预览、公式及 MCP 交互视图。
 

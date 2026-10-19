@@ -1,4 +1,5 @@
 import { ComposerContextStatus } from "@/context-status";
+import { consoleStore as store } from "@/store";
 import { MessageTurnActions } from "@/thread-actions";
 import { MessageCopyButton } from "@/message-copy";
 import { BrandIcon } from "@/brand";
@@ -916,6 +917,7 @@ const UserImagePart: ImageMessagePartComponent = (part) => (
 
 const UserMessage: FC = () => {
   const meta = useAuiState((s) => s.message.metadata.custom);
+  const sendKey = String(meta?.sendKey || "");
   return (
     <MessagePrimitive.Root
       data-slot="aui_user-message-root"
@@ -932,11 +934,15 @@ const UserMessage: FC = () => {
           />
           <NativeUserInputs />
         </div>
-        <div className="aui-user-action-bar-wrapper absolute right-0 top-full pt-1 peer-empty:hidden">
+        {!meta?.sendStatus && <div className="aui-user-action-bar-wrapper absolute right-0 top-full pt-1 peer-empty:hidden">
           <UserActionBar />
-        </div>
+        </div>}
       </div>
 
+      {typeof meta?.sendStatus === "string" && <div role="status" className="text-xs text-muted-foreground">
+        {meta.sendStatus === "failed" ? <>发送失败 <button type="button" className="underline" onClick={() => void store.retrySend(sendKey)}>重试发送</button></>
+          : meta.sendStatus === "sending" ? "正在发送…" : "已发送"}
+      </div>}
       <BranchPicker
         data-slot="aui_user-branch-picker"
         className="col-span-full col-start-1 -me-1 justify-end"

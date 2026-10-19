@@ -29,7 +29,7 @@ class ProcessCleanupTests(unittest.IsolatedAsyncioTestCase):
                     while Path(f'/proc/{pid}/stat').exists():
                         try:
                             state = Path(f'/proc/{pid}/stat').read_text().split()[2]
-                        except FileNotFoundError:
+                        except (FileNotFoundError, ProcessLookupError):
                             break
                         if state == 'Z':
                             break

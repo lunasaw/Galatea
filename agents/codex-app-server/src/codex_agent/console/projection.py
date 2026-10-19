@@ -39,7 +39,7 @@ def redact(value, *, method=None):
                                    and child in PUBLIC_CREDENTIAL_STORE_MODES[key]))
                 if config_origin or store_mode:
                     pass
-                elif SECRET.search(key):
+                elif SECRET.search(key) or key == 'io.codex.host/call-proof':
                     reason = 'credential'
                 elif method == 'account/gatewayOAuth/changed' and key == 'authUrl' and child is not None:
                     reason = 'authorization_handoff'

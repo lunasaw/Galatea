@@ -1,0 +1,5 @@
+# Same one-epoch smoke, on the temporary GPU-7 development cluster.
+extends: smoke.yaml
+
+ray:
+  address: 127.0.0.1:19540

@@ -6,11 +6,11 @@ import { native, type Obj } from "./native";
 import { observeNative } from "./native-events";
 import { consoleStore as store, requestKey, type ConsoleState } from "./store";
 import { SchemaInput, schemaDefault } from "./schema-form";
-import { httpUrl, IntegrationsClient, type McpServer } from "./integrations-data";
+import { httpUrl, IntegrationsClient } from "./integrations-data";
+import { mcpApps, type McpApp } from "./mcp-app-catalog";
 const McpAppView = deferred(() => import("./mcp-app-view").then(m => ({ default: m.McpAppView })));
 
 type NativeApp = Obj;
-type McpApp = { id: string; server: string; toolName: string; tool: Obj; uri: string };
 
 let sessionRefresh: Promise<void> | undefined;
 
@@ -61,20 +61,7 @@ function loadAppDetail(threadId: string | undefined, appId: string) {
   }));
 }
 
-function appUri(tool: Obj): string | undefined {
-  const meta = tool._meta;
-  const uri = meta?.ui?.resourceUri ?? meta?.["ui/resourceUri"];
-  return typeof uri === "string" && uri.startsWith("ui://") ? uri : undefined;
-}
-
-function mcpApps(servers: McpServer[]): McpApp[] {
-  return servers.flatMap((server) => Object.entries(server.tools || {}).flatMap(([name, value]) => {
-    const uri = appUri(value as Obj);
-    return uri ? [{ id: `${server.name}:${name}:${uri}`, server: server.name, toolName: name, tool: value as Obj, uri }] : [];
-  }));
-}
-
-function McpAppLauncher({ app, threadId, ensureThread }: { app: McpApp; threadId?: string; ensureThread: (forceNew?: boolean) => Promise<string> }) {
+function McpAppLauncher({ app, threadId, ensureThread, placement, focused, onOpen }: { app: McpApp; threadId?: string; ensureThread: (forceNew?: boolean) => Promise<string>; placement?: "panel"; focused?: boolean; onOpen?: () => void }) {
   const schema = (app.tool.inputSchema as Obj) || { type: "object" };
   const [args, setArgs] = useState(() => schemaDefault(schema));
   const [result, setResult] = useState<Obj>();
@@ -84,6 +71,7 @@ function McpAppLauncher({ app, threadId, ensureThread }: { app: McpApp; threadId
   const title = app.tool.title || app.tool.name || app.toolName;
   const activeThreadId = boundThreadId || threadId;
   return <article className="native-card" data-mcp-app={app.id}>
+    <div hidden={focused}>
     <div className="integration-heading"><strong>{title}</strong><span className="integration-badge">MCP App</span></div>
     <p>{app.tool.description || "可交互的 MCP 应用"}</p><small>{app.server} · {app.toolName} · {app.uri}</small>
     <details className="app-launch-options"><summary>调用参数</summary><SchemaInput schema={schema} value={args} change={setArgs} /></details>
@@ -105,9 +93,11 @@ function McpAppLauncher({ app, threadId, ensureThread }: { app: McpApp; threadId
       setBoundThreadId(launchThreadId);
       setResult(response); setInvocation({ id, args });
       if (response.isError) throw new Error("工具返回执行错误，请查看应用结果");
+      onOpen?.();
     }, "应用已打开")}>打开应用</Button><span className="integration-muted">{boundThreadId ? "应用已就绪" : threadId ? "关联当前聊天" : "无需选择聊天"}</span></div>
-    {result && invocation && activeThreadId && <McpAppView key={invocation.id} server={app.server} threadId={activeThreadId} uri={app.uri} instanceId={invocation.id} toolName={app.toolName} args={invocation.args} result={result} status="completed" />}
-    <Feedback error={action.error} status={action.status} />
+    </div>
+    {result && invocation && activeThreadId && <div hidden={placement === "panel" && !focused}><McpAppView key={invocation.id} server={app.server} threadId={activeThreadId} uri={app.uri} instanceId={invocation.id} toolName={app.toolName} args={invocation.args} result={result} status="completed" placement={placement} /></div>}
+    <Feedback error={action.error} status={focused ? undefined : action.status} />
   </article>;
 }
 
@@ -123,8 +113,9 @@ function NativeAppCard({ app, installed, threadId, action, onDetail }: { app: Na
   </article>;
 }
 
-export function AppsPanel({ state, scope = "global" }: { state: ConsoleState; scope?: "global" | "thread" }) {
+export function AppsPanel({ state, scope = "global", placement }: { state: ConsoleState; scope?: "global" | "thread"; placement?: "panel" }) {
   const threadId = scope === "thread" ? state.sessions.find((s) => s.id === state.active)?.thread_id : undefined;
+  const [selectedApp, setSelectedApp] = useState("");
   const [appsThreadId, setAppsThreadId] = useState<string>();
   const creatingAppsThread = useRef<Promise<string> | undefined>(undefined);
   const ensureThread = useCallback(async (forceNew = false) => {
@@ -155,15 +146,18 @@ export function AppsPanel({ state, scope = "global" }: { state: ConsoleState; sc
     void observeNative("app/list/updated", () => { if (!disposed) { void catalog.refresh(); void installed.refresh(); } }, (error) => setEventError(String(error))).then((cleanup) => { if (disposed) cleanup(); else stop = cleanup; });
     return () => { disposed = true; stop?.(); };
   }, [catalog.refresh, installed.refresh]);
-  return <section className="capability-page"><h3>Apps</h3>
+  return <section className="capability-page" data-app-open={!!selectedApp}>
+    {!!selectedApp && <Button variant="ghost" onClick={() => setSelectedApp("")}>返回应用列表</Button>}
+    <div hidden={!!selectedApp} className="app-catalog-controls"><h3>Apps</h3>
     <p className="integration-muted">{scope === "thread" ? "查看当前聊天可用的 Apps，或打开 MCP 交互应用。" : "浏览 Codex Apps、管理账户连接和查看安装状态。"}</p>
     <div className="integration-toolbar"><input aria-label="搜索 Apps" type="search" value={search} onChange={(e) => setSearch(e.target.value)} /><Button variant="outline" disabled={action.busy} onClick={() => void action.run(async () => {
       await loadInstalledApps(threadId, true); await Promise.all([catalog.refresh(), installed.refresh(), mcp.refresh()]);
     }, "Apps 已刷新")}>刷新全部</Button></div>
     <label className="native-checkbox"><input type="checkbox" checked={onlyInstalled} onChange={(e) => setOnlyInstalled(e.target.checked)} />仅显示已安装的 Codex Apps</label>
+    </div>
     <Feedback error={catalog.error || installed.error || mcp.error || eventError || action.error} status={action.status} />
-    <section><h4>Codex CLI Apps</h4>{nativeApps.map((app) => <NativeAppCard key={app.id} app={app} installed={byId.get(app.id)} threadId={threadId} action={action} onDetail={setDetail} />)}{catalog.data && !nativeApps.length && <p className="integration-empty">没有匹配的原生 App</p>}</section>
-    {scope === "thread" && <section><h4>MCP Apps</h4>{allMcpApps.map((app) => <McpAppLauncher key={app.id} app={app} threadId={threadId} ensureThread={ensureThread} />)}{mcp.data && !allMcpApps.length && <p className="integration-empty">当前 MCP 服务没有声明可交互的 App</p>}</section>}
+    {scope === "thread" && <section><h4 hidden={!!selectedApp}>MCP Apps</h4>{allMcpApps.map((app) => <div key={app.id} hidden={!!selectedApp && selectedApp !== app.id}><McpAppLauncher app={app} threadId={threadId} ensureThread={ensureThread} placement={placement} focused={selectedApp === app.id} onOpen={placement === "panel" ? () => setSelectedApp(app.id) : undefined} /></div>)}{mcp.data && !allMcpApps.length && <p className="integration-empty">当前 MCP 服务没有声明可交互的 App</p>}</section>}
+    <section hidden={!!selectedApp}><h4>Codex CLI Apps</h4>{nativeApps.map((app) => <NativeAppCard key={app.id} app={app} installed={byId.get(app.id)} threadId={threadId} action={action} onDetail={setDetail} />)}{catalog.data && !nativeApps.length && <p className="integration-empty">没有匹配的原生 App</p>}</section>
     {detail && <section className="native-card"><h4>{detail.name}</h4><p>{detail.description}</p><small>{detail.pluginDisplayNames?.join(" · ")}</small><ul className="capability-list">{detail.toolSummaries?.map((tool: Obj) => <li key={tool.name}><strong>{tool.title || tool.name}</strong><p>{tool.description}</p><small>{tool.isReadOnly ? "只读" : "可修改数据"} · {tool.isEnabled ? "已启用" : tool.disabledReason || "已停用"}</small></li>)}</ul>{!detail.toolSummaries?.length && <Facts value={detail} />}</section>}
   </section>;
 }

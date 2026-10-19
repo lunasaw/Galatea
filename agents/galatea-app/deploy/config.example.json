@@ -1,0 +1,16 @@
+{
+  "schema_version": "galatea-app-config/v1",
+  "database_path": "${GALATEA_APP_STATE_DIR}/tasks.sqlite3",
+  "audience": "galatea-app",
+  "workspaces": {"projects": "${GALATEA_PROJECTS_ROOT}", "inputs": "${GALATEA_INPUTS_ROOT}"},
+  "project_workspace_ref": "projects",
+  "trusted_hosts": {"host-key-v1": {"public_key_file": "/etc/galatea-app/host-public.pem", "host_id": "single-owner-host", "principal_id": "owner"}},
+  "credentials": {
+    "mcp": {"role": "mcp", "credential_file": "/etc/galatea-app/mcp.token"},
+    "provider": {"role": "provider", "credential_file": "/etc/galatea-app/provider.token", "host_id": "single-owner-host", "principal_id": "owner"},
+    "exporter": {"role": "exporter", "credential_file": "/etc/galatea-app/exporter.token", "host_id": "single-owner-host", "principal_id": "owner"}
+  },
+  "host": {"url": "http://127.0.0.1:18880", "credential_file": "/etc/galatea-app/continuation.token"},
+  "worker_interval_seconds": 5,
+  "example": {"path": "${GALATEA_INPUTS_ROOT}/microsoft-cats-vs-dogs", "goal": "参考 ray-cats-and-dogs 复现训练链路，先检查数据和代码，训练前展示 1 Epoch smoke 方案与预算。"}
+}

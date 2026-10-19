@@ -1,3 +1,5 @@
+import { useActivatedApp } from "./activated-app";
+import { conversationApp } from "./conversation-app";
 import { SessionPanel, sessionPanelNames } from "./session-panels";
 const ModelDefaults = deferred(() => import("./model-settings").then(m => ({ default: m.ModelDefaults })));
 import { NativeNoticeCenter } from "./native-notice-center";
@@ -166,6 +168,20 @@ function Workspace() {
   const [settingsSearch, setSettingsSearch] = useState("");
   const settingsDialogRef = useRef<HTMLDivElement>(null);
   const [sidePanel, setSidePanel] = useState<WorkbenchTab | null>(null);
+  const legacyActivation = useActivatedApp(state.active);
+  const activation = conversationApp(state) || legacyActivation;
+  useEffect(() => {
+    if (activation) setSidePanel("apps");
+  }, [activation?.activation_id, state.active]);
+  useEffect(() => {
+    const open = () => setSidePanel("apps");
+    window.addEventListener("codex-open-app", open);
+    return () => window.removeEventListener("codex-open-app", open);
+  }, []);
+  const showApps = async () => {
+    if (!store.getSnapshot().active && !await store.create()) return;
+    setSidePanel("apps");
+  };
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(false);
   const showTerminal = (open: boolean) => {
@@ -329,6 +345,7 @@ function Workspace() {
       setSessionPanel("");
       if (name === "status") { setPanel(""); window.dispatchEvent(new Event("codex-status")); return; }
       const sessionTab = name.startsWith("session:") ? name.slice(8) : ["settings", "resources", "loop", "native", "feedback"].includes(name) ? name : "";
+      if (sessionTab === "apps") { setPanel(""); void showApps(); if (isMobile) setOpenMobile(false); return; }
       if (sessionTab && sessionPanelNames[sessionTab]) { setPanel(""); setSessionPanel(sessionTab); if (isMobile) setOpenMobile(false); return; }
       if (name === "search") { setPanel(""); setSearchOpen(true); return; }
       if (name === "model" || name === "reasoning") {
@@ -478,6 +495,13 @@ function Workspace() {
             </span>
           </div>
           <div className="chat-header-tools">
+            <TooltipIconButton
+              tooltip="打开 Apps"
+              aria-pressed={sidePanel === "apps"}
+              onClick={() => void showApps()}
+            >
+              <Puzzle />
+            </TooltipIconButton>
             <TooltipIconButton
               tooltip="打开文件"
               aria-pressed={sidePanel === "files"}
@@ -741,6 +765,7 @@ function Workspace() {
           </div>
           <WorkbenchPanel
             tab={panel || sessionPanel ? null : sidePanel}
+            activation={activation}
             state={state}
             mobile={isMobile}
             onTab={setSidePanel}

@@ -1,0 +1,5 @@
+# Freeze the newly trained Trial; access test only through the governed claim.
+extends: champion.yaml
+
+evaluation:
+  manifest_path: /data/ai/chenzhangyue/galatea-model/platform-data/ray-cats-and-dogs-codex-app/manifests/manifest-4dd93b4e4bf9a669-0722731684e89c3c.csv

@@ -89,4 +89,8 @@ def build_host(config, *, development=False):
     host.skill_roots = [str(root) for root in config.skill_roots]
     from .image_generation import ImageGenerationSettings
     images = ImageGenerationSettings(config, editable=development)
-    return host, ConsoleApp(host, events, image_settings=images)
+    integrations = None
+    if config.raw.get('app_integrations', {}).get('enabled'):
+        from .app_integrations import AppIntegrations
+        integrations = AppIntegrations(host, events, config.raw['app_integrations'])
+    return host, ConsoleApp(host, events, image_settings=images, integrations=integrations)

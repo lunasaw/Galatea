@@ -13,6 +13,7 @@ type Approval = { title: string; detail: unknown; acceptLabel?: string; run?: ()
 export type McpAppProps = {
   server: string; threadId: string; uri: string; instanceId: string; toolName?: string;
   args: Obj; result?: Obj; status?: string; toolError?: string;
+  placement?: "panel";
 };
 
 /** Every operation is bound to the server, thread and invocation that created this view. */
@@ -148,6 +149,16 @@ export function McpAppView(props: McpAppProps) {
     app.oncalltool = async ({ name, arguments: arguments_, _meta }) => {
       const row = await inventory(), tool = row.tools[name] as Obj | undefined;
       if (!appToolAllowed(tool)) throw new Error("此应用不能调用该工具");
+      if (tool?._meta?.["io.codex.host/require-call-proof"] === true) {
+        const challenge = await api("/api/mcp-app/challenges", { ...scope, name, arguments: arguments_ || {} }, requestKey()) as Obj;
+        if (challenge.write && challenge.state === "pending") {
+          const accepted = await approve(`应用请求执行 ${name}`, arguments_);
+          await api("/api/mcp-app/confirmations", { call_id: challenge.call_id, challenge_id: challenge.challenge_id, decision: accepted ? "confirmed" : "denied" }, requestKey());
+          if (!accepted) return { content: [{ type: "text", text: "用户未允许此操作" }], isError: true };
+        }
+        assertOpen();
+        return await api("/api/mcp-app/tool-calls", { call_id: challenge.call_id }, requestKey());
+      }
       if (tool?.annotations?.readOnlyHint !== true && !await approve(`应用请求执行 ${name}`, arguments_))
         return { content: [{ type: "text", text: "用户未允许此操作" }], isError: true };
       assertOpen();
@@ -195,7 +206,7 @@ export function McpAppView(props: McpAppProps) {
   }, [identity, closed]);
   useEffect(() => { void flush.current?.(); }, [props.args, props.result, props.status, props.toolError]);
 
-  return <section className="mcp-app-view">
+  return <section className="mcp-app-view" data-placement={props.placement}>
     {closed ? <Button variant="outline" onClick={() => { setClosed(false); setGeneration(g => g + 1); }}>重新打开应用</Button> : <>
       {mode !== "inline" && <Button variant="outline" onClick={() => changeMode("inline")}>返回内联视图</Button>}
       <div ref={surface} popover="manual" className="mcp-app-surface" data-mode={mode} data-pinned={pinned}>
@@ -204,7 +215,7 @@ export function McpAppView(props: McpAppProps) {
           {mode !== "inline" && <Button variant="ghost" onClick={() => changeMode("inline")}>返回内联</Button>}
           <Button variant="ghost" onClick={() => changeMode("fullscreen")}>全屏</Button>
           <Button variant="ghost" onClick={() => changeMode("pip")}>画中画</Button>
-          <Button variant="ghost" aria-pressed={pinned} onClick={() => changeMode(pinned ? "inline" : "pip", !pinned)}>固定到右侧</Button>
+          {props.placement !== "panel" && <Button variant="ghost" aria-pressed={pinned} onClick={() => changeMode(pinned ? "inline" : "pip", !pinned)}>固定到右侧</Button>}
           <Button variant="ghost" onClick={() => void close.current?.()}>关闭应用</Button>
         </header>
         {!ready && !error && <p role="status">正在连接应用…</p>}

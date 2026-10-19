@@ -291,6 +291,15 @@ body[data-sidebar-resizing="true"] * {
   cursor: col-resize;
   touch-action: none;
 }
+.workbench-panel[hidden] { display: none; }
+.workbench-apps { min-width: 0; }
+.workbench-apps > .capability-page { padding: 16px; }
+.app-catalog-controls:not([hidden]) { display: flex; flex-direction: column; gap: 14px; }
+.workbench-apps > .capability-page[data-app-open="true"] { padding: 8px; gap: 0; }
+.workbench-apps > .capability-page[data-app-open="true"] > button { align-self: flex-start; }
+.workbench-apps .native-card { min-width: 0; overflow-wrap: anywhere; }
+.workbench-apps > .mcp-app-view { padding: 8px; }
+.workbench-apps .mcp-app-surface[data-mode="inline"] { height: min(820px, calc(100dvh - 150px)); }
 .workbench-resize:hover,
 .workbench-resize:focus-visible {
   background: var(--border);

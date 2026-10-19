@@ -1,5 +1,7 @@
 import { deferred } from "./deferred";
 const Subagents = deferred(() => import("./subagents").then(m => ({ default: m.Subagents })));
+const Apps = deferred(() => import("./apps-panel").then(m => ({ default: m.AppsPanel })));
+const McpAppView = deferred(() => import("./mcp-app-view").then(m => ({ default: m.McpAppView })));
 import {
   useCallback,
   useEffect,
@@ -23,6 +25,7 @@ import {
   X,
   ArrowUp,
   Pencil,
+  Puzzle,
 } from "lucide-react";
 import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button";
 import {
@@ -35,10 +38,10 @@ import { NativeControl } from "./native-ui";
 
 import { ApprovalRecords } from "./review-capabilities";
 import { BackgroundTerminals } from "./thread-capabilities";
-import { native } from "./native";
+import { native, type Obj } from "./native";
 import { useFileWatch, FileCapabilities } from "./file-capabilities";
 import { openFile, WorkspaceFileView, type FileTarget } from "./workspace-file";
-import { statusLabel, type ConsoleState } from "./store";
+import { consoleStore as store, statusLabel, type ConsoleState } from "./store";
 import { reviewFiles, reviewTurns } from "./workbench-data";
 import { useSidebarPanelRef } from "./sidebar-resize";
 
@@ -50,6 +53,7 @@ export type WorkbenchTab =
   | "background"
   | "approvals"
   | "agents"
+  | "apps"
   | "preview";
 const titles = {
   launcher: "新标签页",
@@ -59,6 +63,7 @@ const titles = {
   background: "后台终端",
   approvals: "审批记录",
   agents: "子 Agent",
+  apps: "Apps",
   preview: "文件预览",
 };
 const object = (value: unknown): Record<string, any> =>
@@ -371,12 +376,14 @@ function Summary({ state }: { state: ConsoleState }) {
 
 export function WorkbenchPanel({
   tab,
+  activation,
   state,
   mobile,
   onTab,
   onClose,
 }: {
   tab: WorkbenchTab | null;
+  activation?: Obj;
   state: ConsoleState;
   mobile: boolean;
   onTab: (tab: WorkbenchTab) => void;
@@ -466,7 +473,6 @@ export function WorkbenchPanel({
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
-  if (!tab) return null;
   const cwd =
     state.sessions.find((session) => session.id === state.active)?.cwd ||
     state.nativeProtocol?.cwd ||
@@ -505,7 +511,7 @@ export function WorkbenchPanel({
             tabs[index]?.click();
           }}
         >
-          {(["launcher", "review", "files", "summary", "background", "approvals", "agents"] as const).map((item) => (
+          {(["launcher", "apps", "review", "files", "summary", "background", "approvals", "agents"] as const).map((item) => (
             <button
               role="tab"
               key={item}
@@ -550,13 +556,19 @@ export function WorkbenchPanel({
       <div
         className="workbench-panel-content"
         role="tabpanel"
-        aria-label={`${titles[tab]}面板`}
+        aria-label={`${titles[tab || "launcher"]}面板`}
       >
         {tab === "launcher" ? (
           <div className="workbench-launcher">
             <p>会话工具</p>
             {(
               [
+                {
+                  id: "apps",
+                  title: "Apps",
+                  description: "打开当前会话的交互应用",
+                  Icon: Puzzle,
+                },
                 {
                   id: "review",
                   title: "更改",
@@ -588,6 +600,25 @@ export function WorkbenchPanel({
             ))}
           </div>
         ) : null}
+        {(visited.has("apps") || tab === "apps") && (
+          <div hidden={tab !== "apps"} className="workbench-apps" key={state.active || "new"}>
+            {activation ? <McpAppView
+              key={activation.activation_id}
+              server={activation.app.server}
+              uri={activation.app.uri}
+              threadId={activation.thread_id}
+              instanceId={"activation-" + activation.activation_id}
+              toolName={activation.tool}
+              args={activation.arguments || {}}
+              result={activation.result}
+              status={activation.status || "completed"}
+              placement="panel"
+            /> : state.active ? <Apps state={state} scope="thread" placement="panel" /> : <div className="workbench-empty">
+              <Puzzle /><strong>在会话中打开 Apps</strong>
+              <button onClick={() => void store.create()}>创建会话并查看 Apps</button>
+            </div>}
+          </div>
+        )}
         {(visited.has("review") || tab === "review") && (
           <div hidden={tab !== "review"}>
             <Review key={state.active || "new"} state={state} />
@@ -621,7 +652,7 @@ export function WorkbenchPanel({
   );
   return mobile || narrow ? (
     <Dialog
-      open
+      open={!!tab}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
@@ -630,10 +661,10 @@ export function WorkbenchPanel({
         <DialogTitle className="sr-only">
           {tab === "preview"
             ? target?.path.split("/").at(-1) || titles[tab]
-            : titles[tab]}
+            : titles[tab || "launcher"]}
         </DialogTitle>
         <DialogDescription className="sr-only">
-          当前会话的文件、更改和摘要
+          当前会话的应用、文件、更改和摘要
         </DialogDescription>
         {content}
       </DialogContent>
@@ -642,6 +673,7 @@ export function WorkbenchPanel({
     <aside
       ref={sidebarPanelRef}
       className="workbench-panel"
+      hidden={!tab}
       data-file-open={tab === "preview"}
       aria-label="任务面板"
       style={{ "--file-panel-width": `${width}px` } as CSSProperties}

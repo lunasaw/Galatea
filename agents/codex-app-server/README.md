@@ -2,14 +2,16 @@
 
 基于原生 `codex app-server` 的通用 Agent 与网页工作台。Agent 自主选择 Skill、工具和下一步行动；Host 负责进程、会话、审批、调用记录和恢复，不定义训练阶段或业务节点。
 
-当前完成第一阶段：可独立运行，通过配置连接 Skill、自定义 Tool 和外部 MCP。第二阶段再接入 Galatea 等业务服务，并增加阶段、资源和产物可视化。
+可独立运行，通过配置连接 Skill、自定义 Tool、外部 MCP 与 Apps。
+已支持工具调用后自动展示任务 App、同一聊天内更新和刷新恢复；
+可选的 [Galatea 任务 App](../galatea-app/docs/00-product-overview.md) 提供动态阶段、进度、指标与产物展示。
 
 仓库整体职责见 [Codex 与 Galatea 架构](../../doc/agent-galatea.md)。本组件不内置 Galatea Adapter；
 项目 YAML 固定入口与 MCP Campaign 服务分别维护业务授权和执行证据。旧训练 Skill 包的
 `wait_external` 不会触发 Host 自动轮询或恢复 Campaign，使用该约定需另行实现并验收外部编排。
 
 快速导航：[产品界面导览](#product-ui) · [启动](#启动) · [接入能力](#接入能力) ·
-[项目与权限交互细节](#项目与权限交互) · [验证](#验证) · [技术文档目录](docs/README.md)
+[项目与权限交互细节](#项目与权限交互) · [Galatea App 产品介绍](../galatea-app/docs/00-product-overview.md) · [验证](#验证) · [技术文档目录](docs/README.md)
 
 <a id="product-ui"></a>
 
@@ -322,7 +324,9 @@ codex-agent --config /absolute/path/agent.json serve --dev
 
 仅接受 `codex-agent/v2` 配置；旧 `principal`、`galatea`、`paths.contracts` 和固定工具目录已删除。旧配置不会自动迁移，已有文件不会被覆盖。升级应新建配置和状态目录，重新配置业务扩展；旧部署的接纳证据不能用于新版本。
 
-当前网页保留通用对话、模型/权限设置、文件与终端、Skill/MCP、审批、事件和会话恢复。业务节点的定义与判断交给 Agent 和 Skill；业务阶段图、训练仪表盘和产物面板留在第二阶段。
+当前网页提供通用对话、模型/权限设置、文件与终端、Skill/MCP、审批、事件和会话恢复。
+业务节点的定义与判断交给 Agent、Skill 和独立服务；阶段、进度与产物通过可选任务 App 展示，
+Host 只处理通用展示契约。接入后的训练授权、执行与结果仍须单独验收。
 
 ## 项目与权限交互
 

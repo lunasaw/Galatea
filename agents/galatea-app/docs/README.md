@@ -1,14 +1,17 @@
 # Galatea 动态 Agent 工作台技术方案
 
-版本：`galatea-app/design-v1.1`
+版本：`galatea-app/design-v1.2`
 
 日期：2026-10-19
 
-状态：待实现的技术设计；不是已经部署或通过业务联调的产品说明。
+状态：设计基线已有实现与分层验证；当前验证结果、部署方法及未完成项见
+[实施验收记录](10-implementation-acceptance.md) 与 [运行说明](../README.md)。
+本文和 01–09 保留设计要求，不能将要求列表视为全部已验收。
 
-本次修订按原型补齐第 06 章的三栏工作台、完整发起页、同源对话与过程卡、
-预算交互、文件差异和三类详情，并同步补充领域投影、接口、执行语义及验收。
-TaskSnapshot 协议仍为 v1；新增 WorkbenchView 为单独的待实现读取契约。
+本次交互修订改为“聊天驱动”：用户在新会话表达需求，Agent 识别任务、建立当前会话 Task，
+主动调起 App 展示进度与结果。01、04、06 章和运行说明已更新；其余章节保留底层领域与治理约束，
+涉及完整发起页、项目导航和重复聊天框的旧要求以第 06 章为准。
+TaskSnapshot 协议仍为 v1；WorkbenchView 是单独的读取契约。
 
 目标是把现有训练工作台交互原型实现为真正的 MCP App：用户提出目标，Codex
 自主规划和执行，界面按当前任务的阶段展示进展。数据处理可以只有两个阶段；
@@ -21,12 +24,13 @@ TaskSnapshot 协议仍为 v1；新增 WorkbenchView 为单独的待实现读取�
 
 | 文档 | 回答的问题 |
 | --- | --- |
+| [00 产品介绍](00-product-overview.md) | 如何从聊天开始使用，新 App 展示什么，各组件如何协作 |
 | [01 产品范围与使用流程](01-product-and-scope.md) | 动态是什么意思，用户能做什么，第一版交付什么 |
 | [02 架构与现有能力](02-architecture.md) | 复用哪些代码，新增哪些组件，为什么这样划分 |
 | [03 领域模型与状态机](03-domain-and-state.md) | Task、Stage、Attempt、证据与计划版本如何工作 |
 | [04 接口与可信调用](04-interfaces-and-trust.md) | App、Agent、Host、服务之间如何调用和鉴权 |
 | [05 Agent 执行与后台接续](05-execution-and-continuation.md) | 自主规划、运行事件、长任务、崩溃恢复如何闭环 |
-| [06 App 界面与交互](06-app-experience.md) | 原型逐项对应、六个场景、完整信息与按钮行为，以及动态两阶段 |
+| [06 App 界面与交互](06-app-experience.md) | 会话入口、自主展示、动态进度与结果、恢复与隔离 |
 | [07 训练治理与证据](07-training-and-evidence.md) | 如何接 Ray/MLflow，审批和现有 Campaign 有何边界 |
 | [08 部署与运维](08-deployment-and-operations.md) | 持久化、认证、容量、监控、升级与恢复 |
 | [09 实施与验收](09-delivery-and-acceptance.md) | 按什么顺序实现，怎样证明完成 |
@@ -44,7 +48,7 @@ TaskSnapshot 协议仍为 v1；新增 WorkbenchView 为单独的待实现读取�
 ```mermaid
 flowchart LR
     U[用户] --> H[通用 Codex Host / 聊天]
-    U --> A[Galatea MCP App]
+    H -->|Agent 工具调用后自动展示| A[Galatea MCP App]
     A <-->|AppBridge| H
     H <-->|MCP 工具与 UI 资源| M[Galatea App MCP 服务]
     H <-->|原生协议| C[唯一 Agent Runtime: Codex]
@@ -62,14 +66,14 @@ flowchart LR
     T --> DB[(持久化状态 / 事件 / Outbox)]
 ```
 
-图中的 Task Service、Provider、Worker、可信调用增强、消息投影、会话激活与通用接续接口均需要开发。
+图中的 Task Service、Provider、Worker、可信调用增强、消息投影、会话激活与通用接续接口已有实现。
 现有 Host 已有 MCP App 容器、原生 Codex 运行时、动态工具 Provider 和会话基础设施。
 完整差异见 [架构中的能力清单](02-architecture.md)。
 
 ## 方案边界
 
 1. 动态的是阶段数量、顺序、依赖、输入输出及执行决策；组件类型和执行权限由服务控制。
-2. App 是交互入口。关闭 App 或浏览器不能丢失任务，也不能成为长任务停止观察的原因。
+2. 聊天是任务入口，App 是展示面板。关闭 App 或浏览器不丢失任务；已受理外部任务继续由服务观察。
 3. 阶段完成必须有业务证据；工具返回、聊天结束、原生计划完成都不能直接当作业务完成。
 4. Task 与训练 Campaign 分离。数据处理无需创建 Campaign，训练任务必须满足其治理契约。
 5. 首版采用单任务串行阶段执行；保留依赖图，不同时启动多个阶段或多个 Agent。
@@ -86,5 +90,5 @@ flowchart LR
 - [现有训练治理 MCP](../../../services/galatea-mcp/README.md)。
 
 核对基线是仓库固定的 Codex CLI `0.163.0` 与 `@modelcontextprotocol/ext-apps 2.0.3`。
-文档中的新工具名、新 API、配置片段和数据库结构均是本方案定义，除明确标为“现有”外，
-不得作为当前运行接口直接调用。协议支持范围以仓库实现为准。
+文档中的工具名、API、配置片段和数据库结构是设计定义。可运行配置以 `deploy/config.example.json`、
+生成的 `contracts/` 及运行说明为准，协议支持范围以仓库实现和验收记录为准。

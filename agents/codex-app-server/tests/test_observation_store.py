@@ -126,6 +126,23 @@ class ObservationStoreContract(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(PageContextMismatch):
             await self.store.snapshot(SnapshotQuery('s', view='steps', limit=2, page=page['next_page']))
 
+    async def test_app_presentation_survives_pagination_but_not_rollback_or_session_switch(self):
+        import json
+        app = {'type': 'tool', 'detail': {'success': True, 'contentItems': [{'type': 'inputText',
+            'text': json.dumps({'schema_version': 'codex-agent.tools/v1', 'ok': True,
+                'data': {'app_view': {'server': 'installed', 'resource_uri': 'ui://progress'}}})}]}}
+        changes = tuple({'seq': str(n), 'session_id': 's', 'view': 'steps', 'key': f'call-{n}',
+                         'set': app if n == 1 else {'type': 'commandExecution'}} for n in range(1, 4))
+        await self.put(*(event(n) for n in range(1, 4)), changes=changes)
+        snapshot = await self.store.snapshot(SnapshotQuery('s', limit=1))
+        self.assertEqual(snapshot['app_step']['id'], 'call-1')
+        self.assertEqual(snapshot['steps'][0]['id'], 'call-3')
+        self.assertIsNone((await self.store.snapshot(SnapshotQuery('other')))['app_step'])
+        await self.put(event(4), batch_id='rollback', changes=({'seq': '4', 'session_id': 's',
+            'view': 'steps', 'key': 'reset', 'set': {'reset_view': True}},))
+        self.assertIsNone((await self.store.snapshot(SnapshotQuery('s')))['app_step'])
+        self.assertEqual((await self.store.snapshot(SnapshotQuery('s', until=snapshot['watermark'])))['app_step']['id'], 'call-1')
+
     async def test_invalid_projection_batch_does_not_publish_events(self):
         with self.assertRaises(ValueError):
             await self.put(event(1), changes=({'seq': '2', 'session_id': 's', 'view': 'messages',

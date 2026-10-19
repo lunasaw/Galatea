@@ -114,6 +114,8 @@ Host 的确认挑战由后端创建，绑定主体、会话、工具和参数；
 | 工具 | 关键参数 | 返回与校验 |
 | --- | --- | --- |
 | `create_task` | goal、inputs、constraints、command_id | 当前可信会话创建草稿；不扩大用户授权 |
+| `get_current_task` | 无模型身份参数 | 按可信 Host/session/thread 查当前任务，无任务返回 null |
+| `start_task` | goal、inputs（path 对象数组）、constraints、command_id | 在当前原生回合建立并开始准备，不创建会话、不排队后台 Agent；训练仍需独立确认 |
 | `get_task` | task_id | Agent TaskContext：快照、计划规格、输入摘要、能力与授权摘要 |
 | `replace_plan` | task_id、expected_plan_revision、reason、stages、command_id | 新版本及差异，检查计划规则 |
 | `begin_stage` | task_id、stage_id、expected_plan_revision、command_id | Attempt、execution_scope_id、execution_token |

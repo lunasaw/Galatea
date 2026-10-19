@@ -74,6 +74,7 @@ export type Snapshot = {
   next_page: string | null;
   messages?: Message[];
   steps?: Step[];
+  app_step?: Step | null;
   turns?: Turn[];
   coverage: { status: string; reason?: string };
 };

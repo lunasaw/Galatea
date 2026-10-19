@@ -1,0 +1,103 @@
+{
+  "schema_version": "codex-agent.catalog/v1",
+  "namespace": "galatea_task",
+  "description": "Durable tasks, stages and verified evidence",
+  "tools": {
+    "begin_stage": {
+      "description": "开始一个已就绪阶段，取得 Attempt 和执行令牌；串行执行。",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "bind_external": {
+      "description": "绑定并核验已有治理 operation；提交响应未知时先对账。",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "complete_task": {
+      "description": "验证全部必要交付后封存任务；需要有效产物引用。",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "create_task": {
+      "description": "在当前可信会话建立任务草稿；Agent 不可自行授权后台启动。",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "fail_task": {
+      "description": "fail task",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "get_current_task": {
+      "description": "读取当前可信会话的任务；无任务时返回 null。新会话不得复用其他会话或项目的产物。",
+      "read_only": true,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "get_task": {
+      "description": "读取权威任务、当前计划、输入摘要、能力与待办。任务状态只从此处读取，不使用原生 get_goal。",
+      "read_only": true,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "prepare_external": {
+      "description": "外部写入前持久化治理路线、不可变输入及幂等身份；不提交训练。",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "propose_training": {
+      "description": "保存不可变资源方案及用户决定待办，不产生训练授权或 Attempt。",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "replace_plan": {
+      "description": "提交完整动态阶段 DAG 和修订原因；冻结已执行阶段，保留历史。",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "report_result": {
+      "description": "报告受限产物候选，进入服务端验证；返回成功不代表阶段完成。",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "request_replan": {
+      "description": "request replan",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "retry_stage": {
+      "description": "retry stage",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "skip_stage": {
+      "description": "skip stage",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "start_task": {
+      "description": "用户在当前聊天提出训练、微调或数据处理需求时，建立并开始当前会话的任务。返回 app_view 后 Host 自动展示进度面板，无需另调打开工具。只授权当前 Agent 回合的准备工作；训练仍须方案确认与治理授权。不创建新会话，不启动后台 Agent。",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    },
+    "wait": {
+      "description": "wait",
+      "read_only": false,
+      "idempotent": true,
+      "public_fields": []
+    }
+  }
+}

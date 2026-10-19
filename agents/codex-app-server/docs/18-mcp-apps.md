@@ -11,17 +11,34 @@ Host 使用官方 `@modelcontextprotocol/ext-apps 2.0.3` 的 AppBridge 与资源
 工具可用 `_meta.ui.visibility: ["app"]` 标记仅供 App 调用；默认同时允许模型和 App，
 `["model"]` 工具不向 App 暴露。Host 仍以原生工具目录为准，不接受 App 自行注册服务或工具。
 
+## 会话中的自主展示
+
+Agent 调用声明了 UI 资源的 MCP 工具时，Host 从原生 `mcpToolCall` 记录解析资源、参数和结果，
+自动展开当前聊天的右侧 Apps 面板。无需点击 Apps、不新建会话、不从用户文本匹配训练关键词。
+主聊天工具记录保留查看面板按钮，避免同一工具重复挂载内联 iframe。
+刷新从会话记录恢复；失败工具不覆盖已展示的视图。该链路不依赖业务 activation。
+快照单独保留当前水位的最后一次有效 `app_step`，避免长任务的调用移出历史分页后丢失面板；
+会话回滚与作用域过滤同样适用于该记录。
+
+Python Provider 可在成功的 `codex-agent.tools/v1` 回执中返回
+`data.app_view: {server, resource_uri, arguments}`。Host 从原生 `dynamicToolCall` 的
+结构化结果恢复同一视图；这是一项 Host 兼容扩展，不是 MCP 标准字段。
+仅接受 `ui://` 资源，仍经已配置 MCP 服务与当前会话的资源/工具权限校验。
+它允许业务工具本身触发展示，不要求模型额外发现打开页面的工具。
+
 ## Apps 入口
 
-设置里的 **Apps** 页面统一展示两类内容：Codex CLI 原生 Apps，以及 MCP 工具声明了
-`ui://` 资源的 MCP Apps。原生 Apps 的目录、已安装状态和工具摘要直接来自 CLI 的
+聊天右上角「打开 Apps」以及 `/apps` 打开右侧 **Apps** 标签，展示 Codex CLI 原生 Apps，以及
+MCP 工具声明了 `ui://` 资源的 MCP Apps。目录只列出允许模型发现的入口，App-only 内部操作不作为
+启动卡片展示。设置里的全局 Apps 页面保留原生连接器管理。原生 Apps 的目录、已安装状态和工具摘要直接来自 CLI 的
 `app/list`、`app/installed`、`app/read`；有连接地址时可从卡片打开。MCP App 则在绑定的
 Host 会话中调用对应工具，随后挂载同一套 Host 交互视图，因此可以使用全屏、画中画、右侧固定、
 工具与资源桥、下载、权限确认、关闭重开和表单状态保留。
 
 MCP 设置页面仍保留完整的工具、资源和手动调用诊断能力；它是调试入口，不再是 MCP App
-唯一的展示入口。打开 MCP App 时优先绑定当前聊天；没有活动聊天时，Host 会自动创建一个不切换
-当前聊天的 Apps 会话，因此不需要用户先选择会话。工具调用、应用上下文和消息都绑定到这个会话。
+唯一的展示入口。右侧入口优先绑定当前聊天；没有活动聊天时自动创建并选中一个会话，
+以便项目激活事件可以切换至服务分配的项目会话。工具调用、应用上下文和消息都绑定到这个会话。
+服务返回的 ready activation 在项目会话右侧自动展开，刷新后重新读取；普通聊天文本本身不创建 App 任务。
 
 Codex CLI 原生 Apps 是连接器目录和工具元数据能力，不要求聊天上下文；页面支持目录、详情和连接。
 本机 `0.163.0` CLI 的 `/apps` 用于浏览和管理连接器，已安装 App 可通过 `$` 插入聊天提示。
@@ -64,6 +81,8 @@ Agent 工具项使用 `mcpAppUi.resourceUri` 创建视图，也兼容旧 `appCon
 相机、麦克风、定位和剪贴板写入未授予。App 元数据不能提升权限。
 
 右侧固定是当前聊天内的 Host 布局功能；折叠工具过程时保持可见。
+右侧 Apps 标签与旧的画中画固定是不同布局；桌面 Apps 标签切换或收起面板复用 iframe，保留草稿。
+窄屏使用全屏任务面板；切换桌面/窄屏布局会重新挂载，未提交草稿不保证跨布局保留。
 切换聊天或离开页面会卸载视图；不承诺跨聊天保活或刷新后恢复表单草稿。
 App 应将业务状态保存到所属服务，重新加载后从服务恢复。
 
@@ -79,7 +98,9 @@ App 调工具不会自动启动下一轮 Agent；需要继续分析时发 `ui/me
 
 `test_mcp_app_browser.cjs` 验证真实 Chromium 中的资源加载、协议握手、作用域和确认、
 消息与上下文、下载、三种模式、固定后折叠、表单保留、手机布局和关闭重开。
-`test_apps_launch_browser.cjs` 验证无需选择聊天的直接打开、绑定会话复用、会话失效恢复，
+`test_conversation_app_browser.cjs` 验证 Agent 工具事件自动展开、原会话绑定、刷新和移动端。
+`test_app_sidebar_browser.cjs` 验证右侧入口、自动选中会话、标签/收起保留 iframe、激活跳转、刷新和窄屏。
+`test_apps_launch_browser.cjs` 验证直接打开、绑定会话复用、会话失效恢复，
 以及工具调用和 iframe 资源使用同一会话。
 `test_mcp_app_context.py` 验证持久化、隔离、start/steer、去重与未知结果不重放；
 `test_mcp_apps.py` 验证 CSP。`test_mcp_app_runtime.py` 可用真实固定版本二进制和本地

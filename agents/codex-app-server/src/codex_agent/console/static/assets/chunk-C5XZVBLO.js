@@ -1,2 +1,0 @@
-/*! Third-party license texts: /THIRD_PARTY_NOTICES.txt */
-function a(){return a=Object.assign?Object.assign.bind():function(n){for(var r=1;r<arguments.length;r++){var e=arguments[r];for(var t in e)({}).hasOwnProperty.call(e,t)&&(n[t]=e[t])}return n},a.apply(null,arguments)}function u(n,r){if(n==null)return{};var e={};for(var t in n)if({}.hasOwnProperty.call(n,t)){if(r.indexOf(t)!==-1)continue;e[t]=n[t]}return e}export{a,u as b};

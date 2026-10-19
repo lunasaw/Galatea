@@ -6,6 +6,12 @@
 Task Service 创建 TaskBinding、授权范围、持续执行策略与首条 continuation Outbox。
 Worker 将启动事实投递给 Host，Host 启动原生 Codex turn。
 
+原型“发起项目”使用 launch_project：先持久化项目与 Task 草稿、目录分配和激活意图，
+再幂等分配受限目录，由 Host 创建实际 cwd 下的会话，取得可信激活收据并完成 TaskBinding。
+只有绑定与 continuation binding 就绪后才能写启动 Outbox。App 切到新会话重新挂载，
+启动在服务端继续推进，不依赖 iframe 是否常驻。失败保留初始化记录，不把新任务绑定到旧会话凑成功。
+下图是已绑定会话内 create_task 路径；新项目在图中的任务绑定之前增加上述初始化流程。
+
 也可从普通聊天进入：Agent 创建 Task 草稿并展示 App，用户在 Host 确认任务范围后启动。
 首版不把模型转述的“用户同意了”自动转换成后台持续执行授权。
 已有确切授权的集成将来可以接收 Host 生成的请求引用；不能仅由工具参数宣称有授权。
@@ -40,7 +46,7 @@ sequenceDiagram
 ```
 
 图中的服务端接续由 Worker 执行，Task Service 自身不调用模型。
-`create_task(start=true)` 已经生成启动请求后，App 不再额外发送同一条 `ui/message`，
+`create_task(start=true)` 或 launch_project 已经生成启动请求后，App 不再额外发送同一条 `ui/message`，
 避免一次用户动作启动两个 turn。
 
 ## 2. Agent 执行契约
@@ -69,6 +75,11 @@ Agent 绕过 Task 工具执行的原生命令只能作为未关联操作记录�
 Host 持久化导出以下允许字段：host_id、session_id、thread_id、turn_id、item_id、
 native_call_id、journal_call_id（如有）、事件类型、状态、脱敏摘要、时间与源序号。
 不得导出思维链、认证令牌或未过滤的完整工具参数。
+
+为还原原型中心对话，增加公开 user/assistant 消息投影，保存 message_id、turn_id、
+content_revision 与流式状态；同一消息更新而不新增。文件变更在发生时保存受限内容快照与基线，
+用于 App 面板内 diff。公开消息与文件变更都经白名单和脱敏，不导出隐藏推理。
+两类投影和业务事件合成工作台时间线；缺口显示同步中，不以预设回复补全。
 
 `begin_stage` 建立 execution scope，关联 task/stage/attempt、Host 实际 turn 和起始事件位置。
 结束或等待时关闭 scope。Task Provider 命令和 Host 原生事件可能跨网络乱序：
@@ -164,8 +175,36 @@ Host 在调用原生 turn/start 后失去连接，可能已经启动也可能未
 ## 6. 用户输入、暂停与取消
 
 普通“请解释这个结果”可使用现有 `ui/message`，由 Host 确认后 start/steer。
-改变目标、处理等待输入、暂停或取消使用结构化 App 写工具，先改变 Task 状态再接续。
+自由文本补充/调整方案可先经 ui/message；Agent 采纳后通过结构化任务命令改变计划。
+处理已有等待请求、执行确认、暂停或取消使用 App 写工具，先改变 Task 状态再接续。
 `ui/update-model-context` 只传当前选中项和摘要，不能触发执行或确认批准。
+
+### 6.1 预算待办与暂不训练
+
+Agent 通过 propose_training 生成不可变方案及用户待办，不先开始训练 Attempt。
+有治理授权时等待用户执行决定，缺治理授权时等待批准。确认后服务重检所有执行条件，
+事务内消费该决定并排队，由 Agent begin_stage 后走既有受治理提交路径。
+一次确认不代表其后的任意新配置均获许可，方案变化必须重新确认。
+
+defer 只在外部提交尚未发生时关闭当前请求并暂停本任务，保留代码、方案和历史；
+不能启动下一训练步骤，也不取消整条 Campaign。“重新查看方案”只读。
+再次确认遵循第 04 章的新待办/精确 digest 校验，不能自动复活旧 continuation。
+调整方案按钮只聚焦输入，不在点击瞬间执行或声称修改成功。
+
+### 6.2 停止 Agent 与停止训练
+
+原型在编写阶段显示“停止 Agent”，训练阶段显示“停止本次训练”，必须保留这种上下文差别。
+interrupt_agent 先持久化暂停请求、递增 control_epoch、撤销自动接续，再由通用 Host
+对当前可信 turn 请求原生中断。没有活动 turn 时仍阻止后续自动推进。
+收到中断确认后界面可以显示“Agent 已停止”，但 Task 是否 paused 还取决于活跃 Attempt 的排空。
+本地操作状态未知时继续对账，不因 turn 中断就将文件检查或外部执行判为成功。
+
+远程训练不会随 turn 中断自动停止。保留外部观察，显示“Agent 已停止，训练作业仍在运行”；
+不能把这时的 Task 显示为全部已停止。外部操作明确收敛后才完成排空并进入 paused。
+“停止本次训练”映射下述 cancel 流程，解释为取消当前任务并请求治理停止其关联作业，
+不等同于只中断 Agent；如还提供“仅停止 Agent”应作为独立次级操作。
+
+### 6.3 暂停和取消的执行屏障
 
 暂停按安全边界生效：
 

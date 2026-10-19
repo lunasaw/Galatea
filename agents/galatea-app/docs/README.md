@@ -1,10 +1,14 @@
 # Galatea 动态 Agent 工作台技术方案
 
-版本：`galatea-app/design-v1`
+版本：`galatea-app/design-v1.1`
 
 日期：2026-10-19
 
 状态：待实现的技术设计；不是已经部署或通过业务联调的产品说明。
+
+本次修订按原型补齐第 06 章的三栏工作台、完整发起页、同源对话与过程卡、
+预算交互、文件差异和三类详情，并同步补充领域投影、接口、执行语义及验收。
+TaskSnapshot 协议仍为 v1；新增 WorkbenchView 为单独的待实现读取契约。
 
 目标是把现有训练工作台交互原型实现为真正的 MCP App：用户提出目标，Codex
 自主规划和执行，界面按当前任务的阶段展示进展。数据处理可以只有两个阶段；
@@ -22,7 +26,7 @@
 | [03 领域模型与状态机](03-domain-and-state.md) | Task、Stage、Attempt、证据与计划版本如何工作 |
 | [04 接口与可信调用](04-interfaces-and-trust.md) | App、Agent、Host、服务之间如何调用和鉴权 |
 | [05 Agent 执行与后台接续](05-execution-and-continuation.md) | 自主规划、运行事件、长任务、崩溃恢复如何闭环 |
-| [06 App 界面与交互](06-app-experience.md) | 两阶段、动态插入、训练与结果如何统一呈现 |
+| [06 App 界面与交互](06-app-experience.md) | 原型逐项对应、六个场景、完整信息与按钮行为，以及动态两阶段 |
 | [07 训练治理与证据](07-training-and-evidence.md) | 如何接 Ray/MLflow，审批和现有 Campaign 有何边界 |
 | [08 部署与运维](08-deployment-and-operations.md) | 持久化、认证、容量、监控、升级与恢复 |
 | [09 实施与验收](09-delivery-and-acceptance.md) | 按什么顺序实现，怎样证明完成 |
@@ -58,7 +62,7 @@ flowchart LR
     T --> DB[(持久化状态 / 事件 / Outbox)]
 ```
 
-图中的 Task Service、Provider、Worker、可信调用增强和通用接续接口均需要开发。
+图中的 Task Service、Provider、Worker、可信调用增强、消息投影、会话激活与通用接续接口均需要开发。
 现有 Host 已有 MCP App 容器、原生 Codex 运行时、动态工具 Provider 和会话基础设施。
 完整差异见 [架构中的能力清单](02-architecture.md)。
 

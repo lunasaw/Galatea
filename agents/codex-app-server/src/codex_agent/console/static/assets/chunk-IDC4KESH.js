@@ -1,2 +1,0 @@
-/*! Third-party license texts: /THIRD_PARTY_NOTICES.txt */
-import{D as r}from"./chunk-WBR4INKL.js";async function a(){let{account:t}=await r("account/read",{refreshToken:!1});if(!t||t.type==="apiKey")return{account:t,limits:null,errors:[]};try{return{account:t,limits:await r("account/rateLimits/read",{}),errors:[]}}catch(e){return{account:t,limits:null,errors:[String(e)]}}}function n(t){return t?.rateLimitsByLimitId?Object.values(t.rateLimitsByLimitId):t?.rateLimits?[t.rateLimits]:[]}export{a,n as b};

@@ -59,8 +59,8 @@ Host 按通用契约加载外置 Provider、连接 MCP、展示 App；Codex 始�
 ## 源码依据
 
 - [整体架构](../../../../doc/agent-galatea.md)
-- [Host 装配](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/app.py)
-- [原生进程托管](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/process.py)
+- [Host 装配](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/app.py)
+- [原生进程托管](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/process.py)
 - [Task Provider 与 app_view](../../../../agents/galatea-app/src/galatea_app/integrations/codex_provider.py)
 - [Task Service 与结果核验](../../../../agents/galatea-app/src/galatea_app/service.py)
 - [外部 Worker](../../../../agents/galatea-app/src/galatea_app/workers.py)

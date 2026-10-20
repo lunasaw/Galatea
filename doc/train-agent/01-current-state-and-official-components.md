@@ -3,7 +3,7 @@
 > **阅读范围（2026-10-16）**：第 1 节同步当前组件归属；后续 Python SDK 源码与部署资料是历史依据。
 > 独立 Runner 已删除。当前通用 Host 通过配置连接 Skill、外部 MCP 和可选 Provider，
 > 不内置 Galatea Service；历史 SDK 配对不能替代当前 Runtime 协议验收。
-> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md)。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
 核对日期：2026-09-06。本地 Galatea：`7ef8377`；本地 Codex 源码：`459a79e`。
 本文的 SDK 结论来自本地源码，不代表已安装 Python 发布包或远端完成兼容性验收。
@@ -12,7 +12,7 @@
 
 2026-10-16：Agent Runtime 统一为 Codex；Host 已移除内置 Galatea Adapter 和业务依赖，
 通过原生 MCP 或可选通用 Provider 接入外部能力。当前实现以
-[`agents/codex-app-server`](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/README.md)为准。
+[`agents/codex-app-server`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md)为准。
 本文后面的 Python SDK 源码核对是历史依据，不能替代当前 app-server 协议与版本验收。
 
 | 资产 | 当前归属 |

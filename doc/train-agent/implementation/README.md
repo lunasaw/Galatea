@@ -3,10 +3,10 @@
 > **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
 > 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
 > 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
-> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md)。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
 > 本工作包对应的独立 `training-agent-runtime` 已于 2026-09-22 删除。当前 Agent 设计已经转为
-> Codex app-server 宿主，见 [`agents/codex-app-server/docs`](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md)。
+> Codex app-server 宿主，见 [`agents/codex-app-server/docs`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
 更新：2026-09-07。以下是原实施工作包，当前实现状态见
 [开发记录](09-development-record.md)及[本地验证](../09-local-validation.md)；未部署服务或运行真实训练。

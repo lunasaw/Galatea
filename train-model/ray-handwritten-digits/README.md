@@ -304,7 +304,7 @@ Controller 只把 Rank 0 指标写入既有 MLflow Run 的所有权规则。`tes
 完成计划、证据绑定和提交。仓库入口使用独立的
 [`galatea-governance`](../../packages/galatea-governance/README.md)；
 Web Agent 的 Campaign 接入需要另行按
-[`Codex Host 部署说明`](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/06-config-deployment.md)登记与验收。
+[`Codex Host 部署说明`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/06-config-deployment.md)登记与验收。
 
 ## 9. Runtime Env 排错
 

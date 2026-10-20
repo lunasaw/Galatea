@@ -3,7 +3,7 @@
 > **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
 > 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
 > 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
-> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md)。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
 更新：2026-09-06。结论：目标架构可以按 Python 独立实现；当前交付为设计，尚未上线。
 本次核对本地 Galatea `7ef8377`、Codex 源码 `459a79e`，未重新连接远端，也未调用模型或启动训练。

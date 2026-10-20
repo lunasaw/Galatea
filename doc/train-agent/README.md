@@ -3,15 +3,15 @@
 > **当前入口（2026-10-16）**：本文下方保留训练 Agent 历史方案。现行架构为原生 Codex + 通用 Host，
 > 业务通过配置的外部 MCP、独立 Provider 或项目固定入口接入。Host 无内置 Galatea Adapter，
 > 也不消费旧 Runner 的 `wait_external` 调度契约。
-> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md)。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
 ## 当前文档入口
 
 | 目的 | 当前依据 |
 | --- | --- |
 | Runtime、Host 与业务治理职责 | [总体架构](../agent-galatea.md) |
-| Web 工作台与原生协议 | [Codex Host](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/README.md) |
-| Host 配置、MCP 与 Provider | [配置与部署](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/06-config-deployment.md) |
+| Web 工作台与原生协议 | [Codex Host](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md) |
+| Host 配置、MCP 与 Provider | [配置与部署](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/06-config-deployment.md) |
 | MCP 项目/Campaign 注册与预算 | [Galatea MCP](../../services/galatea-mcp/README.md)、[接口契约](02-platform-mcp-contract.md) |
 | 项目 YAML 固定治理入口 | [项目治理库](../../packages/galatea-governance/README.md)与所属 workload README |
 | 训练 Skill 包及兼容性限制 | [Skill 包](../../packages/galatea-training-skills/README.md) |
@@ -21,7 +21,7 @@
 
 更新：2026-09-22。状态：历史方案归档。此前的独立 `training-agent-runtime` 已删除，
 其实现、安装验证和部署命令不再是当前可发布入口。当前 Agent 方案请以
-[`agents/codex-app-server/docs`](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md) 为准；本目录
+[`agents/codex-app-server/docs`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md) 为准；本目录
 保留 MCP、Skill 和 workload 契约的历史设计记录，旧 Runner 的通过数字不能作为当前验收证据。
 
 2026-10-14 新机器实际平台链路、多 Ray 集群和授权上传案例，见当前维护的

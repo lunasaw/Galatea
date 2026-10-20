@@ -257,4 +257,4 @@ See `doc/agent-galatea.md` and `agents/codex-app-server/docs/06-config-deploymen
 - [Repository development conventions](AGENTS.md)
 - [Platform overview and architecture](README.md)
 - [Codex and Galatea architecture](doc/agent-galatea.md)
-- [Codex app-server deployment](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/06-config-deployment.md)
+- [Codex app-server deployment](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/06-config-deployment.md)

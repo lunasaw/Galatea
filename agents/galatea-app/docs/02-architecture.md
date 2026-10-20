@@ -104,17 +104,17 @@ agents/galatea-app/
 
 | 结论 | 源码或文档 |
 | --- | --- |
-| AppBridge 作用域与确认、消息、上下文 | [mcp-app-view.tsx](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/frontend/src/mcp-app-view.tsx) |
-| Apps 原生目录与 MCP App 的区别 | [apps-panel.tsx](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/frontend/src/apps-panel.tsx) |
-| iframe 与资源读取、消息入口 | [console/server.py](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/console/server.py) |
-| App 上下文是 untrusted | [mcp_app_context.py](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/mcp_app_context.py) |
-| ToolContext、工具日志与恢复 | [registry.py](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/registry.py) |
-| Provider 仅有 handlers/reconcile/observe_receipt/close | [providers.py](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/providers.py) |
-| 请求收据与原生调用绑定 | [host.py](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/host.py) |
-| 运行事件队列与持久化投影 | [console/service.py](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/console/service.py) |
-| 原生事件投影与计划 | [console/projection.py](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/console/projection.py) |
-| 本地协议基线 | [0.163.0.json](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/protocol/0.163.0.json) |
-| 最小 MCP App 包装示例 | [Hello World MCP](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/examples/hello-world-mcp/README.md) |
+| AppBridge 作用域与确认、消息、上下文 | [mcp-app-view.tsx](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/frontend/src/mcp-app-view.tsx) |
+| Apps 原生目录与 MCP App 的区别 | [apps-panel.tsx](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/frontend/src/apps-panel.tsx) |
+| iframe 与资源读取、消息入口 | [console/server.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/console/server.py) |
+| App 上下文是 untrusted | [mcp_app_context.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/mcp_app_context.py) |
+| ToolContext、工具日志与恢复 | [registry.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/registry.py) |
+| Provider 仅有 handlers/reconcile/observe_receipt/close | [providers.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/providers.py) |
+| 请求收据与原生调用绑定 | [host.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/host.py) |
+| 运行事件队列与持久化投影 | [console/service.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/console/service.py) |
+| 原生事件投影与计划 | [console/projection.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/console/projection.py) |
+| 本地协议基线 | [0.163.0.json](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/protocol/0.163.0.json) |
+| 最小 MCP App 包装示例 | [Hello World MCP](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/examples/hello-world-mcp/README.md) |
 
 当前 Provider 没有原生事件订阅钩子。事件导出须作为新的通用 Host 扩展实现，
 不能在方案中假装 `ToolProvider` 已提供此功能。

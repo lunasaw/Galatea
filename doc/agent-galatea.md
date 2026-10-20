@@ -126,18 +126,18 @@ Runner 已删除。该包不是当前通用 Host 的 Campaign 调度插件。需
 
 ## 当前实现文档
 
-源码核对入口：[Host 装配](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/app.py)、
-[配置解析](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/config.py)、
-[Provider 扩展](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/src/codex_agent/providers.py)、
+源码核对入口：[Host 装配](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/app.py)、
+[配置解析](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/config.py)、
+[Provider 扩展](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/providers.py)、
 [MCP transport](../services/galatea-mcp/src/galatea_mcp/server.py) 和
 [项目治理控制器](../packages/galatea-governance/src/tools/controller.ts)。
 
-- [Codex Agent Host](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/README.md)
+- [Codex Agent Host](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md)
 - [Galatea 任务 App 产品介绍](../agents/galatea-app/docs/00-product-overview.md)
 - [Galatea 任务 App 技术方案](../agents/galatea-app/docs/README.md)
-- [Host 架构与集成边界](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/01-architecture.md)
-- [Host 配置与部署](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/06-config-deployment.md)
-- [Host 权限和扩展信任](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/07-security-boundaries.md)
+- [Host 架构与集成边界](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/01-architecture.md)
+- [Host 配置与部署](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/06-config-deployment.md)
+- [Host 权限和扩展信任](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/07-security-boundaries.md)
 - [Galatea MCP](../services/galatea-mcp/README.md)
 - [项目治理库](../packages/galatea-governance/README.md)
 - [当前机器平台运行记忆](platform-runtime-memory.md)

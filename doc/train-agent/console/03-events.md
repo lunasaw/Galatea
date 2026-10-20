@@ -3,7 +3,7 @@
 > **历史 Console 设计（2026-10-16 标注）**：下文“当前/本期/首版”指重构前版本，
 > 不作为现行功能或部署依据。当前为通用 Host，无内置 Galatea Adapter；
 > Skill/MCP、前端构建和 SQLite 观察存储以现行组件文档为准。
-> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md)。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
 本期事件能力服务于“网页聊天与追踪台”：让用户在浏览器读到同一 Codex Runtime 的回复，
 并检查现有训练工具的调用和结果。事件只是观察记录，不是执行授权或训练/推理新入口；

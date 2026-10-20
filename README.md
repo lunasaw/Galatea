@@ -11,13 +11,13 @@ Ray Train 及其他能够接入 MLflow 的训练项目，覆盖分类、回归�
 README 分为两层：先沿着四张图理解平台如何运转，再进入可检索的部署与运维手册。
 
 Codex 是仓库唯一的 Agent Runtime。Web Agent 由
-[`agents/codex-app-server`](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/README.md) 托管原生 `codex app-server`，
+[`agents/codex-app-server`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md) 托管原生 `codex app-server`，
 复用其 Agent Loop、Thread、Turn、Skill、沙箱与审批。通用 Host 提供网页工作台、协议转发、
 会话恢复和可配置的 Tool Provider；业务能力通过外部 MCP 或独立 Provider 接入。
 Host 通过显式配置接入独立的 [Galatea 任务 App](agents/galatea-app/README.md)，
 展示业务阶段、进度和产物；普通 CSV 需求的真实聊天链路已验证，完整训练联动按业务契约另行验收。
 
-网页工作台的使用方式见 **[Codex Agent Host 产品界面图文导览](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/README.md#product-ui)**：
+网页工作台的使用方式见 **[Codex Agent Host 产品界面图文导览](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md#product-ui)**：
 包含当前界面截图，以及项目与聊天、任务输入、权限审批、文件与代码审查、终端、扩展、设置和多模态能力的详细介绍。
 
 仓库训练通过 [`.codex/skills/`](.codex/skills/) 和项目固定治理入口执行；
@@ -381,7 +381,7 @@ galatea/
 
 这些测试应使用前向检查或模拟后端。真实训练 smoke 仍通过项目固定治理入口执行，
 短时长或小数据集不构成本地训练例外。Notebook 的只读验证输出写入临时目录，不覆盖源文件。
-Host 自身的协议、前端与恢复验证见 [Host 测试验收](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/09-test-acceptance.md)。
+Host 自身的协议、前端与恢复验证见 [Host 测试验收](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/09-test-acceptance.md)。
 
 ### 文档
 
@@ -398,8 +398,8 @@ Host 自身的协议、前端与恢复验证见 [Host 测试验收](https://gith
 - [Codex 与 Galatea 架构](doc/agent-galatea.md)
 - [Galatea 任务 App 产品介绍](agents/galatea-app/docs/00-product-overview.md)
 - [Galatea 任务 App 接入与运行](agents/galatea-app/README.md)
-- [Codex app-server 安装与运行](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/README.md)
-- [Codex app-server 配置与部署](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/06-config-deployment.md)
+- [Codex app-server 安装与运行](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md)
+- [Codex app-server 配置与部署](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/06-config-deployment.md)
 - [仓库开发规范](AGENTS.md)
 
 ### 安全与持久化

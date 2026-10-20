@@ -3,7 +3,7 @@
 > **历史 Console 设计（2026-10-16 标注）**：下文“当前/本期/首版”指重构前版本，
 > 不作为现行功能或部署依据。当前为通用 Host，无内置 Galatea Adapter；
 > Skill/MCP、前端构建和 SQLite 观察存储以现行组件文档为准。
-> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md)。
 
 本期只为网页聊天与追踪台保存观察数据；存储端口不管理模型状态、训练作业或工具执行权限。
 首版的唯一观察后端是本进程内存，Redis 仅作为后续可替换实现的设计边界。

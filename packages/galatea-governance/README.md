@@ -20,7 +20,7 @@ npm run build
 测试使用本地 HTTP fixture、临时文件和 fake backend，不提交真实训练。
 Node 版本要求见 `package.json`；项目入口直接使用 Node 原生 TypeScript 导入。
 
-Web Agent 统一使用 [`agents/codex-app-server`](../../agents/codex-app-server/README.md)，
+Web Agent 统一使用 [`agents/codex-app-server`](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/README.md)，
 该 Host 通过配置连接外部 MCP 或可选 Python Tool Provider，不内置本库或
 `galatea_mcp.Service`。本库用于项目 YAML 固定入口；独立
 [`galatea-mcp`](../../services/galatea-mcp/README.md) 使用自己的项目与 Campaign 注册表。

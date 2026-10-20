@@ -32,14 +32,14 @@ Ray Runtime Package 只读凭据由 `/etc/minio/ray-runtime-s3.env` 管理；仓
 ## Codex Agent
 
 Agent Runtime 统一使用 Codex。Web Agent 的 unit 模板位于
-[`agents/codex-app-server/deploy/codex-agent.service`](../agents/codex-app-server/deploy/codex-agent.service)，
+[`agents/codex-app-server/deploy/codex-agent.service`](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/deploy/codex-agent.service)，
 Console 默认监听 `0.0.0.0:18880`，需受控内网或带认证的反向代理；由 Host 启动原生
 `codex app-server --listen stdio://` 子进程。
 
 部署前准备专用账号、模型配置/凭据、Runtime、扩展配置和接纳记录，并用实际主机路径生成 unit。
 安装、配置、接纳和服务运行边界见
-[Codex Host 配置与部署](../agents/codex-app-server/docs/06-config-deployment.md)及
-[生产接纳记录](../agents/codex-app-server/docs/12-production-readiness.md)。模板不是已验收的运行配置。
+[Codex Host 配置与部署](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/06-config-deployment.md)及
+[生产接纳记录](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/12-production-readiness.md)。模板不是已验收的运行配置。
 
 Host 仅接受 `codex-agent/v2`，不安装或启动 Galatea Service。需要平台工具时，独立部署
 `services/galatea-mcp/` 并在原生 `codex-home/config.toml` 配置 MCP；Skill 根与可选 Python

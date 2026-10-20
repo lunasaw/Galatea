@@ -2,7 +2,7 @@
 
 独立 Python 平台治理服务，无 Agent Runtime 或模型框架的源码依赖。
 Codex 通过原生 MCP 客户端连接本服务的 stdio 或 Streamable HTTP transport。
-[`codex-app-server` Host](../../agents/codex-app-server/README.md) 是通用工作台，
+[`codex-app-server` Host](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/README.md) 是通用工作台，
 不依赖本包，也不内置 GalateaAdapter、Campaign 身份或固定 Galatea 工具目录。
 接入时单独部署本服务，在受控 `codex-home/config.toml` 中配置 MCP；
 如另写 Host Tool Provider，须独立实现和验收，不能假定仓库已经提供适配器。
@@ -89,6 +89,6 @@ CPU/GPU 指标是保守上限，不是账单。deadline 由 workload 与 MCP wat
 状态路径：`campaigns/<id>.json`、`evaluation-uses/<test-sha256>.json`、`writer.lock`。
 文件损坏保留原件并阻止执行。备份/回退必须连同测试标记，禁止靠清空状态重试。
 当前 MCP 安装、身份和业务验收以本页、部署配置及所属 workload README 为准；Web 接入还需按
-[Host 测试验收](../../agents/codex-app-server/docs/09-test-acceptance.md)验证原生协议与外部服务边界。
+[Host 测试验收](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/09-test-acceptance.md)验证原生协议与外部服务边界。
 [旧端到端联调手册](../../doc/train-agent/08-e2e-integration-runbook.md)仅保留故障演练和验收设计，
 其中已删除 Runner 的制品与命令不是当前部署入口。

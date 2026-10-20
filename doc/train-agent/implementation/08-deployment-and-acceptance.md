@@ -3,10 +3,10 @@
 > **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
 > 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
 > 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
-> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md)。
 
 > 本方案依赖的独立 Runner 已于 2026-09-22 删除，不再是当前部署入口；当前方案见
-> [`agents/codex-app-server/docs`](../../../agents/codex-app-server/docs/README.md)。
+> [`agents/codex-app-server/docs`](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/README.md)。
 
 > 后续实现使用 superpowers:executing-plans；部署和算力执行限定在已有授权范围。
 

@@ -85,8 +85,8 @@ flowchart LR
 
 - [仓库约束](../../../AGENTS.md)。
 - [当前 Agent / Galatea 集成边界](../../../doc/agent-galatea.md)。
-- [Host MCP Apps 实现说明](../../codex-app-server/docs/18-mcp-apps.md)。
-- [动态工具注册与 Provider](../../codex-app-server/docs/03-tool-registry.md)。
+- [Host MCP Apps 实现说明](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/18-mcp-apps.md)。
+- [动态工具注册与 Provider](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/docs/03-tool-registry.md)。
 - [现有训练治理 MCP](../../../services/galatea-mcp/README.md)。
 
 核对基线是仓库固定的 Codex CLI `0.163.0` 与 `@modelcontextprotocol/ext-apps 2.0.3`。

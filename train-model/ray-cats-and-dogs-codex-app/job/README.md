@@ -33,7 +33,7 @@ Readiness 和提交授权。首次使用先在仓库根目录安装该库的锁�
 npm ci --prefix packages/galatea-governance
 ```
 
-Web Agent 使用 [`Codex app-server Host`](../../../agents/codex-app-server/README.md)；
+Web Agent 使用 [`Codex app-server Host`](https://github.com/lunasaw/open-codex/blob/6ef38b998b465eadf1295b8d30378747c62d2ba8/README.md)；
 接入其 Campaign 工具集需要单独登记 workload 与批准配置。
 
 新机器和同机多集群先读 [`平台运行记忆`](../../../doc/platform-runtime-memory.md)。本页通用

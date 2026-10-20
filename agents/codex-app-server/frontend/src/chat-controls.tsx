@@ -288,18 +288,21 @@ export function useComposerCommands() {
   const submitInput = async (kind: "steer" | "queue") => {
     if (!session?.thread_id || (kind === "steer" && !session.active_turn_id) ||
       (kind === "queue" && !queueAvailable) || (!text.trim() && !attachmentCount) ||
-      submittingInput.current || state.loading || state.sessionRefreshing || state.settingsBusy) return;
+      submittingInput.current || state.submitting || state.creating || state.loading || state.sessionRefreshing || state.settingsBusy) return;
     submittingInput.current = true;
     setSteering(true);
     const draftAttachments = [...aui.composer().getState().attachments];
     try {
       const prepared = await Promise.all(draftAttachments.map((a) => a.status.type === "complete" ? a : attachments.send(a as PendingAttachment)));
-      await sharedMutation(`${kind}:${session.thread_id}`).run(kind === "queue" ? "thread/queue/add" : "turn/steer", {
-        threadId: session.thread_id,
-        ...(kind === "queue" ? { clientUserMessageId: requestKey() } : { expectedTurnId: session.active_turn_id }),
-        input: nativeParts([{ type: "text", text }, ...prepared.flatMap((a) => a.content || [])]),
-      }, JSON.stringify([session.thread_id, text, draftAttachments.map((a) => a.id)]));
-      if (kind === "queue") store.patch({ queueRevision: store.state.queueRevision + 1 });
+      const input = nativeParts([{ type: "text", text }, ...prepared.flatMap((a) => a.content || [])]);
+      if (kind === "steer") {
+        if (!store.steer(text, input, session.id, session.active_turn_id!)) return;
+      } else {
+        await sharedMutation(`queue:${session.thread_id}`).run("thread/queue/add", {
+          threadId: session.thread_id, clientUserMessageId: requestKey(), input,
+        }, JSON.stringify([session.thread_id, text, draftAttachments.map((a) => a.id)]));
+        store.patch({ queueRevision: store.state.queueRevision + 1 });
+      }
       if (
         store.state.active === session.id &&
         aui.composer().getState().text === text
@@ -371,7 +374,7 @@ export function useComposerCommands() {
     queueButton: !goalMode && queueAvailable && (text.trim() || attachmentCount) ? <TooltipIconButton
       type="button" className="composer-queue-submit" aria-label="加入待发送队列"
       tooltip={session?.active_turn_id ? "加入待发送队列（Tab）" : "加入待发送队列"}
-      disabled={steering || state.loading || state.sessionRefreshing || state.settingsBusy}
+      disabled={steering || state.submitting || state.creating || state.loading || state.sessionRefreshing || state.settingsBusy}
       onClick={() => { if (!slash.submit()) void submitInput("queue"); }}><ListPlus size={17} /></TooltipIconButton> : null,
     onKeyDownCapture,
     placeholder: goalMode ? "描述你的目标，并设定可衡量的成果，以获得最佳效果" : session?.active_turn_id
@@ -385,7 +388,7 @@ export function useComposerCommands() {
           size="icon"
           className="rounded-full size-9"
           aria-label="发送补充"
-          disabled={steering}
+          disabled={steering || state.submitting || state.creating || state.loading || state.sessionRefreshing || state.settingsBusy}
           onClick={() => { if (!slash.submit()) void submitInput("steer"); }}
         >
           <ArrowUp className="size-4" />

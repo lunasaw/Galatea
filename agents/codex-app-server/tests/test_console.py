@@ -92,6 +92,30 @@ class ConsoleTests(unittest.IsolatedAsyncioTestCase):
         sent = await call(self.app, 'POST', '/api/sessions', {}, headers={'origin': 'http://localhost', 'idempotency-key': 'r'})
         self.assertEqual(sent[0]['status'], 200)
 
+    async def test_app_confirmation_accepts_http_origin_without_fetch_metadata(self):
+        confirmed = []
+        self.app.integrations = SimpleNamespace(
+            gateway=SimpleNamespace(confirm=lambda body: confirmed.append(body) or {"ok": True}))
+        body = {"call_id": "call", "challenge_id": "challenge", "decision": "confirmed"}
+        # Browsers omit Sec-Fetch-* on non-loopback HTTP, but still send Origin.
+        for headers in (
+            {"host": "10.26.0.140:18880", "origin": "http://10.26.0.140:18880"},
+            {"origin": "http://localhost", "sec-fetch-site": "same-origin"},
+        ):
+            sent = await call(self.app, "POST", "/api/mcp-app/confirmations", body, headers)
+            self.assertEqual(sent[0]["status"], 200)
+        self.assertEqual(len(confirmed), 2)
+        for headers in (
+            {}, {"origin": "null"}, {"origin": "https://evil.example"},
+            {"origin": "http://localhost", "sec-fetch-site": "cross-site"},
+            {"origin": "http://localhost", "sec-fetch-site": "same-site"},
+            {"origin": "http://localhost", "sec-fetch-site": "none"},
+            {"origin": "http://localhost:81"},
+        ):
+            sent = await call(self.app, "POST", "/api/mcp-app/confirmations", body, headers)
+            self.assertEqual(sent[0]["status"], 403, headers)
+        self.assertEqual(len(confirmed), 2)
+
     async def test_local_math_fonts_are_served_with_a_restricted_path(self):
         sent = await call(self.app, 'GET', '/math-fonts/KaTeX_Main-Regular.woff2')
         self.assertEqual(sent[0]['status'], 200)

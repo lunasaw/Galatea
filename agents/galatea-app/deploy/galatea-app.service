@@ -1,0 +1,22 @@
+[Unit]
+Description=Galatea durable MCP task workbench
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=galatea-agent
+Group=galatea-agent
+WorkingDirectory=/opt/galatea-app
+EnvironmentFile=/etc/galatea-app/service.env
+ExecStart=/opt/galatea-app/bin/galatea-app --config /etc/galatea-app/config.json --host 127.0.0.1 --port 18886
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/galatea-app
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -6,10 +6,11 @@ export function toMessages(snapshot: Snapshot | null, pending: PendingMessage[] 
   if (!snapshot && !pending.length) return [];
   const confirmed = snapshot?.messages || [];
   const ids = new Set(confirmed.map((row) => row.id));
+  const clientIds = new Set(confirmed.map((row) => row.client_id));
   let sequence = [...confirmed, ...(snapshot?.steps || [])].reduce(
     (last, row) => BigInt(row.last_seq) > last ? BigInt(row.last_seq) : last, 0n,
   );
-  const optimistic: Message[] = pending.filter((row) => !ids.has(`request:${row.key}`)).map((row) => ({
+  const optimistic: Message[] = pending.filter((row) => !ids.has(`request:${row.key}`) && !clientIds.has(row.key)).map((row) => ({
     id: `request:${row.key}`, role: "user", text: row.text,
     content: row.input as Message["content"], sendStatus: row.status,
     first_seq: String(++sequence), last_seq: String(sequence),

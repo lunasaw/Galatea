@@ -1,11 +1,11 @@
 # Galatea 与 Codex Agent 架构
 
-更新：2026-10-16。以当前工作区源码、配置与契约为准。
+更新：2026-10-19。以当前工作区源码、配置与契约为准。
 
 本文说明当前仓库可由代码和项目契约确认的架构。Codex 是唯一 Agent Runtime；仓库没有
 DeepSeek Harness、`dsh-galatea` 插件或第二套 Agent Loop。Web Host 托管原生 Codex Runtime，
-Ray/MLflow 治理由独立的平台组件和项目固定入口负责。Web Host 的真实业务端到端训练联动
-仍须单独验收。
+Ray/MLflow 治理由独立的平台组件和项目固定入口负责。可选的 Galatea 任务 App 已验证
+普通 CSV 需求的真实会话自动展示与交付链路；完整业务端到端训练联动仍须单独验收。
 
 ```mermaid
 flowchart LR
@@ -20,6 +20,13 @@ flowchart LR
     Native --> Project[仓库固定项目入口]
     MCP -. 显式配置 .-> Campaign[独立 Galatea MCP · Campaign / 预算 / 证据]
     Provider --> Service[Provider 自己配置的后端]
+    Registry --> TaskProvider[可选 Task Provider]
+    TaskProvider --> Tasks[独立 Task Service / 状态与证据]
+    Host <-->|MCP AppBridge / app_view| TaskApp[任务 App / 阶段与结果]
+    TaskApp --> Tasks
+    Tasks --> Worker[外部观察与接续 Worker]
+    Worker -->|通用接续请求| Host
+    Worker --> Ray
     Project --> Governance[galatea-governance · YAML / Release / readiness]
     Campaign --> Ray[Ray Jobs / Train]
     Governance --> Ray
@@ -41,6 +48,22 @@ flowchart LR
   或等价网络边界保护。
 - 当前 Host 配置版本是 `codex-agent/v2`，Runtime/API 协议锁定值见 Host 配置、兼容性证据
   和部署文档。旧业务 Host 的配置、状态与接纳记录不自动迁移。
+
+## 聊天驱动的任务 App
+
+用户在原聊天提出需求，Codex 调用 Task Provider 建立当前会话的任务。
+成功回执中的通用 `app_view` 让 Host 自动展开 MCP App；App 通过 Host 与服务交互，
+渲染阶段、进度、指标和可核验产物。补充目标和调整计划仍在原聊天进行。
+
+`agents/galatea-app/` 独立保存业务状态，后台 Worker 观察外部任务并通过通用 Host 接口
+请求原会话接续；它不调用模型，也不接管 Codex Agent Loop。Host 不定义训练阶段，
+不 import 该业务服务；管理员显式配置 Provider、MCP、签名网关与服务身份后才启用。
+组件间依赖工具、展示和快照契约，升级时需验证兼容性。
+
+新聊天只绑定自己的任务。刷新恢复展示不等于重新执行；已受理外部任务由服务继续观察。
+App 的训练确认不能签发治理授权、扩大预算或批准模型推广。
+使用方式见 [App 产品介绍](../agents/galatea-app/docs/00-product-overview.md)，
+实现和当前验证边界见 [App 验收记录](../agents/galatea-app/docs/10-implementation-acceptance.md)。
 
 ## 两个独立的 Galatea 治理入口
 
@@ -83,8 +106,9 @@ Ray Job、Campaign、MLflow Run 与业务回执由各自项目入口或 MCP 服�
 [`packages/galatea-training-skills`](../packages/galatea-training-skills/README.md) 发布的独立
 Skill 包保留历史 v1 `Agent Turn` 输出和 `wait_external` 工作流约定；先前消费该契约的 Python
 Runner 已删除。该包不是当前通用 Host 的 Campaign 调度插件。需要使用该流程时，需实现并验收
-能消费结构化输出、等待外部 Job、按原 Thread 恢复决策的独立编排组件；未完成此项前，仓库
-训练工作流以 `.codex/skills/` 和项目固定入口为准。
+能消费该历史结构化输出、等待外部 Job、按原 Thread 恢复决策的独立编排组件。
+新任务 App 使用自己的任务、证据与接续契约，不是该历史 Runner 的兼容替代；
+仓库训练工作流仍以 `.codex/skills/` 和项目固定入口为准。
 
 ## 状态与验收边界
 
@@ -104,6 +128,8 @@ Runner 已删除。该包不是当前通用 Host 的 Campaign 调度插件。需
 [项目治理控制器](../packages/galatea-governance/src/tools/controller.ts)。
 
 - [Codex Agent Host](../agents/codex-app-server/README.md)
+- [Galatea 任务 App 产品介绍](../agents/galatea-app/docs/00-product-overview.md)
+- [Galatea 任务 App 技术方案](../agents/galatea-app/docs/README.md)
 - [Host 架构与集成边界](../agents/codex-app-server/docs/01-architecture.md)
 - [Host 配置与部署](../agents/codex-app-server/docs/06-config-deployment.md)
 - [Host 权限和扩展信任](../agents/codex-app-server/docs/07-security-boundaries.md)

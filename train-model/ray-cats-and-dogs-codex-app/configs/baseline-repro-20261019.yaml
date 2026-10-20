@@ -1,0 +1,5 @@
+# Same model, seed, split and optimizer as baseline; eligible for candidate freeze.
+extends: baseline.yaml
+
+run:
+  promotable: true

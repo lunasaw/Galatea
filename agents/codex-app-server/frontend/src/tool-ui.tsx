@@ -61,7 +61,9 @@ export function NativeToolActivity({ step, running = false, result, threadId: sc
       {step.text && <pre className="whitespace-pre-wrap" aria-label="工具进度">{step.text}</pre>}
       {d.error && <p role="alert">{d.error.message || pretty(d.error)}</p>}
       {d.result && <McpContent content={d.result.content || []} />}
-      {typeof uri === "string" && uri.startsWith("ui://") && threadId && <McpAppView server={d.server} threadId={threadId} uri={uri} instanceId={step.id} toolName={d.tool} args={d.arguments} result={d.result} status={status} toolError={d.error?.message} />}
+      {typeof uri === "string" && uri.startsWith("ui://") && threadId && (scopeThreadId
+        ? <McpAppView server={d.server} threadId={threadId} uri={uri} instanceId={step.id} toolName={d.tool} args={d.arguments} result={d.result} status={status} toolError={d.error?.message} />
+        : <button onClick={() => window.dispatchEvent(new Event("codex-open-app"))}>查看任务面板</button>)}
       <details className="native-arguments"><summary>调用详情</summary><pre className="json">{pretty({ arguments: d.arguments, result: d.result })}</pre></details>
     </section>;
   }

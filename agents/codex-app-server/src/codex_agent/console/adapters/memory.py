@@ -11,6 +11,7 @@ import re
 import secrets
 
 from ..models import EventQuery, ObservationBatch, SnapshotQuery
+from ..app_presentation import presents_app
 from ..ports import (CommitConflict, CursorAhead, EpochMismatch, InvalidCursor,
                      PageContextMismatch, SequenceGap, StoreUnavailable)
 
@@ -205,6 +206,14 @@ class MemoryConsoleObservationStore:
             row['last_seq'] = str(seq)
         selected = views.keys() if query.view == 'all' else [query.view]
         output, next_before, more = {}, {}, False
+        # A long-running App remains recoverable after its invocation leaves the
+        # current history page. Replay/rollback and watermark still define truth.
+        app_steps = [row for row in views['steps'].values()
+                     if (not query.turn_id or row.get('turn_id') == query.turn_id) and presents_app(row)]
+        # A native history replay gives every item the same event sequence.
+        # Preserve its item order, just as the paginated views do below.
+        output['app_step'] = max(app_steps, key=lambda row: (
+            int(row['first_seq']), row.get('replay_order', 0), row['id']), default=None)
         for name in selected:
             rows = [row for row in views[name].values() if not query.turn_id or row.get('turn_id') == query.turn_id]
             rows.sort(key=lambda row: (int(row['first_seq']), row.get('replay_order', 0), row['id']))

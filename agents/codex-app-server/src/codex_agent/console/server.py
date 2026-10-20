@@ -12,6 +12,7 @@ from .models import EventQuery, SnapshotQuery
 from .ports import ObservationError, InvalidCursor, UnknownEvent, UnknownSession
 from .service import CAPABILITIES
 from .static_files import CSP, StaticFiles
+from .html_preview import PREVIEW_CSP, read_html_preview
 
 from ..host import HostNotReady
 from ..state import identifier, payload_digest
@@ -28,13 +29,14 @@ class BodyTooLarge(ValueError):
 class ConsoleApp:
     """Same-origin Console for a trusted network; execution uses the Host principal."""
 
-    def __init__(self, host, events, *, max_streams=32, static_dir=None, image_settings=None):
+    def __init__(self, host, events, *, max_streams=32, static_dir=None, image_settings=None, integrations=None):
         self.host, self.events = host, events
         self.max_streams, self._streams = max_streams, 0
         self._writes = asyncio.Lock()
         self._stopping = False
         self._native_locks = {}
         self.image_settings = image_settings
+        self.integrations = integrations
         self.static = StaticFiles(static_dir or Path(__file__).parent / 'static')
 
     @staticmethod
@@ -72,12 +74,16 @@ class ConsoleApp:
                 try:
                     await self.events.start()
                     await self.host.start()
+                    if self.integrations:
+                        await self.integrations.start()
                 except Exception:
                     await send({'type': 'lifespan.startup.failed', 'message': 'Host initialization failed'})
                     return
                 await send({'type': 'lifespan.startup.complete'})
             elif message['type'] == 'lifespan.shutdown':
                 self._stopping = True
+                if self.integrations:
+                    await self.integrations.close()
                 await self.host.stop()
                 await self.events.close()
                 await send({'type': 'lifespan.shutdown.complete'})
@@ -245,6 +251,55 @@ class ConsoleApp:
         if method == 'POST' and self._stopping:
             return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
         try:
+            if path == '/api/workspace-preview' and method == 'GET':
+                query = parse_qs(scope.get('query_string', b'').decode(), keep_blank_values=True)
+                if set(query) - {'path', 'revision'} or len(query.get('path', [])) != 1:
+                    raise ValueError('one HTML preview path is required')
+                body = await read_html_preview(self.host.native, query['path'][0], 'preview-' + uuid.uuid4().hex)
+                await send({'type': 'http.response.start', 'status': 200, 'headers': [
+                    (b'content-type', b'text/html; charset=utf-8'), (b'cache-control', b'no-store'),
+                    (b'x-content-type-options', b'nosniff'), (b'referrer-policy', b'no-referrer'),
+                    (b'content-security-policy', PREVIEW_CSP.encode()),
+                    (b'permissions-policy', b'camera=(), microphone=(), geolocation=(), clipboard-write=()'),
+                ]})
+                return await send({'type': 'http.response.body', 'body': body})
+            if path.startswith('/internal/v1/'):
+                if not self.integrations:
+                    return await self._send(send, 503, {'error': 'integrations-disabled'})
+                try:
+                    body = await self._body(receive) if method == 'POST' else {}
+                    result = await self.integrations.route(method, path, body, headers, parse_qs(scope.get('query_string', b'').decode()))
+                    return await self._send(send, 202 if method == 'POST' else 200, result)
+                except PermissionError:
+                    return await self._send(send, 401, {'error': 'service-authentication-required'})
+            if path == '/api/mcp-app/activations' and method == 'GET':
+                if not self.integrations:
+                    return await self._send(send, 200, {'items': []})
+                query = parse_qs(scope.get('query_string', b'').decode())
+                session_id = query.get('session_id', [''])[0]
+                self.host.get_session(session_id)
+                rows = []
+                for file in (self.host.store.root / 'app-activations').glob('*.json'):
+                    row = self.host.store.read('app-activations/' + file.name)
+                    if row.get('source_session_id') == session_id or row.get('session_id') == session_id:
+                        rows.append({k: row.get(k) for k in ('activation_id', 'state', 'source_session_id', 'session_id', 'thread_id', 'app')})
+                return await self._send(send, 200, {'items': rows})
+            if path in {'/api/mcp-app/challenges', '/api/mcp-app/confirmations', '/api/mcp-app/tool-calls'} and method == 'POST':
+                if not self.integrations:
+                    return await self._send(send, 503, {'error': 'trusted-app-gateway-disabled'})
+                # _same_origin above validates a mandatory Origin here, including port.
+                # HTTP IP origins omit Sec-Fetch-*; opaque frames still send Origin:null
+                # and cannot confirm. Present fetch metadata must remain same-origin.
+                if path.endswith('/confirmations') and (
+                    not headers.get('origin')
+                    or headers.get('sec-fetch-site') not in (None, 'same-origin')
+                ):
+                    return await self._send(send, 403, {'error': 'host-ui-confirmation-required'})
+                body = await self._body(receive)
+                async with self._writes:
+                    gateway = self.integrations.gateway
+                    result = gateway.challenge(body) if path.endswith('/challenges') else gateway.confirm(body) if path.endswith('/confirmations') else await gateway.call(body)
+                return await self._send(send, 200, result)
             if path in {'/api/image-generation/settings', '/api/image-generation/check'}:
                 if self.image_settings is None:
                     return await self._send(send, 503, {'error': '图像设置服务尚未加载，请更新并重启此实例。'})

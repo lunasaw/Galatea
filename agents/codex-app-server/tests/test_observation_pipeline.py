@@ -95,6 +95,44 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         await self.service.flush()
         return (await self.service.read_events(EventQuery(limit=1000)))['events']
 
+    async def test_steered_client_identity_survives_original_turn_context_and_replay(self):
+        self.service.bind('s', 'thread')
+        items = [
+            {'id': 'initial', 'type': 'userMessage', 'content': [{'type': 'text', 'text': 'first'}]},
+            {'id': 'steered-1', 'type': 'userMessage', 'clientId': 'steer-request-1',
+             'content': [{'type': 'text', 'text': 'same supplement'}]},
+            {'id': 'steered-2', 'type': 'userMessage', 'clientId': 'steer-request-2',
+             'content': [{'type': 'text', 'text': 'same supplement'}]},
+        ]
+        self.service.append('s', {'kind': 'message_accepted', 'thread_id': 'thread',
+                                 'turn_id': 'turn', 'host_request_id': 'first-request', 'public': {'text': 'first'}})
+        for item in items:
+            for method in ('item/started', 'item/completed'):
+                self.wire({'method': method, 'params': {'threadId': 'thread', 'turnId': 'turn', 'item': item}})
+        await self.service.flush()
+        snapshot = await self.service.snapshot(SnapshotQuery('s'))
+        self.assertEqual([row['id'] for row in snapshot['messages']],
+                         ['request:first-request', 'message:thread:turn:steered-1', 'message:thread:turn:steered-2'])
+        self.assertEqual([row['client_id'] for row in snapshot['messages'][1:]], ['steer-request-1', 'steer-request-2'])
+        self.service.append('s', {'kind': 'thread_restored', 'thread_id': 'thread',
+                                 'public': {'thread': {'turns': [{'id': 'turn', 'status': 'completed', 'items': items}]}}})
+        await self.service.flush()
+        snapshot = await self.service.snapshot(SnapshotQuery('s'))
+        self.assertEqual(len(snapshot['messages']), 3)
+        self.assertEqual([row['client_id'] for row in snapshot['messages'][1:]], ['steer-request-1', 'steer-request-2'])
+
+    async def test_steering_does_not_claim_initial_message_before_its_native_item_arrives(self):
+        self.service.bind('s', 'thread')
+        self.service.append('s', {'kind': 'message_accepted', 'thread_id': 'thread',
+                                 'turn_id': 'turn', 'host_request_id': 'first', 'public': {'text': 'original'}})
+        self.wire({'method': 'item/completed', 'params': {'threadId': 'thread', 'turnId': 'turn', 'item': {
+            'id': 'steered', 'type': 'userMessage', 'clientId': 'supplement',
+            'content': [{'type': 'text', 'text': 'supplement'}]}}})
+        await self.service.flush()
+        snapshot = await self.service.snapshot(SnapshotQuery('s'))
+        self.assertEqual([(row['id'], row['text']) for row in snapshot['messages']],
+                         [('request:first', 'original'), ('message:thread:turn:steered', 'supplement')])
+
     async def test_moderation_metadata_is_retained_without_projecting_chat_warnings(self):
         self.service.bind('s', 'thread')
         for index in range(8):

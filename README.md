@@ -14,7 +14,8 @@ Codex 是仓库唯一的 Agent Runtime。Web Agent 由
 [`agents/codex-app-server`](agents/codex-app-server/README.md) 托管原生 `codex app-server`，
 复用其 Agent Loop、Thread、Turn、Skill、沙箱与审批。通用 Host 提供网页工作台、协议转发、
 会话恢复和可配置的 Tool Provider；业务能力通过外部 MCP 或独立 Provider 接入。
-当前 Host 不内置 Galatea 服务或训练流程，真实训练联动和业务阶段可视化仍需单独接入与验收。
+Host 通过显式配置接入独立的 [Galatea 任务 App](agents/galatea-app/README.md)，
+展示业务阶段、进度和产物；普通 CSV 需求的真实聊天链路已验证，完整训练联动按业务契约另行验收。
 
 网页工作台的使用方式见 **[Codex Agent Host 产品界面图文导览](agents/codex-app-server/README.md#product-ui)**：
 包含当前界面截图，以及项目与聊天、任务输入、权限审批、文件与代码审查、终端、扩展、设置和多模态能力的详细介绍。
@@ -24,6 +25,16 @@ Codex 是仓库唯一的 Agent Runtime。Web Agent 由
 独立 [`galatea-mcp`](services/galatea-mcp/README.md) 提供 Campaign、预算与平台工具约束。
 Codex 审批不能替代训练授权，业务组件也不实现第二套 Agent Loop、会话或原生权限系统。
 完整职责、接入路径及迁移边界见 [`doc/agent-galatea.md`](doc/agent-galatea.md)。
+
+## Galatea 任务 App
+
+**聊天是入口，Agent 主导执行，App 按需展示。** 新建聊天后直接描述需求，例如
+“检查 CSV 的缺失值和重复行，生成报告，不修改原文件”。Agent 自主建立任务并展开面板，
+动态展示阶段、进展、指标和结果；补充要求与调整方向仍在原聊天完成。
+App 内没有独立发起表单、项目列表或第二个聊天框。
+
+使用流程、展示内容、职责边界和已验证范围见 **[新版 App 产品介绍](agents/galatea-app/docs/00-product-overview.md)**；
+接入和运行见 [App 运行说明](agents/galatea-app/README.md)。
 
 ## 图解导览
 
@@ -80,6 +91,7 @@ Tracking/Artifact API 访问平台，不读取 MLflow 后端数据库，也不�
 | Codex | Agent Loop、Thread/Turn、Skill、原生工具、沙箱与审批 | 项目训练授权和质量门禁 |
 | 通用 Host | 托管原生进程、网页交互、可选 Provider 与会话恢复 | 模型决策和训练业务状态机 |
 | Galatea 治理组件 | 固定入口、不可变 Release、授权预算和执行证据校验 | Agent Loop、模型客户端和原生沙箱 |
+| Galatea 任务 App | 动态任务、阶段、证据、进度与结果展示；受限外部观察和接续 | 模型调用、第二套聊天、训练授权签发 |
 | systemd | 平台服务与 Ray Head 的进程生命周期 | Ray 训练业务逻辑 |
 
 #### 参考架构
@@ -366,6 +378,8 @@ Host 自身的协议、前端与恢复验证见 [Host 测试验收](agents/codex
 - [Ray 训练接入与运行规范](doc/train-guide/ray-training-guide.md)
 - [MLflow 训练指标手册](doc/train-guide/mlflow-training-integration-spec.md)
 - [Codex 与 Galatea 架构](doc/agent-galatea.md)
+- [Galatea 任务 App 产品介绍](agents/galatea-app/docs/00-product-overview.md)
+- [Galatea 任务 App 接入与运行](agents/galatea-app/README.md)
 - [Codex app-server 安装与运行](agents/codex-app-server/README.md)
 - [Codex app-server 配置与部署](agents/codex-app-server/docs/06-config-deployment.md)
 - [仓库开发规范](AGENTS.md)

@@ -60,6 +60,12 @@ class FixtureNative(NativeBridge):
         if method == 'turn/steer':
             if self.host.sessions[params['threadId']].get('active_turn_id') != params['expectedTurnId']:
                 raise ValueError('turn identity changed')
+            item = {'id': 'steered-' + request_id, 'type': 'userMessage',
+                    'clientId': params.get('clientUserMessageId'), 'content': params['input']}
+            self.host.events.observer('runtime_to_host', {'method': 'item/completed', 'params': {
+                'threadId': params['threadId'], 'turnId': params['expectedTurnId'], 'item': item,
+            }}, runtime_instance_id='browser-fixture')
+            await self.host.events.flush()
             return {'turnId': params['expectedTurnId']}
         if method == 'mcpServer/tool/call':
             return {'content': [{'type': 'text', 'text': 'native app tool result'}], 'isError': False}
@@ -238,6 +244,9 @@ class FixtureNative(NativeBridge):
         if method == 'fs/createDirectory':
             return {}
         if method == 'fs/readFile':
+            if params['path'] in ('/fixture/report.html', '/fixture/report.htm'):
+                body = (Path(__file__).parent / 'fixtures/workspace_preview.html').read_bytes()
+                return {'dataBase64': base64.b64encode(body).decode()}
             if params['path'] == '/fixture/README.md':
                 text = '# 会话界面\n\n文件可在右侧阅读，并保留输入草稿。\n\n[阅读源码](src/workbench.tsx#L84-L86)\n\n| 功能 | 状态 |\n| --- | --- |\n| 文件预览 | 可用 |\n\n```typescript\nconst desktop = true;\n```\n\n<img src=x onerror="window.injected=1">'
                 return {'dataBase64': base64.b64encode(text.encode()).decode()}
@@ -254,10 +263,6 @@ class FixtureNative(NativeBridge):
             session['settings'] = {**session.get('settings', {}), **{k: v for k, v in params.items() if k != 'threadId'}}
             if params.get('cwd'):
                 session['cwd'] = params['cwd']
-        if method == 'turn/steer':
-            assert self.host.sessions[params['threadId']]['active_turn_id'] == params['expectedTurnId']
-            self.host.events.append(params['threadId'], {'kind': 'message_accepted', 'thread_id': params['threadId'],
-                'turn_id': params['expectedTurnId'], 'host_request_id': request_id, 'public': {'text': params['input'][0]['text']}})
         return {}
 
 
@@ -333,6 +338,9 @@ class BrowserHost(test_console.FakeHost):
                 wire('turn/moderationMetadata', {'metadata': {'sequence': index}})
         wire('item/started', {'item': {'id': 'reasoning', 'type': 'reasoning', 'summary': [], 'content': []}})
         wire('item/reasoning/summaryTextDelta', {'itemId': 'reasoning', 'summaryIndex': 0, 'delta': '先检查当前可用能力。'})
+        if text == 'steer-running-fixture':
+            await self.events.flush()
+            return {'request_id': request_id, 'turn_id': turn, 'status': 'accepted'}
         await asyncio.sleep(1.2)
         wire('item/reasoning/summaryPartAdded', {'itemId': 'reasoning', 'summaryIndex': 1})
         wire('item/reasoning/summaryTextDelta', {'itemId': 'reasoning', 'summaryIndex': 1, 'delta': '再整理结果与下一步建议。'})
@@ -372,6 +380,8 @@ class BrowserHost(test_console.FakeHost):
             reply = '验收完成。\n\n[查看报告](/fixture/report.md) · [查看源码](/fixture/file.py:2)'
         if text == 'desktop-ui-fixture':
             reply = '会话交互已调整。点击文件后可在右侧阅读，对话与草稿会保留。\n\n[阅读说明](/fixture/README.md) · [定位源码](/fixture/src/workbench.tsx#L84-L86)\n\n[相对路径](src/workbench.tsx:12) · [中文文件](docs/%E7%95%8C%E9%9D%A2%20%E8%AF%B4%E6%98%8E.md) · [重试文件](/fixture/missing.md) · [慢速文件](/fixture/slow.txt) · [外部文档](https://developers.openai.com/codex/app/features)'
+        if text == 'html-preview-fixture':
+            reply = '[交互讲解图](/fixture/report.html) · [HTM 页面](/fixture/report.htm) · [查看第 3 行](/fixture/report.html#L3)'
         if text == 'copy-fixture':
             reply = '## 完整复制验收\n\n' + '\n\n'.join(
                 f'第 {index} 段：这段内容必须完整保留。**中文和标点**、`代码`、链接 [文档](https://example.test/docs)。'

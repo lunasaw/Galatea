@@ -1,0 +1,59 @@
+{
+  "activate_project_task": {
+    "read_only": false
+  },
+  "create_task": {
+    "read_only": false
+  },
+  "get_activation": {
+    "read_only": true
+  },
+  "get_artifact": {
+    "read_only": true
+  },
+  "get_command_receipt": {
+    "read_only": true
+  },
+  "get_file_change": {
+    "read_only": true
+  },
+  "get_stage_details": {
+    "read_only": true
+  },
+  "get_task": {
+    "read_only": true
+  },
+  "get_task_events": {
+    "read_only": true
+  },
+  "get_training_proposal": {
+    "read_only": true
+  },
+  "get_workbench": {
+    "read_only": true
+  },
+  "get_workbench_events": {
+    "read_only": true
+  },
+  "launch_project": {
+    "read_only": false
+  },
+  "list_projects": {
+    "read_only": true
+  },
+  "list_tasks": {
+    "read_only": true
+  },
+  "open_workbench": {
+    "read_only": true
+  },
+  "record_review": {
+    "read_only": false
+  },
+  "request_control": {
+    "read_only": false
+  },
+  "submit_input": {
+    "read_only": false
+  }
+}

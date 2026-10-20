@@ -1,0 +1,808 @@
+{
+  "schema_version": "codex-agent.tools/v1",
+  "tools": {
+    "begin_stage": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stage_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expected_plan_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "stage_id",
+        "expected_plan_revision"
+      ],
+      "additionalProperties": false
+    },
+    "bind_external": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "intent_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "operation_ref": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "intent_id",
+        "operation_ref"
+      ],
+      "additionalProperties": false
+    },
+    "complete_task": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "artifact_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "maxItems": 100
+        },
+        "expected_plan_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "summary",
+        "artifact_refs",
+        "expected_plan_revision"
+      ],
+      "additionalProperties": false
+    },
+    "create_task": {
+      "type": "object",
+      "properties": {
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "inputs": {
+          "type": "array",
+          "maxItems": 100
+        },
+        "constraints": {
+          "type": "object"
+        },
+        "start": {
+          "type": "boolean"
+        },
+        "parent_task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "goal",
+        "command_id"
+      ],
+      "additionalProperties": false
+    },
+    "fail_task": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "reason_code",
+        "evidence_refs"
+      ],
+      "additionalProperties": false
+    },
+    "get_current_task": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "get_task": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "known_version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "prepare_external": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "execution_token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "immutable_inputs": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "attempt_id",
+        "execution_token",
+        "route",
+        "immutable_inputs"
+      ],
+      "additionalProperties": false
+    },
+    "propose_training": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stage_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "proposal": {
+          "type": "object"
+        },
+        "expected_plan_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "stage_id",
+        "proposal",
+        "expected_plan_revision"
+      ],
+      "additionalProperties": false
+    },
+    "replace_plan": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "stages": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8000
+              },
+              "kind": {
+                "enum": [
+                  "data.inspect",
+                  "data.transform",
+                  "data.freeze",
+                  "code.prepare",
+                  "training.run",
+                  "result.verify",
+                  "result.review"
+                ]
+              },
+              "depends_on": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxItems": 100
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "input_refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "maxItems": 100
+              },
+              "output_slots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "role": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "media_type": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "role",
+                    "media_type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "acceptance": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "type": {
+                      "enum": [
+                        "artifact_exists",
+                        "schema_matches",
+                        "metric_threshold",
+                        "external_operation_terminal",
+                        "user_review_recorded"
+                      ]
+                    },
+                    "parameters": {
+                      "type": "object",
+                      "properties": {
+                        "artifact_role": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "schema_ref": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "metric": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "operator": {
+                          "enum": [
+                            ">=",
+                            "<="
+                          ]
+                        },
+                        "value": {
+                          "type": "number"
+                        },
+                        "split": {
+                          "enum": [
+                            "train",
+                            "validation"
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "parameters"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "execution": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "skill",
+                      "tool",
+                      "external",
+                      "manual"
+                    ]
+                  },
+                  "capability_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "skill_refs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "maxItems": 100
+                  },
+                  "retry_policy": {
+                    "type": "object",
+                    "properties": {
+                      "max_attempts": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "requires_reconciliation": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "max_attempts",
+                      "requires_reconciliation"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "mode",
+                  "capability_ref",
+                  "skill_refs",
+                  "retry_policy"
+                ],
+                "additionalProperties": false
+              },
+              "replaces_stage_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "kind",
+              "depends_on",
+              "required",
+              "input_refs",
+              "output_slots",
+              "acceptance",
+              "execution"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "expected_plan_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "reason",
+        "stages",
+        "expected_plan_revision"
+      ],
+      "additionalProperties": false
+    },
+    "report_result": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stage_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "execution_token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "result": {
+          "type": "object"
+        },
+        "artifact_candidates": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8000
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "slot": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "media_type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "external_ref": {
+                "type": "object"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "role",
+              "slot",
+              "media_type"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "stage_id",
+        "attempt_id",
+        "execution_token",
+        "result",
+        "artifact_candidates"
+      ],
+      "additionalProperties": false
+    },
+    "request_replan": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "retry_stage": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stage_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "stage_id",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "skip_stage": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stage_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "stage_id",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "start_task": {
+      "type": "object",
+      "properties": {
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8000
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "constraints": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "enum": [
+                "data_processing",
+                "code_preparation",
+                "governed_training",
+                "analysis"
+              ]
+            },
+            "allow_training": {
+              "type": "boolean"
+            },
+            "max_auto_continuations": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "deadline_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "goal",
+        "command_id"
+      ],
+      "additionalProperties": false
+    },
+    "wait": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "attempt_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "execution_token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "wait_spec": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "task_id",
+        "command_id",
+        "attempt_id",
+        "execution_token",
+        "wait_spec"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

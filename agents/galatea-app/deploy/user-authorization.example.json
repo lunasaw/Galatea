@@ -1,0 +1,13 @@
+{
+  "principal_ids": ["owner"],
+  "roles": ["smoke"],
+  "allow_final_test": false,
+  "resources": {"gpu": 1, "cpu": 19},
+  "hard_limits": {
+    "attempts": 1,
+    "retries": 0,
+    "wall_seconds": 1800,
+    "memory_bytes": 34359738368
+  },
+  "expires_at": "REPLACE_WITH_REVIEWED_UTC_EXPIRY"
+}

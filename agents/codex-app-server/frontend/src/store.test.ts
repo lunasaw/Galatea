@@ -432,6 +432,76 @@ test("sending publishes a local message before HTTP returns and reconciles eithe
   }
 });
 
+test("steering publishes immediately and reconciles native client identity in either response order", async () => {
+  for (const snapshotFirst of [true, false]) {
+    const s = make();
+    const session = { id: "a", thread_id: "thread-a", status: "running", active_turn_id: "turn-a" };
+    s.patch({ active: "a", sessions: [session], snapshot: snapshot("older") });
+    const response = deferred<Response>();
+    const calls: RequestInit[] = [];
+    globalThis.fetch = async (path, init) => {
+      if (path === "/api/native/call") { calls.push(init!); return response.promise; }
+      return json([session]);
+    };
+    const input = [{ type: "text", text: "补充" }, { type: "image", url: "data:image/png;base64,AAAA" }];
+    assert.equal(s.steer("补充", input, "a", "turn-a"), true);
+    const pending = s.state.pendingMessages[0];
+    assert.equal(pending.status, "sending");
+    assert.equal(toConversationMessages(s.state.snapshot, s.state.pendingMessages).at(-1)?.id, `request:${pending.key}`);
+    assert.equal(s.steer("重复点击", input, "a", "turn-a"), false);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(JSON.parse(calls[0].body as string), { method: "turn/steer", params: {
+      threadId: "thread-a", expectedTurnId: "turn-a", clientUserMessageId: pending.key, input,
+    } });
+    const confirmed = { ...snapshot("older"), messages: [...snapshot("older").messages!, {
+      id: "message:thread-a:turn-a:native-item", client_id: pending.key,
+      role: "user" as const, text: "补充", first_seq: "11", last_seq: "11",
+    }] };
+    if (snapshotFirst) {
+      s.patch({ snapshot: confirmed });
+      assert.equal(toConversationMessages(s.state.snapshot, s.state.pendingMessages).length, 2);
+    }
+    response.resolve(json({ turnId: "turn-a" }));
+    await tick();
+    if (!snapshotFirst) {
+      assert.equal(s.state.pendingMessages[0].status, "sent");
+      s.patch({ snapshot: confirmed });
+    }
+    assert.equal(s.state.pendingMessages.length, 0);
+    assert.equal(s.state.submitting, false);
+    assert.equal(toConversationMessages(s.state.snapshot, s.state.pendingMessages).length, 2);
+  }
+});
+
+test("failed steering retries the same native request and never targets a newer turn or chat", async () => {
+  const s = make();
+  s.patch({ active: "a", sessions: [{ id: "a", thread_id: "thread-a", status: "running", active_turn_id: "turn-a" }] });
+  const response = deferred<Response>();
+  const calls: RequestInit[] = [];
+  globalThis.fetch = async (path, init) => {
+    if (path === "/api/native/call") {
+      calls.push(init!);
+      if (calls.length === 1) return response.promise;
+      return json({ turnId: "turn-a" });
+    }
+    return json(s.state.sessions);
+  };
+  s.steer("补充", [{ type: "text", text: "补充" }], "a", "turn-a");
+  s.patch({ active: "b", error: "other chat notice" });
+  response.resolve(new Response(JSON.stringify({ error: "temporarily-unavailable" }), { status: 503 }));
+  await tick();
+  assert.equal(s.state.error, "other chat notice");
+  assert.equal(s.state.pendingMessages[0].status, "failed");
+  assert.equal(s.state.pendingMessages[0].id, "a");
+  s.patch({ active: "a", sessions: [{ id: "a", thread_id: "thread-a", status: "running", active_turn_id: "new-turn" }] });
+  await s.retrySend();
+  assert.equal(calls[0].body, calls[1].body);
+  assert.deepEqual(calls[0].headers, calls[1].headers);
+  assert.equal(s.state.pendingMessages[0].status, "sent");
+  assert.equal(s.steer("stale", [], "a", "turn-a"), false);
+  assert.equal(calls.length, 2);
+});
+
 test("first send is visible during creation and dispatch does not await history or catalog", async () => {
   const s = make();
   const creation = deferred<Response>(), metadata = deferred<Response>(), history = deferred<Response>();

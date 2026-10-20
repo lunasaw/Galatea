@@ -8,6 +8,50 @@ from .catalog import digest
 from .config import AgentConfig
 from .runtime_version import VERSION, RUNTIME_VERSION
 from .stage0 import file_sha256
+from .state import AtomicJsonStore, identifier, payload_digest, single_writer_lock
+
+
+def rebind_source_extensions(config, session_id, *, expected_previous, expected_current):
+    """Explicit offline source deployment; never changes identity or grants."""
+    from .local import source_manifest
+
+    if config.raw.get('release'):
+        raise ValueError('release deployments require their release migration')
+    identifier(expected_previous)
+    identifier(expected_current)
+    store = AtomicJsonStore(config.state_dir)
+    with single_writer_lock(config.state_dir / '.host.lock'):
+        measured = source_manifest(config)
+        if measured['extensions_sha256'] != expected_current:
+            raise ValueError('reviewed extension digest does not match deployed files')
+        path = f'sessions/{identifier(session_id)}.json'
+        session = store.read(path)
+        if not session or session.get('status') not in {'ready', 'recovery_required'} or session.get('active_turn_id') or session.get('active_request_id'):
+            raise ValueError('only an idle existing session can be rebound')
+        unchanged = {k: measured[k] for k in ('runtime_binary_sha256', 'runtime_compatibility_sha256', 'agent_config_sha256')}
+        unchanged.update(catalog_digest=config.catalog().digest,
+                         principal_digest=payload_digest([config.principal_id, sorted(config.actions)]))
+        if any(session.get(k) != v for k, v in unchanged.items()):
+            raise ValueError('runtime, catalog, principal or configuration changed')
+        evidence = f'source-upgrades/{expected_current}/{identifier(session_id)}.json'
+        previous = store.read(evidence)
+        if session.get('extensions_sha256') == expected_current and previous and previous['previous_session']['extensions_sha256'] == expected_previous:
+            return session
+        if session.get('extensions_sha256') != expected_previous:
+            raise ValueError('previous extension digest changed')
+        for folder, field, terminal in (
+            ('tool-calls', 'state', {'receipt_saved'}),
+            ('requests', 'status', {'completed', 'failed', 'interrupted'}),
+        ):
+            for file in (store.root / folder).glob('*.json'):
+                record = store.read(f'{folder}/{file.name}')
+                if record.get('identity', record).get('session_id') == session_id and record.get(field) not in terminal:
+                    raise ValueError('unresolved execution must be reconciled before migration')
+        if previous is None:
+            store.write(evidence, {'previous_session': session, 'extensions_sha256': expected_current})
+        updated = {**session, 'extensions_sha256': expected_current, 'status': 'recovery_required'}
+        store.write(path, updated)
+        return updated
 
 
 def migrate_source_sessions(config, store, bindings):
@@ -52,3 +96,18 @@ def migrate_source_sessions(config, store, bindings):
             store.write(evidence, {'from': old.runtime_version, 'to': RUNTIME_VERSION,
                                    'previous_session': session})
         store.write('sessions/' + path.name, {**session, **bindings})
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Rebind one idle source session after a reviewed extension update; stop Host first.')
+    parser.add_argument('--config', required=True)
+    parser.add_argument('--session-id', required=True)
+    parser.add_argument('--expected-previous', required=True)
+    parser.add_argument('--expected-current', required=True)
+    args = parser.parse_args()
+    path = Path(args.config).resolve()
+    config = AgentConfig.from_dict(json.loads(path.read_text()), path.parent)
+    result = rebind_source_extensions(config, args.session_id,
+                                     expected_previous=args.expected_previous, expected_current=args.expected_current)
+    print(json.dumps({k: result[k] for k in ('id', 'status', 'extensions_sha256')}))

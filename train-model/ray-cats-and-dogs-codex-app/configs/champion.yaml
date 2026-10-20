@@ -1,0 +1,13 @@
+# Evaluate the frozen single-worker baseline checkpoint without fitting again.
+extends: baseline.yaml
+
+run:
+  role: champion
+  name_prefix: ray-cats-dogs-codex-app-champion
+  log_model: true
+  promotable: true
+
+evaluation:
+  evaluate_test: true
+  # Set the previously validated immutable manifest in an explicit final profile.
+  manifest_path: null

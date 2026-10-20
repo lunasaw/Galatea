@@ -13,6 +13,7 @@ export type Session = {
 export type Message = {
   id: string;
   item_id?: string;
+  client_id?: string | null;
   role: "user" | "assistant";
   text: string;
   turn_id?: string;
@@ -36,6 +37,7 @@ export type PendingMessage = {
   text: string;
   input?: Record<string, unknown>[];
   options?: Record<string, unknown>;
+  steer?: { threadId: string; expectedTurnId: string };
   status: "sending" | "sent" | "failed";
 };
 export type Step = {
@@ -74,6 +76,7 @@ export type Snapshot = {
   next_page: string | null;
   messages?: Message[];
   steps?: Step[];
+  app_step?: Step | null;
   turns?: Turn[];
   coverage: { status: string; reason?: string };
 };

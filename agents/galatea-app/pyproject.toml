@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "galatea-app"
+version = "0.1.0"
+description = "Durable task workbench for the native Codex Host"
+requires-python = ">=3.11"
+dependencies = ["jsonschema>=4.25,<5", "cryptography>=42", "httpx>=0.28,<0.29", "uvicorn>=0.35,<0.41"]
+
+[project.optional-dependencies]
+training = ["mlflow>=3.0,<4"]
+
+[project.scripts]
+galatea-app = "galatea_app.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+galatea_app = ["contracts/*.json", "static/*.html"]

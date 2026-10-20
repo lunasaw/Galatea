@@ -40,7 +40,7 @@ class AgentConfig:
 
     @classmethod
     def from_dict(cls, raw: dict, config_dir: Path):
-        _object(raw, {'schema_version', 'paths', 'codex', 'agent', 'skills', 'tools', 'console', 'release', 'image_generation'}, 'configuration')
+        _object(raw, {'schema_version', 'paths', 'codex', 'agent', 'skills', 'tools', 'console', 'release', 'image_generation', 'app_integrations'}, 'configuration')
         if raw.get('schema_version') != 'codex-agent/v2':
             raise ValueError('unsupported config schema; create a codex-agent/v2 configuration')
         config_dir = config_dir.absolute()
@@ -111,6 +111,10 @@ class AgentConfig:
         _object(raw.get('release', {}), {'manifest', 'stage0_record'}, 'release')
         from .image_generation import configuration_defaults
         images = configuration_defaults(raw.get('image_generation', {}), path)
+        from .app_integrations import validate_config
+        validate_config(raw.get('app_integrations', {}))
+        if raw.get('app_integrations', {}).get('enabled') and backend != 'sqlite':
+            raise ValueError('app integrations require persistent Console storage')
         return cls(config_dir=config_dir, **{k: path(v) for k, v in paths.items()},
                    binary=path(codex.get('binary')), runtime_version=codex['runtime_version'],
                    principal_id=principal, actions=frozenset(actions),

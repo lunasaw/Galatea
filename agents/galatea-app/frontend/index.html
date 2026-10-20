@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Galatea · 任务进度与结果</title>
+    <!-- STYLE -->
+  </head>
+  <body>
+    <div id="app">
+      <div class="main">
+        <header>
+          <div>
+            <div class="breadcrumb">
+              Galatea <span>/</span> <strong id="project-name">任务进度与结果</strong>
+            </div>
+            <button id="path" class="path" title="复制工作目录">
+              告诉 Agent 数据在哪里，以及希望完成什么
+            </button>
+          </div>
+          <div class="header-actions">
+            <button id="fullscreen">展开视图 ↗</button
+            ><button id="toggle-details" aria-expanded="true">
+              过程详情 ◫
+            </button>
+          </div>
+        </header>
+        <div id="notice" role="status" aria-live="polite">
+          正在连接可信 Host…
+        </div>
+        <section id="empty">
+          <h2>等待 Agent 建立任务</h2>
+          <p>在当前聊天描述数据和目标。Agent 开始处理后，这里会显示进度、指标与结果。</p>
+        </section>
+        <section id="work" hidden>
+          <nav id="stages" aria-label="任务阶段"></nav>
+          <div class="work-grid">
+            <section class="conversation">
+              <div class="goal-block">
+                <div class="eyebrow">任务目标</div>
+                <h2 id="task-goal"></h2>
+                <div id="sources" class="chips"></div>
+              </div>
+              <div id="actions"></div>
+              <div id="process"></div>
+              <div id="new-records" hidden>
+                有新记录 · <button id="scroll-latest">查看最新</button>
+              </div>
+              <div id="composer">
+                <div class="composer-bar">
+                  <small id="task-status"></small><span class="spacer"></span
+                  ><button id="stop">停止 Agent</button
+                  >
+                </div>
+                <small class="shortcut"
+                  >继续在聊天中补充要求或调整方案</small
+                >
+              </div>
+            </section>
+            <aside id="details">
+              <div class="detail-title">
+                <strong>过程详情</strong
+                ><button id="follow">查看当前步骤</button>
+              </div>
+              <div id="detail-stage"></div>
+              <div class="tabs" role="tablist" aria-label="过程详情标签">
+                <button role="tab" data-tab="artifacts" aria-selected="true">
+                  产物</button
+                ><button role="tab" data-tab="logs" aria-selected="false">
+                  日志</button
+                ><button role="tab" data-tab="binding" aria-selected="false">
+                  项目绑定
+                </button>
+              </div>
+              <div id="detail-body" role="tabpanel"></div>
+            </aside>
+          </div>
+        </section>
+      </div>
+    </div>
+    <!-- SCRIPT -->
+  </body>
+</html>

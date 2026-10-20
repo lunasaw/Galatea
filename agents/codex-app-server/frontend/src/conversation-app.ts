@@ -6,7 +6,9 @@ export function conversationApp(state: Pick<ConsoleState, "active" | "sessions" 
   const session = state.sessions.find(s => s.id === state.active);
   if (!session?.thread_id) return;
   const steps = [...(state.snapshot?.steps || []), ...(state.snapshot?.app_step ? [state.snapshot.app_step] : [])].sort((a, b) =>
-    a.first_seq.localeCompare(b.first_seq, undefined, { numeric: true }));
+    a.first_seq.localeCompare(b.first_seq, undefined, { numeric: true })
+    || (a.replay_order ?? 0) - (b.replay_order ?? 0)
+    || a.id.localeCompare(b.id));
   for (const step of steps.reverse()) {
     if (step.type === "tool") {
       const detail = step.detail as Obj | undefined;

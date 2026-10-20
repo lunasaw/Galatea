@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { goalReader } from "./goal-reader";
 import { sharedMutation } from "./native-mutation";
 import { Button } from "./components/ui/button";
 import { TooltipIconButton } from "./components/assistant-ui/elements/tooltip-icon-button";
@@ -14,7 +15,9 @@ const goalStatuses: Record<string, string> = { active: "进行中", paused: "已
 export function GoalCard({ threadId, revision, expanded, onExpandedChange }: {
   threadId?: string; revision: number; expanded: boolean; onExpandedChange: (expanded: boolean) => void;
 }) {
-  const load = useCallback(() => threadId ? native("thread/goal/get", { threadId }) : Promise.resolve({ goal: null }), [threadId, revision]);
+  const load = useMemo(() => goalReader(() => threadId
+    ? native<{ goal: any }>("thread/goal/get", { threadId })
+    : Promise.resolve({ goal: null })), [threadId, revision]);
   const resource = useResource(load, threadId ? 5000 : 0);
   const action = useAction();
   const goal = resource.data?.goal;

@@ -408,7 +408,8 @@ class AgentHost:
             status = 'closed' if session['status'] == 'closing' else 'ready'
             if session['status'] == 'recovery_required':
                 status = 'recovery_required'
-            session.update(status=status, active_turn_id=None, active_request_id=None)
+            session.update(status=status, active_turn_id=None, active_request_id=None,
+                           last_turn_id=turn_id, last_turn_status=turn.get('status', 'failed'))
             session.pop('turn_settings', None)
             self._save(session)
             self._cancels.pop(session['id'], None)
@@ -487,6 +488,13 @@ class AgentHost:
             return dict(session)
 
     def restore_thread(self, session_id, thread):
+        session = self._session(session_id)
+        turns = thread.get('turns', [])
+        if session and turns and not any(t.get('status') == 'inProgress' for t in turns):
+            last = turns[-1]
+            if last.get('status') in {'completed', 'failed', 'interrupted'}:
+                session.update(last_turn_id=last['id'], last_turn_status=last['status'])
+                self._save(session)
         self.events.append(session_id, {'kind': 'thread_restored', 'thread_id': thread['id'],
                                        'public': {'thread': thread}})
 

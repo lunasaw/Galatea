@@ -18,7 +18,9 @@ from ray_cats_dogs.tracking import (  # noqa: E402
     RAY_TASK_TIMELINE_LIMIT,
     RAY_TASK_TIMELINE_METADATA_PATH,
     RayMlflowCallback,
+    TrackingContext,
     log_ray_task_timeline,
+    runs_for_identity,
 )
 
 
@@ -32,6 +34,28 @@ class FakeClient:
 
     def set_tag(self, run_id, key, value, synchronous):
         self.tags.append((run_id, key, value, synchronous))
+
+
+class GovernedReuseTest(unittest.TestCase):
+    def test_reuse_is_limited_to_the_same_governed_execution(self):
+        def run(identity):
+            tags = {} if identity is None else {"galatea.execution.identity": identity}
+            return SimpleNamespace(data=SimpleNamespace(tags=tags))
+
+        old_trial, unbound, current = run("old"), run(None), run("current")
+        tracking = TrackingContext("experiment", "name", "mlflow-artifacts:/")
+        with patch("ray_cats_dogs.tracking.MlflowClient") as factory:
+            factory.return_value.search_runs.return_value = [old_trial, unbound, current]
+            self.assertEqual(
+                runs_for_identity(tracking, "same-config", execution_identity="current"),
+                [current],
+            )
+            self.assertEqual(
+                runs_for_identity(tracking, "same-config", execution_identity="new"),
+                [],
+            )
+            with self.assertRaises(ValueError):
+                runs_for_identity(tracking, "same-config", execution_identity="")
 
 
 class RayMlflowCallbackTest(unittest.TestCase):

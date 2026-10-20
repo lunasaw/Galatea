@@ -113,6 +113,8 @@ class AppIntegrations:
             return self.background.accept(body, service)
         if path.startswith("/internal/v1/continuation-bindings/") and method == "POST":
             return self.background.revoke(path.rsplit("/", 1)[1], service)
+        if path.startswith("/internal/v1/continuation-bindings/") and method == "GET":
+            return self.background.binding_status(path.rsplit("/", 1)[1], service)
         if path.startswith("/internal/v1/continuations/"):
             id = path.rsplit("/", 1)[1]
             return (

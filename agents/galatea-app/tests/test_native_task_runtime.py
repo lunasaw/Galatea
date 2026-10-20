@@ -277,6 +277,8 @@ class NativeTaskTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(snapshot["task"]["status"], "completed")
                     self.assertEqual(len(snapshot["stages"]), 2)
                     self.assertEqual(len(requests), 7)
+                    self.assertEqual(host.get_session(session["id"])["last_turn_status"], "completed")
+                    self.assertNotIn('"name": "get_goal"', json.dumps(requests[0]["tools"]))
                     self.assertTrue(
                         all(
                             e["verification"] == "verified"

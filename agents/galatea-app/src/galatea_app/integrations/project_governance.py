@@ -3,10 +3,12 @@
 from __future__ import annotations
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import tempfile
 import subprocess
+import time
 from urllib.parse import urlsplit
 import httpx
 from galatea_app.common import require, utc, digest, timestamp, TaskError
@@ -278,7 +280,32 @@ class ProjectGovernance:
         elif state == "succeeded":
             fact["status"] = "unknown"
             fact["reason"] = "Unique bound MLflow Run not found"
+            # Allow tracking visibility to settle, but a terminal Job without
+            # its own Run must not leave cancellation or recovery pending forever.
+            ended = job.get("end_time")
+            if (
+                type(ended) in (int, float)
+                and math.isfinite(ended)
+                and 0 < ended / 1000 <= time.time() - 60
+            ):
+                fact["status"] = "failed"
+                fact["reason"] = "Terminal Ray Job has no unique bound MLflow Run"
         return fact
+
+    def execution_started_at(self, operation):
+        """Return the Ray-owned start timestamp; never trust model-supplied time."""
+        require(operation["id"] in self.operations, "FORBIDDEN")
+        response = self.http.get(self.ray_api + "/api/jobs/" + operation["id"])
+        response.raise_for_status()
+        started = response.json().get("start_time")
+        require(
+            type(started) in (int, float)
+            and math.isfinite(started)
+            and 0 < started / 1000 <= time.time(),
+            "EXECUTION_UNKNOWN",
+            "Ray has not supplied an execution start timestamp",
+        )
+        return started / 1000
 
     def read_artifact(self, ref, max_bytes):
         require(

@@ -48,12 +48,18 @@ node agents/galatea-app/tests/workbench_browser.cjs
 4. 在该 Host 独立 `codex_home/config.toml` 中登记：
 
    ```toml
+   [features]
+   goals = false
+
    [mcp_servers.galatea_app]
    url = "http://127.0.0.1:18886/mcp"
    bearer_token_env_var = "GALATEA_APP_MCP_TOKEN"
    ```
 
    通过保护的服务环境文件提供该变量，并加入 Host `codex.inherit_env`。不要把 token 写入仓库。
+   Galatea 专用 Host 使用 Task 作为唯一任务状态源，关闭原生 Goal 工具，防止把 `get_goal`
+   当作 Task 等待接口。已有 `[features]` 时修改原表，不能重复添加。配置变更后重启专用 Host；
+   已加载线程上的 `thread/resume` 不保证更新 features，须重新加载线程后检查实际工具目录。
 5. 重新构建 Host frontend 和 App 资源，以新配置重启 Host 与 App 服务，加载更新后的工具目录。
    在新会话直接描述训练或数据处理需求。Agent 通过 `get_current_task` / `start_task` 绑定当前会话，
    成功回执携带当前任务的 `app_view`，Host 自动展开右侧面板；无需再调用打开工具。

@@ -2,7 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from types import SimpleNamespace
 from galatea_app.integrations.project_governance import ProjectGovernance
 from galatea_app.common import TaskError
@@ -100,3 +100,34 @@ class ProjectAdapterTests(unittest.TestCase):
             with self.assertRaises(TaskError):
                 adapter.stop({"id": "another-job"})
         self.assertEqual(run.call_count, 1)
+
+    def test_execution_budget_uses_authoritative_ray_time(self):
+        adapter = ProjectGovernance(**self.kwargs)
+        adapter.http = Mock()
+        adapter.http.get.return_value.json.return_value = {"start_time": 200000}
+        with patch("galatea_app.integrations.project_governance.time.time", return_value=300):
+            self.assertEqual(adapter.execution_started_at({"id": "job-123"}), 200)
+            for invalid in (None, True, 0, float("nan"), 400000):
+                adapter.http.get.return_value.json.return_value = {"start_time": invalid}
+                with self.assertRaises(TaskError):
+                    adapter.execution_started_at({"id": "job-123"})
+
+    def test_terminal_missing_run_fails_after_tracking_visibility_grace(self):
+        adapter = ProjectGovernance(**self.kwargs)
+        adapter.http = Mock()
+        adapter.http.get.return_value.status_code = 200
+        adapter.http.get.return_value.json.return_value = {
+            "status": "SUCCEEDED", "end_time": 200000,
+        }
+        client = Mock()
+        client.search_runs.return_value = []
+        with patch("mlflow.MlflowClient", return_value=client), patch(
+            "galatea_app.integrations.project_governance.time.time", return_value=250
+        ):
+            self.assertEqual(adapter.observe({"id": "job-123"})["status"], "unknown")
+        with patch("mlflow.MlflowClient", return_value=client), patch(
+            "galatea_app.integrations.project_governance.time.time", return_value=261
+        ):
+            fact = adapter.observe({"id": "job-123"})
+            self.assertEqual(fact["status"], "failed")
+            self.assertNotIn("run_id", fact)

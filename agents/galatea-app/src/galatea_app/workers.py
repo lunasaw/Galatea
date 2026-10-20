@@ -43,13 +43,13 @@ class Worker:
         while True:
             try:
                 await self.tick()
-                self.last_error = None
                 self.last_tick_at = utc()
             except Exception as exc:
                 self.last_error = type(exc).__name__
             await asyncio.sleep(self.interval)
 
     async def tick(self):
+        self.last_error = None
         if self.service.storage.health()["recovery_mode"]:
             return
         if self.projects:
@@ -65,6 +65,7 @@ class Worker:
             ]
         for a in aggregates:
             t = a["snapshot"]["task"]
+            reconciled_intents = set()
             for intent in a["intents"].values():
                 if intent["state"] not in {"prepared", "unknown"}:
                     continue
@@ -73,10 +74,13 @@ class Worker:
                     continue
                 try:
                     operation = await asyncio.to_thread(adapter.reconcile, intent)
-                except Exception:
+                except Exception as exc:
+                    self.last_error = "reconcile_external:" + type(exc).__name__
                     continue
                 if operation:
                     self.service.reconcile_external(t["id"], intent["id"], operation)
+                else:
+                    reconciled_intents.add(intent["id"])
             for operation in a["snapshot"]["external_operations"]:
                 if operation["status"] in {"succeeded", "failed", "cancelled"}:
                     continue
@@ -85,14 +89,18 @@ class Worker:
                     continue
                 try:
                     fact = await asyncio.to_thread(adapter.observe, operation)
-                except Exception:
+                except Exception as exc:
+                    self.last_error = "observe_external:" + type(exc).__name__
                     fact = {"status": "unknown"}
+                # Poll timestamps are not business facts. Include the revision
+                # so a later A -> B -> A transition is not mistaken for replay.
+                fact = {k: v for k, v in fact.items() if k != "observed_at"}
                 self.service.observe(
                     t["id"],
                     operation["id"],
                     fact,
                     source=operation["provider"],
-                    message_id=digest([operation["id"], fact]),
+                    message_id=digest([operation["id"], fact, t["version"]]),
                 )
             if a.get("host_continuation_binding"):
                 try:
@@ -114,8 +122,14 @@ class Worker:
                         )
                         current["export_cursor"] = batch["next_cursor"]
                         self.service._save(db, current, increment=False)
-                except Exception:
-                    pass
+                    runtime = await self.host.request(
+                        "GET", "/internal/v1/continuation-bindings/" + a["host_continuation_binding"]
+                    )
+                    self.service.reconcile_idle_task(
+                        t["id"], runtime, reconciled_intents=reconciled_intents
+                    )
+                except Exception as exc:
+                    self.last_error = "host_reconciliation:" + type(exc).__name__
         for _ in range(20):
             job = self.service.storage.claim("worker")
             if not job:

@@ -307,3 +307,9 @@ defer 关闭待办、暂停推进、保留代码与方案；无活跃操作时�
 
 interrupt_agent 使用 request_control 的可信写通道，依赖 pause 权限和 Host interrupt 能力；
 持久化控制 epoch 与暂停请求后再发原生中断，具体状态见第 05 章。
+
+`GET /internal/v1/continuation-bindings/{binding_id}` 是同一服务身份下的只读状态查询。
+返回 binding 状态、绑定会话/当前线程、session_status、active_turn_id、last_turn_id、
+last_turn_status 和 pending_continuation。最后一项包括 queued、dispatching、started 及
+unknown；已有原生终态收据的记录不再算 pending。接口不返回提示词、启动收据、凭据或工具参数。
+Task 必须同时检查绑定/会话身份、撤销/过期状态和队列，不得仅凭旧的 turn/completed 事件接续。

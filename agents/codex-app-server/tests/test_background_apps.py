@@ -110,6 +110,31 @@ class BackgroundTests(unittest.IsolatedAsyncioTestCase):
         await self.worker.tick()
         self.assertEqual(self.calls, [])
 
+    async def test_binding_status_is_scoped_and_reconciles_completed_receipts(self):
+        id = self.binding["binding_id"]
+        self.enqueue()
+        self.assertTrue(self.worker.binding_status(id, "integration")["pending_continuation"])
+        await self.worker.tick()
+        self.assertTrue(self.worker.binding_status(id, "integration")["pending_continuation"])
+        self.store.write("requests/request.json", {"status": "completed", "turn_id": "turn"})
+        self.session.update(last_turn_id="turn", last_turn_status="completed")
+        # The read is correct even before the inbox worker's next tick.
+        status = self.worker.binding_status(id, "integration")
+        self.assertFalse(status["pending_continuation"])
+        self.assertEqual(status["last_turn_id"], "turn")
+        self.assertNotIn("launch_receipt", status)
+        self.worker.revoke(id, "integration")
+        self.assertEqual(self.worker.binding_status(id, "integration")["state"], "revoked")
+        with self.assertRaises(ValueError):
+            self.worker.binding_status(id, "another-service")
+
+    async def test_unknown_dispatch_prevents_idle_recovery(self):
+        self.enqueue()
+        row = self.worker.get("request", "integration")
+        row["state"] = "unknown"
+        self.store.write("continuations/request.json", row)
+        self.assertTrue(self.worker.binding_status(self.binding["binding_id"], "integration")["pending_continuation"])
+
     async def test_crash_before_binding_counter_write_cannot_expand_budget(self):
         self.enqueue("one")
         self.enqueue("two")

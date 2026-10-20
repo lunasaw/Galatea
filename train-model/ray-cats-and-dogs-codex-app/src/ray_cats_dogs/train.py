@@ -446,7 +446,11 @@ def run_training(config: ProjectConfig, *, force: bool = False) -> dict[str, Any
         identity_key = hashlib.sha256(
             (identity_key + provenance["galatea.execution.identity"]).encode()
         ).hexdigest()
-    prior_runs = runs_for_identity(tracking, identity_key)
+    prior_runs = runs_for_identity(
+        tracking,
+        identity_key,
+        execution_identity=provenance["galatea.execution.identity"],
+    )
     existing = successful_run(prior_runs)
     if existing is not None and not force:
         return {

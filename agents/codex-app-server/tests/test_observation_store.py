@@ -143,6 +143,23 @@ class ObservationStoreContract(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone((await self.store.snapshot(SnapshotQuery('s')))['app_step'])
         self.assertEqual((await self.store.snapshot(SnapshotQuery('s', until=snapshot['watermark'])))['app_step']['id'], 'call-1')
 
+    async def test_replayed_app_presentation_uses_item_order_within_one_event(self):
+        import json
+        def app(task):
+            return {'type': 'tool', 'detail': {'success': True, 'contentItems': [{
+                'type': 'inputText', 'text': json.dumps({
+                    'schema_version': 'codex-agent.tools/v1', 'ok': True,
+                    'data': {'app_view': {'server': 'installed', 'resource_uri': 'ui://progress',
+                                          'arguments': {'task_id': task}}}})}]}}
+        # Restoring a thread projects its full history under one event sequence.
+        await self.put(event(1), changes=tuple(
+            {'seq': '1', 'session_id': 's', 'view': 'steps', 'key': key, 'set': value}
+            for key, value in [('z-cancelled', app('old')), ('a-current', app('new')),
+                               ('later-shell', {'type': 'commandExecution'})]))
+        snapshot = await self.store.snapshot(SnapshotQuery('s', limit=1))
+        self.assertEqual(snapshot['steps'][0]['id'], 'later-shell')
+        self.assertEqual(snapshot['app_step']['id'], 'a-current')
+
     async def test_invalid_projection_batch_does_not_publish_events(self):
         with self.assertRaises(ValueError):
             await self.put(event(1), changes=({'seq': '2', 'session_id': 's', 'view': 'messages',

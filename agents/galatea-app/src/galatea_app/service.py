@@ -198,6 +198,8 @@ class TaskService:
     def _save(self, db, a, *, increment=True):
         s = a["snapshot"]
         t = s["task"]
+        if t["status"] != "blocked":
+            t.pop("blocked_reason", None)
         if increment:
             t["version"] += 1
             t["updated_at"] = utc()
@@ -1567,6 +1569,89 @@ class TaskService:
             "draining": a.get("control_requested") is not None,
         }
 
+    def reconcile_idle_task(self, task_id, runtime, *, reconciled_intents=()):
+        """Close an ended native turn through the existing, revocable Host binding.
+
+        A finished turn is not a finished task. Only durable business changes reset
+        the recovery budget; repeated reads, timestamps and turn events do not.
+        """
+        with self.storage.transaction() as db:
+            row = db.execute(
+                "SELECT aggregate_json FROM tasks WHERE id=?", (task_id,)
+            ).fetchone()
+            if row is None:
+                return
+            a = json.loads(row[0])
+            t = a["snapshot"]["task"]
+            turn_id = runtime.get("last_turn_id")
+            if (
+                t["status"] not in {"running", "planning", "waiting_external"}
+                or a.get("in_current_turn")
+                or not a.get("execution_authorized")
+                or not a.get("launch_receipt")
+                or a.get("control_requested")
+                or runtime.get("binding_id") != a.get("host_continuation_binding")
+                or runtime.get("state") != "active"
+                or runtime.get("session_id") != a["binding"]["session_id"]
+                or runtime.get("thread_id") != a["binding"]["thread_id"]
+                or runtime.get("session_status") != "ready"
+                or runtime.get("active_turn_id")
+                or runtime.get("pending_continuation")
+                or not turn_id
+            ):
+                return
+            previous = a.get("idle_recovery", {})
+            if previous.get("turn_id") == turn_id and previous.get("control_epoch") == t["control_epoch"]:
+                return
+            # Existing deliveries own the next turn. Unknown external submissions
+            # must be reconciled, never converted into another submission attempt.
+            if db.execute(
+                "SELECT 1 FROM outbox WHERE task_id=? AND kind='continuation' "
+                "AND state IN ('pending','leased')", (task_id,),
+            ).fetchone():
+                return
+            if any(o["status"] not in EXTERNAL_TERMINAL for o in a["snapshot"]["external_operations"]):
+                return
+            if any(s["status"] == "verifying" for s in a["snapshot"]["stages"]):
+                return
+            if any(r["status"] in {"open", "deferred"} for r in a["requests"].values()):
+                return
+            if any(i["state"] == "unknown" or (
+                i["state"] == "prepared" and i["id"] not in reconciled_intents
+            ) for i in a["intents"].values()):
+                return
+            fingerprint = digest({
+                "plan_revision": t["plan_revision"],
+                "control_epoch": t["control_epoch"],
+                "stages": [{
+                    "id": s["id"], "status": s["status"],
+                    "attempt_id": (s.get("current_attempt") or {}).get("id"),
+                    "acceptance": s.get("acceptance"),
+                } for s in a["snapshot"]["stages"]],
+                "intents": sorted((i["id"], i["state"]) for i in a["intents"].values()),
+                "operations": [(o["id"], o["status"]) for o in a["snapshot"]["external_operations"]],
+                "artifacts": [v["id"] for v in a["snapshot"]["artifacts"]],
+                "evidence": [v["id"] for v in a["snapshot"]["evidence"]],
+            })
+            stagnant = previous.get("stagnant_turns", 0) + 1 if previous.get("fingerprint") == fingerprint else 0
+            a["idle_recovery"] = {
+                "turn_id": turn_id, "fingerprint": fingerprint,
+                "stagnant_turns": stagnant, "control_epoch": t["control_epoch"],
+            }
+            if runtime.get("last_turn_status") != "completed":
+                t["status"] = "blocked"
+                t["blocked_reason"] = "Agent 回合被中断或失败；请在原会话检查原因后继续。"
+            elif stagnant >= 2:
+                t["status"] = "blocked"
+                t["blocked_reason"] = "连续两次自动接续没有推进任务；请在原会话检查阻塞原因。"
+            else:
+                self._enqueue_continuation(db, a, "idle_turn", turn_id)
+            self._event(db, a, "task.recovery_blocked" if t["status"] == "blocked" else "task.recovery_requested", {
+                "turn_id": turn_id, "stagnant_turns": stagnant,
+                "reason": t.get("blocked_reason", "native_turn_completed_with_unfinished_task"),
+            }, "idle:" + turn_id)
+            self._save(db, a)
+
     def _enqueue_continuation(self, db, a, reason, identity):
         # The current native turn already owns execution. A background continuation
         # needs its own trusted App decision receipt; opening a view grants none.
@@ -1577,14 +1662,15 @@ class TaskService:
             "control_requested"
         ):
             return
+        dedupe = f"{t['id']}:{reason}:{identity}:{t['control_epoch']}"
+        if db.execute("SELECT 1 FROM outbox WHERE dedupe_key=?", (dedupe,)).fetchone():
+            return
         if (
             a["continuations"] >= t["constraints"]["max_auto_continuations"]
             or timestamp(t["constraints"]["deadline_at"]) <= time.time()
         ):
             t["status"] = "blocked"
-            return
-        dedupe = f"{t['id']}:{reason}:{identity}:{t['control_epoch']}"
-        if db.execute("SELECT 1 FROM outbox WHERE dedupe_key=?", (dedupe,)).fetchone():
+            t["blocked_reason"] = "自动接续次数已用完或任务期限已到；请检查任务后调整计划。"
             return
         a["continuations"] += 1
         self.storage.enqueue(
@@ -1994,9 +2080,18 @@ class TaskService:
             v for v in a["proposals"].values() if v["stage_id"] == intent["stage_id"]
         ]
         if proposals:
+            started_at = timestamp(a["attempts"][intent["attempt_id"]]["started_at"])
+            adapter = self.governance[intent["route"]]
+            if hasattr(adapter, "execution_started_at"):
+                try:
+                    started_at = adapter.execution_started_at(operation)
+                except Exception:
+                    # Missing authoritative time keeps the conservative Attempt
+                    # deadline; it never grants an unbounded execution window.
+                    pass
             deadline = min(
                 deadline,
-                timestamp(a["attempts"][intent["attempt_id"]]["started_at"])
+                started_at
                 + max(proposals, key=lambda p: p["revision"])["hard_limits"]["wall_seconds"],
             )
         a.setdefault("external_deadlines", {})[o["id"]] = deadline
@@ -2164,8 +2259,16 @@ class TaskService:
             d = digest([task_id, operation_id, fact])
             if existing:
                 require(existing[0] == d, "IDEMPOTENCY_CONFLICT")
+                ops[0]["last_observed_at"] = utc()
+                self._save(db, a, increment=False)
+                return
+            fingerprints = a.setdefault("observation_fingerprints", {})
+            if fingerprints.get(operation_id) == d:
+                ops[0]["last_observed_at"] = utc()
+                self._save(db, a, increment=False)
                 return
             db.execute("INSERT INTO inbox VALUES (?,?,?)", (source, message_id, d))
+            fingerprints[operation_id] = d
             o = ops[0]
             old = o["status"]
             status = fact.get("status", "unknown")
@@ -2226,6 +2329,15 @@ class TaskService:
             elif t["status"] not in TERMINAL:
                 if status == "unknown":
                     t["status"] = "blocked"
+                    if (
+                        fact.get("ray_status") in {"SUCCEEDED", "FAILED", "STOPPED"}
+                        and fact.get("reason")
+                    ):
+                        # A terminal scheduler with unverifiable model evidence
+                        # needs Agent diagnosis, not endless silent observation.
+                        self._enqueue_continuation(
+                            db, a, "external_evidence_inconsistent", operation_id
+                        )
                 elif status in EXTERNAL_TERMINAL:
                     t["status"] = "running"
                     if status == "succeeded":

@@ -161,15 +161,27 @@ def idempotency_key(
 def runs_for_identity(
     tracking: TrackingContext,
     identity_key: str,
+    *,
+    execution_identity: str | None = None,
 ) -> list[Any]:
     client = MlflowClient()
-    return list(
+    runs = list(
         client.search_runs(
             [tracking.experiment_id],
             filter_string=f"tags.idempotency_key = '{identity_key}'",
             order_by=["attributes.start_time DESC"],
         )
     )
+    if execution_identity is not None:
+        if not execution_identity:
+            raise ValueError("Governed execution identity is required")
+        # Equivalent hyperparameters do not authorize reusing evidence from a
+        # different submission (including a non-promotable historical Trial).
+        runs = [
+            run for run in runs
+            if run.data.tags.get("galatea.execution.identity") == execution_identity
+        ]
+    return runs
 
 
 def successful_run(runs: list[Any]) -> Any | None:

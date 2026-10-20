@@ -146,3 +146,18 @@ thread_id、turn_id、call_id、command_id、receipt_id 进行关联，按需要
 
 上线前演练：服务硬退出、Host 重启、Worker 重领、数据库备份恢复、签名 key 轮换、
 凭据失效、授权过期与 Artifact 不可达。演练不需要实际训练，可以使用协议一致的模拟后端。
+
+### Source Host 更新 Provider 后恢复原会话
+
+Provider/Skill 指纹变化会阻止旧会话恢复，不能通过直接删除指纹或重建会话绕开。
+停止目标 source-mode Host 后，可使用 `codex_agent.runtime_upgrade` 的显式管理入口：
+
+```bash
+python -m codex_agent.runtime_upgrade --config /ABS/agent.json \
+  --session-id SESSION --expected-previous REVIEWED_OLD_DIGEST --expected-current REVIEWED_NEW_DIGEST
+```
+
+命令取得 Host 单写者锁；只迁移指定的空闲会话，拒绝活跃回合、未知工具/请求、运行时、
+catalog、主体或 Host 配置变化。旧/新扩展指纹必须精确匹配；原会话副本写入
+`source-upgrades/{new_digest}/{session_id}.json`，不修改授权、continuation binding 或外部操作。
+重新启动 Host 并恢复线程后才可继续使用。release 部署使用自身审核过的 release 迁移。

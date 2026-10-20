@@ -259,3 +259,27 @@ interrupt_agent 先持久化暂停请求、递增 control_epoch、撤销自动�
 达到限制后进入 blocked 或 waiting_approval，并说明尚未完成的工作；不能伪报完成。
 对仍在运行的外部操作保留必要观察与停止处理，不能因为接续额度用尽就失去追踪。
 只在状态变化、完成、失败或需要用户决定时通知，不以每次轮询打扰用户。
+
+## 原生回合提前结束的收敛（2026-10-20）
+
+Task Worker 在完成外部操作对账后，通过受服务身份保护的
+`GET /internal/v1/continuation-bindings/{binding_id}` 读取 Host 事实。
+Host 持久化最近回合 ID/终态，并返回会话是否空闲、是否仍有排队或结果未知的接续。
+读取接口不创建授权，也不启动回合；通用 Host 不判断 Galatea 阶段。
+
+只有绑定仍有效、会话/线程匹配、原生回合正常结束、没有排队接续或运行中的外部操作时，
+Worker 才为未完成 Task 追加一次普通 continuation。覆盖确认后未 begin、begin 后未 prepare、
+prepare 后未提交，以及外部终态后未完成阶段报告/任务收尾。prepared intent 必须先对账；
+接续复用原 Attempt、Intent 和幂等键，不能另建一次训练。unknown submission 不自动重放。
+暂停、取消、当前回合内任务、未确认输入、绑定撤销、任务期限和接续总预算继续生效。
+
+同一回合只恢复一次，恢复记录与 Outbox 在同一事务中持久化。阶段、产物、证据、提交意图
+及外部状态才算进展，读取次数、轮询时间戳和回合结束事件不算。连续两次接续仍无业务进展，
+任务进入 `blocked`，快照的 `task.blocked_reason` 和 App 显示原因；原生回合失败或中断也
+显示阻塞原因，不自动将用户中断当作正常完成重新执行。此保护发生在回合结束后；单个回合
+内任意工具循环的检测不属于本机制，Galatea 专用部署另以 `features.goals = false`
+移除曾导致空 Goal 轮询的工具。
+
+相同外部事实仅更新时间时不增加业务版本/事件，`last_observed_at` 仍表示最近成功观察。
+状态 A → B → A 必须记录真实转换，不能因曾观察过 A 而错误去重。Host 导出/状态查询和
+外部对账异常通过 `/health/dependencies` 的 `worker_error` 暴露，后续成功 tick 清除。

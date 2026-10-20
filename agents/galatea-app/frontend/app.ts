@@ -41,7 +41,7 @@ const statuses: Obj = {
   cancelled: "已取消",
   cancelling: "正在确认停止",
   paused: "已暂停",
-  blocked: "等待对账",
+  blocked: "任务受阻",
   skipped: "已跳过",
   superseded: "已替代",
   succeeded: "成功",
@@ -135,6 +135,10 @@ async function write(
       }
     }
     await refresh();
+    if (r.result?.state === "authorized")
+      notice("本次方案授权已保存；请继续确认执行。");
+    else if (r.result?.state === "accepted")
+      notice("执行确认已保存，等待 Agent 接续。");
     return r;
   } finally {
     writing = false;
@@ -289,6 +293,8 @@ function render() {
     });
   const process = $("#process");
   process.replaceChildren();
+  if (s.task.status === "blocked" && s.task.blocked_reason)
+    process.append(element("p", s.task.blocked_reason, "authorization-status"));
   for (const st of s.stages) {
     const card = element("article", undefined, "process-card");
     const head = button("", () => chooseStage(st.id), "card-heading");
@@ -352,15 +358,22 @@ function renderActions() {
         Number(!!a.parent_request_id) - Number(!!b.parent_request_id) ||
         a.created_at.localeCompare(b.created_at))
       .at(-1);
-    if (!request || request.status === "superseded") continue;
+    const stage = s.stages.find((item: Obj) => item.id === p.stage_id);
+    // Accepted decisions remain in the audit history, not in the action queue.
+    if (!request || !["open", "deferred"].includes(request.status) ||
+      p.plan_revision !== s.task.plan_revision || !stage ||
+      stage.current_attempt ||
+      !["ready", "waiting_input", "waiting_approval", "paused"].includes(stage.status))
+      continue;
     const card = element("section", undefined, "proposal");
     card.append(
-      element("h3", "确认本次训练方案"),
+      element("h3", stage.title),
       element(
         "div",
-        `方案 v${p.revision} · ${p.immutable_inputs.role} · ${request.status === "deferred" ? "已延后" : statuses[s.task.status] || request.status}`,
+        `计划 v${p.plan_revision} · 方案 v${p.revision} · ${p.immutable_inputs.role} · ${request.status === "deferred" ? "已延后" : statuses[stage.status] || request.status}`,
         "version",
       ),
+      element("small", `方案提出时间：${new Date(request.created_at).toLocaleString()}`),
     );
     const budget = element("dl", undefined, "budget");
     const values: Obj = {
@@ -580,6 +593,22 @@ function renderDetails() {
     return;
   }
   const skills = details.spec?.execution?.skill_refs || [];
+  const decisions = (view?.pending_requests || [])
+    .filter((r: Obj) => r.stage_id === st.id && r.status === "accepted");
+  if (decisions.length) {
+    const sec = section("已确认的训练方案");
+    for (const request of decisions) {
+      const proposal = (view?.proposals || [])
+        .find((p: Obj) => p.proposal_id === request.proposal_id);
+      if (!proposal) continue;
+      sec.append(
+        element("p", `计划 v${proposal.plan_revision} · 方案 v${proposal.revision} · 已确认执行`),
+        element("p", proposal.objective),
+        element("small", "历史确认已保留；本阶段后续状态见执行记录。"),
+      );
+    }
+    body.append(sec);
+  }
   if (skills.length) {
     const sec = section("执行 Skill");
     skills.forEach((s: string) => sec.append(element("span", s, "chip")));

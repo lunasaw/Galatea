@@ -210,7 +210,10 @@ class MemoryConsoleObservationStore:
         # current history page. Replay/rollback and watermark still define truth.
         app_steps = [row for row in views['steps'].values()
                      if (not query.turn_id or row.get('turn_id') == query.turn_id) and presents_app(row)]
-        output['app_step'] = max(app_steps, key=lambda row: int(row['first_seq']), default=None)
+        # A native history replay gives every item the same event sequence.
+        # Preserve its item order, just as the paginated views do below.
+        output['app_step'] = max(app_steps, key=lambda row: (
+            int(row['first_seq']), row.get('replay_order', 0), row['id']), default=None)
         for name in selected:
             rows = [row for row in views[name].values() if not query.turn_id or row.get('turn_id') == query.turn_id]
             rows.sort(key=lambda row: (int(row['first_seq']), row.get('replay_order', 0), row['id']))

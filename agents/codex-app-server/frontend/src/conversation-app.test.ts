@@ -29,6 +29,16 @@ test("newest invocation wins independent of array order; failures do not replace
     step("failed", "11", { result: { isError: true } })]));
   assert.equal(app?.activation_id, "latest");
 });
+test("history replay selects the latest App even when the retained App has the same sequence", () => {
+  const old = { ...step("z-old", "10"), replay_order: 1 };
+  const latest = { ...step("a-latest", "10"), replay_order: 3 };
+  const replay = state([latest, old]);
+  replay.snapshot.app_step = old;
+  assert.equal(conversationApp(replay)?.arguments.task_id, "a-latest");
+  replay.snapshot.steps = [old];
+  replay.snapshot.app_step = latest;
+  assert.equal(conversationApp(replay)?.activation_id, "a-latest");
+});
 test("plain tools, chat keywords, missing threads and remote HTML never open a view", () => {
   assert.equal(conversationApp(state([{ ...step("plain", "1"), type: "tool", text: "train model" }])), undefined);
   assert.equal(conversationApp(state([step("bad", "1", { mcpAppUi: { resourceUri: "https://external" } })])), undefined);

@@ -118,6 +118,35 @@ class BackgroundApps:
     def get(self, id, service):
         return self._read("continuations", id, service)
 
+    def binding_status(self, id, service):
+        """Scoped runtime facts, without prompts, credentials, or authority changes."""
+        binding = self._read("continuation-bindings", id, service)
+        session = self.host.get_session(binding["host_session_id"]) or {}
+        pending = False
+        for path in (self.store.root / "continuations").glob("*.json"):
+            row = self.store.read("continuations/" + path.name)
+            if row.get("binding_id") != id:
+                continue
+            state = row["state"]
+            if state in {"dispatching", "unknown", "started"}:
+                receipt = self.store.read(f"requests/{row['request_id']}.json") or {}
+                if receipt.get("status") in {"completed", "failed", "interrupted"}:
+                    continue
+            if state in {"queued", "accepted", "dispatching", "unknown", "started"}:
+                pending = True
+                break
+        return {
+            "binding_id": id,
+            "state": binding["state"] if epoch(binding["expires_at"]) > time.time() else "expired",
+            "session_id": binding["host_session_id"],
+            "thread_id": session.get("thread_id"),
+            "session_status": session.get("status", "unavailable"),
+            "active_turn_id": session.get("active_turn_id"),
+            "last_turn_id": session.get("last_turn_id"),
+            "last_turn_status": session.get("last_turn_status"),
+            "pending_continuation": pending,
+        }
+
     def revoke(self, id, service):
         binding = self._read("continuation-bindings", id, service)
         binding["state"] = "revoked"

@@ -14,7 +14,7 @@ from codex_agent.config import AgentConfig
 from codex_agent.runtime_upgrade import migrate_source_sessions
 from codex_agent.runtime_version import RUNTIME_VERSION
 from codex_agent.stage0 import file_sha256
-from codex_agent.state import AtomicJsonStore
+from codex_agent.state import AtomicJsonStore, payload_digest
 
 
 class RuntimeUpgradeTests(unittest.TestCase):
@@ -82,3 +82,49 @@ class RuntimeUpgradeTests(unittest.TestCase):
         changed['agent']['id'] = 'other-principal'
         self.config = AgentConfig.from_dict(changed, self.root)
         self.assertEqual(self.migrate(), self.session)
+
+
+class SourceExtensionUpgradeTests(RuntimeUpgradeTests):
+    def setUp(self):
+        super().setUp()
+        self.session.update(self.bindings)
+        self.session['extensions_sha256'] = 'old-extensions'
+        self.session['principal_digest'] = payload_digest([self.config.principal_id, sorted(self.config.actions)])
+        self.store.write('sessions/s.json', self.session)
+        mock = patch('codex_agent.local.source_manifest', return_value={**self.bindings, 'extensions_sha256': 'new-extensions'})
+        mock.start()
+        self.addCleanup(mock.stop)
+
+    def migrate(self):
+        from codex_agent.runtime_upgrade import rebind_source_extensions
+        return rebind_source_extensions(self.config, 's', expected_previous='old-extensions', expected_current='new-extensions')
+
+    def test_idle_session_keeps_identity_settings_and_original_evidence(self):
+        result = self.migrate()
+        self.assertEqual(result, {**self.session, 'status': 'recovery_required', 'extensions_sha256': 'new-extensions'})
+        self.assertEqual(self.migrate(), result)
+        self.assertEqual(self.store.read('source-upgrades/new-extensions/s.json')['previous_session'], self.session)
+
+    def test_busy_or_mismatched_sessions_remain_blocked(self):
+        for change in ({'active_turn_id': 'turn'}, {'active_request_id': 'request'}, {'status': 'running'},
+                       {'extensions_sha256': 'unreviewed'}, {'principal_digest': 'other'}, {'catalog_digest': 'other'},
+                       {'agent_config_sha256': 'other'}, {'runtime_binary_sha256': 'other'}):
+            with self.subTest(change=change):
+                original = {**self.session, **change}
+                self.store.write('sessions/s.json', original)
+                with self.assertRaises(ValueError): self.migrate()
+                self.assertEqual(self.store.read('sessions/s.json'), original)
+
+    def test_unresolved_tool_or_request_prevents_migration(self):
+        self.store.write('requests/r.json', {'session_id': 's', 'status': 'unknown'})
+        with self.assertRaises(ValueError): self.migrate()
+        self.store.write('requests/r.json', {'session_id': 's', 'status': 'completed'})
+        self.store.write('tool-calls/c.json', {'identity': {'session_id': 's'}, 'state': 'executing'})
+        with self.assertRaises(ValueError): self.migrate()
+
+    def test_unrelated_configuration_change_cannot_use_upgrade_backup(self):
+        from codex_agent.state import single_writer_lock
+        with single_writer_lock(self.config.state_dir / '.host.lock'):
+            with self.assertRaises(RuntimeError): self.migrate()
+        with patch('codex_agent.local.source_manifest', return_value={**self.bindings, 'extensions_sha256': 'not-reviewed'}):
+            with self.assertRaises(ValueError): self.migrate()

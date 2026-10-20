@@ -30,6 +30,8 @@ class HostLifecycleTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HostNotReady):
                 await self.host.send_message(session_id, 'r2', 'two')
         await self.complete(first, turn)
+        self.assertEqual(self.host.get_session('s')['last_turn_id'], turn['turn_id'])
+        self.assertEqual(self.host.get_session('s')['last_turn_status'], 'completed')
         await self.host.send_message(second['id'], 'r2', 'two')
 
     async def test_turn_intent_exists_before_native_rpc_and_unknown_is_not_retried(self):

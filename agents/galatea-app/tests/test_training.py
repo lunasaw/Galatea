@@ -152,6 +152,30 @@ class TrainingTests(DomainTests):
         self.assertCode("AUTHORIZATION_REQUIRED", lambda: self.decide(r))
         self.assertIsNone(self.snapshot()["stages"][0]["current_attempt"])
 
+    def test_external_budget_excludes_preparation_with_authoritative_start(self):
+        import time
+        _, intent = self.prepare()
+        started = time.time()
+        self.adapter.execution_started_at = lambda operation: started
+        self.bind(intent)
+        with self.service.storage.lock:
+            a = self.service._load(self.service.storage.db, self.agent, self.task)
+            self.assertEqual(a["external_deadlines"]["operation"], started + 600)
+
+    def test_unavailable_execution_start_keeps_conservative_budget(self):
+        from galatea_app.common import timestamp
+        attempt, intent = self.prepare()
+        def unavailable(operation):
+            raise RuntimeError("Ray unavailable")
+        self.adapter.execution_started_at = unavailable
+        self.bind(intent)
+        with self.service.storage.lock:
+            a = self.service._load(self.service.storage.db, self.agent, self.task)
+            self.assertEqual(
+                a["external_deadlines"]["operation"],
+                timestamp(a["attempts"][attempt["attempt_id"]]["started_at"]) + 600,
+            )
+
     def test_defer_reopen_read_only_and_explicit_reconfirm(self):
         r = self.propose()
         self.decide(r, "defer")

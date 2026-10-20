@@ -26,6 +26,24 @@ Host 通过显式配置接入独立的 [Galatea 任务 App](agents/galatea-app/R
 Codex 审批不能替代训练授权，业务组件也不实现第二套 Agent Loop、会话或原生权限系统。
 完整职责、接入路径及迁移边界见 [`doc/agent-galatea.md`](doc/agent-galatea.md)。
 
+## 获取代码与更新 Web Host
+
+通用 Host 在独立仓库 [lunasaw/open-codex](https://github.com/lunasaw/open-codex) 维护。
+本仓库通过 Git submodule 将它固定到已验证提交，路径仍为 `agents/codex-app-server/`。
+
+```sh
+git clone --recurse-submodules https://github.com/lunasaw/Galatea.git
+cd Galatea
+# 已有克隆在拉取本次迁移后执行：
+git submodule update --init --recursive
+# 首次启动显式指定 Galatea 工作目录；已有配置会保留原值。
+CODEX_AGENT_WORKSPACE="$PWD" sh agents/codex-app-server/start.sh
+```
+
+后续拉取后同样运行 `git submodule update --init --recursive`，使用主仓库固定版本。
+Host 改动先在 open-codex 提交，再通过本仓库 PR 更新指针；维护与已有工作区迁移步骤见
+[Open Codex 子模块维护](doc/open-codex-submodule.md)。源码 ZIP 不包含子模块内容，CI 和部署需递归克隆。
+
 ## Galatea 任务 App
 
 **聊天是入口，Agent 主导执行，App 按需展示。** 新建聊天后直接描述需求，例如

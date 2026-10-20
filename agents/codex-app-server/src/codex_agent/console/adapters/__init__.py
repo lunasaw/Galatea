@@ -1,1 +1,0 @@
-"""Observation persistence adapters."""

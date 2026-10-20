@@ -1,0 +1,3 @@
+[submodule "agents/codex-app-server"]
+	path = agents/codex-app-server
+	url = https://github.com/lunasaw/open-codex.git

@@ -1,1 +1,0 @@
-"""Local authenticated Console adapter."""

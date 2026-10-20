@@ -203,6 +203,32 @@ class TrainingTests(DomainTests):
         self.command("retry_stage", {"stage_id": "train"})
         self.assertCode("AUTHORIZATION_REQUIRED", lambda: self.begin("train"))
 
+    def test_failed_training_replacement_requires_new_proposal_and_confirmation(self):
+        _, intent = self.prepare()
+        self.bind(intent)
+        original = self.service.get_context(self.agent, self.task)["stage_specs"][0]
+        replacement = copy.deepcopy(original)
+        replacement.update(id="train_retry", replaces_stage_id="train")
+        self.assertCode("PLAN_CONFLICT", lambda: self.plan(
+            [original, replacement], revision=1))
+        self.service.observe(
+            self.task, "operation", {"status": "failed"},
+            source="project_governance", message_id="failed-for-replacement",
+        )
+        failed = copy.deepcopy(self.snapshot()["stages"][0])
+        self.plan([original, replacement], revision=1)
+        self.assertCode("AUTHORIZATION_REQUIRED", lambda: self.begin("train_retry"))
+        proposed = self.command(
+            "propose_training", {"stage_id": "train_retry", "proposal": self.proposal},
+            expected_plan_revision=2,
+        )["result"]
+        self.assertCode("INVALID_TRANSITION", lambda: self.begin("train_retry"))
+        self.decide(proposed)
+        attempt = self.begin("train_retry")
+        self.assertNotEqual(attempt["attempt_id"], failed["current_attempt"]["id"])
+        self.assertEqual(self.snapshot()["stages"][0], failed)
+        self.assertEqual(self.snapshot()["stages"][1]["current_attempt"]["number"], 1)
+
     def test_foreign_operation_artifact_is_rejected(self):
         attempt, intent = self.prepare()
         self.bind(intent)

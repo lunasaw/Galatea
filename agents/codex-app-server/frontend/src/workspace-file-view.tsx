@@ -32,6 +32,7 @@ const languages: Record<string, string> = {
   yml: "yaml",
   yaml: "yaml",
   html: "xml",
+  htm: "xml",
   xml: "xml",
   css: "css",
   sql: "sql",
@@ -71,7 +72,8 @@ export function WorkspaceFileView({
   const pathCopy = useCopyToClipboard();
   const extension = target.path.split(".").at(-1)?.toLowerCase() || "";
   const markdown = ["md", "mdx", "markdown"].includes(extension);
-  const source = !markdown || mode === "source";
+  const html = ["html", "htm"].includes(extension);
+  const source = (!markdown && !html) || mode === "source";
   const file = result?.path === target.path ? result : null;
   useEffect(() => {
     setMode(target.line ? "source" : "preview");
@@ -131,7 +133,7 @@ export function WorkspaceFileView({
         <span title={target.path} className="workspace-file-path">
           {target.path}
         </span>
-        {markdown && (
+        {(markdown || html) && (
           <div
             className="workspace-file-modes"
             role="group"
@@ -145,7 +147,7 @@ export function WorkspaceFileView({
             </button>
           </div>
         )}
-        {!file?.image && (
+        {!file?.image && source && (
           <TooltipIconButton
             tooltip="自动换行"
             aria-pressed={wrap}
@@ -169,7 +171,7 @@ export function WorkspaceFileView({
           <RefreshCw />
         </TooltipIconButton>
       </div>
-      <div className="workspace-file-scroll" ref={scroll} data-wrap={wrap}>
+      <div className="workspace-file-scroll" ref={scroll} data-wrap={wrap} data-html={html && !source}>
         {loading || !file ? (
           <div className="workbench-empty" role="status">
             <LoaderCircle className="animate-spin" />
@@ -186,6 +188,15 @@ export function WorkspaceFileView({
             className="workspace-file-image"
             src={file.image}
             alt={target.path.split("/").at(-1)}
+          />
+        ) : html && !source ? (
+          <iframe
+            key={revision}
+            className="workspace-html-preview"
+            title={`HTML 预览：${target.path.split("/").at(-1)}`}
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
+            src={`/api/workspace-preview?${new URLSearchParams({ path: target.path, revision: String(revision) })}`}
           />
         ) : !source ? (
           <WorkspaceFileScope

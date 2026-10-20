@@ -1,5 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { chromium } = require('../frontend/node_modules/playwright');
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE, args: ['--no-sandbox'] });
@@ -12,6 +13,30 @@ const { chromium } = require('../frontend/node_modules/playwright');
     await page.getByRole('button', { name: '打开 Apps', exact: true }).click({ timeout: 5000 });
     const panel = page.getByRole('tabpanel', { name: 'Apps面板', exact: true });
     const card = panel.locator('[data-mcp-app="fixture-app:lookup:ui://fixture/app"]');
+    await card.waitFor();
+    assert.equal(await panel.getByRole('checkbox').count(), 0);
+    const refresh = panel.getByRole('button', { name: '刷新应用', exact: true });
+    await refresh.click();
+    await panel.getByRole('status').getByText('Apps 已刷新', { exact: true }).waitFor();
+    const search = panel.getByRole('searchbox', { name: '搜索 Apps', exact: true });
+    await search.fill('no-matching-app');
+    await panel.getByText('没有匹配的应用', { exact: true }).waitFor();
+    await search.clear();
+    const buttons = [refresh, card.getByRole('button', { name: '打开应用', exact: true })];
+    for (const theme of ['light', 'dark']) {
+      if (theme === 'dark') await page.getByRole('button', { name: '切换深色主题', exact: true }).click();
+      await page.waitForTimeout(250); // Let the theme transition settle before inspecting colors.
+      const colors = await Promise.all(buttons.map(button => button.evaluate(el => getComputedStyle(el).backgroundColor)));
+      assert.equal(colors[0], colors[1], 'catalog actions use the same button surface');
+      assert.notEqual(colors[0], 'rgba(0, 0, 0, 0)');
+      const searchBox = await search.boundingBox();
+      assert.ok(searchBox.width > 160, 'search is visible instead of an unstyled blank field');
+      if (process.env.CONSOLE_SCREENSHOTS) {
+        fs.mkdirSync(process.env.CONSOLE_SCREENSHOTS, { recursive: true });
+        await page.screenshot({ path: `${process.env.CONSOLE_SCREENSHOTS}/apps-catalog-${theme}.png` });
+      }
+    }
+    await page.getByRole('button', { name: '切换浅色主题', exact: true }).click();
     await card.getByRole('button', { name: '打开应用', exact: true }).click();
     const app = panel.frameLocator('iframe');
     await app.locator('#status').getByText('native app tool result', { exact: true }).waitFor();
@@ -45,11 +70,16 @@ const { chromium } = require('../frontend/node_modules/playwright');
       }] : [] } });
     });
     await page.waitForURL(url => url.searchParams.get('session') === other.id);
+    await page.locator('.workbench-panel').waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: '打开 Apps', exact: true }).click();
     await panel.frameLocator('iframe').locator('#draft').waitFor();
     assert.equal(await original.evaluate(el => el.isConnected), false, 'switching chat tears down the old App scope');
     assert.equal(await panel.locator('iframe').count(), 1);
     assert.equal(new URL(await panel.locator('iframe').getAttribute('src'), page.url()).searchParams.get('threadId'), other.thread_id);
     await page.reload();
+    await page.locator('#text').waitFor();
+    assert.equal(await page.getByRole('tab', { name: 'Apps', exact: true, selected: true }).count(), 0, 'legacy activation does not reopen the panel on reload');
+    await page.getByRole('button', { name: '打开 Apps', exact: true }).click();
     await page.getByRole('tab', { name: 'Apps', exact: true, selected: true }).waitFor();
     await panel.frameLocator('iframe').locator('#draft').waitFor();
     await page.setViewportSize({ width: 390, height: 844 });

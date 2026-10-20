@@ -170,9 +170,31 @@ function Workspace() {
   const [sidePanel, setSidePanel] = useState<WorkbenchTab | null>(null);
   const legacyActivation = useActivatedApp(state.active);
   const activation = conversationApp(state) || legacyActivation;
+  const appBaseline = useRef<{ session: string | null; cursor?: string }>({ session: null });
   useEffect(() => {
-    if (activation) setSidePanel("apps");
-  }, [activation?.activation_id, state.active]);
+    setSidePanel((current) => current === "apps" ? null : current);
+  }, [state.active]);
+  useEffect(() => {
+    if (appBaseline.current.session !== state.active) appBaseline.current = { session: state.active };
+    if (!state.snapshot || state.loading) return;
+    // History establishes the baseline. Only a new App invocation in this
+    // conversation may reveal the panel; loading history must stay quiet.
+    if (!appBaseline.current.cursor) {
+      appBaseline.current.cursor = state.snapshot.watermark;
+      return;
+    }
+    const [epoch, sequence] = appBaseline.current.cursor.split(":");
+    const [appEpoch, appSequence] = (activation?.event_cursor || "").split(":");
+    if (epoch !== state.snapshot.epoch) {
+      appBaseline.current.cursor = state.snapshot.watermark;
+      return;
+    }
+    if (epoch === appEpoch && /^\d+$/.test(sequence) && /^\d+$/.test(appSequence)
+        && BigInt(appSequence) > BigInt(sequence)) {
+      appBaseline.current.cursor = activation!.event_cursor;
+      setSidePanel("apps");
+    }
+  }, [activation?.activation_id, state.active, state.loading, !!state.snapshot]);
   useEffect(() => {
     const open = () => setSidePanel("apps");
     window.addEventListener("codex-open-app", open);

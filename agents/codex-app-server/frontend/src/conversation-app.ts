@@ -23,6 +23,7 @@ export function conversationApp(state: Pick<ConsoleState, "active" | "sessions" 
             || !view.resource_uri.startsWith("ui://")) continue;
         return {
           activation_id: step.id,
+          event_cursor: `${state.snapshot?.epoch}:${step.first_seq}`,
           session_id: session.id,
           thread_id: session.thread_id,
           app: { server: view.server, uri: view.resource_uri },
@@ -39,6 +40,7 @@ export function conversationApp(state: Pick<ConsoleState, "active" | "sessions" 
     if (detail.error || detail.result?.isError || ["failed", "cancelled", "interrupted"].includes(detail.status)) continue;
     return {
       activation_id: step.id,
+      event_cursor: `${state.snapshot?.epoch}:${step.first_seq}`,
       session_id: session.id,
       thread_id: session.thread_id,
       app: { server: detail.server, uri },

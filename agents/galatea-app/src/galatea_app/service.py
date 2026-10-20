@@ -713,6 +713,53 @@ class TaskService:
                 order.append(i)
                 pending.remove(i)
         old = {s["id"]: s for s in a["snapshot"]["stages"]}
+        replacements = {}
+        for id, spec in specs.items():
+            target = spec.get("replaces_stage_id")
+            if target is None:
+                continue
+            require(
+                target in old and target != id and target not in replacements,
+                "PLAN_CONFLICT",
+                "Replacement must identify one existing stage without branching",
+            )
+            previous = a["specs"][target]
+            require(
+                spec["kind"] == previous["kind"]
+                and spec["execution"]["capability_ref"]
+                == previous["execution"]["capability_ref"]
+                and spec["execution"]["mode"] == previous["execution"]["mode"]
+                and set(spec["execution"]["skill_refs"])
+                >= set(previous["execution"]["skill_refs"])
+                and (not previous["required"] or spec["required"])
+                and all(rule in spec["acceptance"] for rule in previous["acceptance"])
+                and all(slot in spec["output_slots"] for slot in previous["output_slots"]),
+                "PLAN_CONFLICT",
+                "Replacement must preserve the delivery and execution contract",
+            )
+            if id not in old or spec != a["specs"][id]:
+                require(
+                    old[target]["status"] == "failed"
+                    and not any(
+                        operation["stage_id"] == target
+                        and operation["status"] not in EXTERNAL_TERMINAL
+                        for operation in a["snapshot"]["external_operations"]
+                    )
+                    and not any(
+                        intent["stage_id"] == target
+                        and intent["state"] in {"prepared", "unknown"}
+                        for intent in a["intents"].values()
+                    ),
+                    "PLAN_CONFLICT",
+                    "Only reconciled failed work can be replaced",
+                )
+            replacements[target] = id
+        for target in replacements:
+            visited = set()
+            while target in replacements:
+                require(target not in visited, "INVALID_PLAN", "Replacement cycle")
+                visited.add(target)
+                target = replacements[target]
         for id, s in old.items():
             if s["status"] in SETTLED | ACTIVE | {
                 "failed",
@@ -771,6 +818,9 @@ class TaskService:
                 s["reason"] = p["reason"]
                 views.append(s)
                 specs[id] = a["specs"][id]
+        for view in views:
+            if "replaces_stage_id" in specs[view["id"]]:
+                view["replaces_stage_id"] = specs[view["id"]]["replaces_stage_id"]
         a["snapshot"]["stages"] = views
         a["specs"] = specs
         t = a["snapshot"]["task"]
@@ -788,6 +838,7 @@ class TaskService:
         self._ready(a)
         difference = {
             "added": [i for i in ids if i not in old],
+            "replacements": replacements,
             "changed": [i for i in ids if i in old and old[i] != self._stage(a, i)],
             "reason": p["reason"],
             "revision": t["plan_revision"],
@@ -1339,6 +1390,11 @@ class TaskService:
         s = self._stage(a, p["stage_id"])
         require(s["status"] == "failed", "INVALID_TRANSITION")
         require(
+            not any(spec.get("replaces_stage_id") == s["id"] for spec in a["specs"].values()),
+            "INVALID_TRANSITION",
+            "Failed stage already has a replacement",
+        )
+        require(
             not any(
                 o["status"] not in EXTERNAL_TERMINAL
                 for o in a["snapshot"]["external_operations"]
@@ -1360,16 +1416,31 @@ class TaskService:
 
     def _cmd_complete_task(self, db, a, ctx, p, key):
         s = a["snapshot"]
+        stages = {stage["id"]: stage for stage in s["stages"]}
+        replacements = {
+            spec["replaces_stage_id"]: id
+            for id, spec in a["specs"].items()
+            if "replaces_stage_id" in spec
+        }
+
+        def delivered(stage):
+            # Preserve failed Attempts as history; only verified replacement delivery
+            # satisfies the original obligation. A new proposal alone never does.
+            visited = set()
+            while stage["status"] == "failed" and stage["id"] in replacements:
+                if stage["id"] in visited:
+                    return False
+                visited.add(stage["id"])
+                stage = stages[replacements[stage["id"]]]
+            return (
+                stage["status"] == "completed"
+                if stage["required"]
+                else stage["status"] in {"completed", "skipped", "superseded"}
+            )
+
         require(
             s["stages"]
-            and all(
-                (
-                    v["status"] == "completed"
-                    if v["required"]
-                    else v["status"] in {"completed", "skipped", "superseded"}
-                )
-                for v in s["stages"]
-            ),
+            and all(delivered(stage) for stage in s["stages"]),
             "INVALID_TRANSITION",
         )
         require(

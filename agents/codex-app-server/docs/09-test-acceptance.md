@@ -93,7 +93,11 @@ MCP Apps 验收覆盖消息/上下文桥、工具可见性和作用域、确认/
 折叠时保留页面、手机布局、关闭重开。后端 `test_mcp_app_context.py` 验证持久化和原生 start/steer，
 `test_mcp_app_runtime.py` 在上述运行时环境变量启用后验证真实模型请求中的非可信上下文。
 `test_apps_launch_browser.cjs` 验证未选择聊天时直接打开应用、工具与资源使用同一绑定会话、
-重复打开复用会话，以及明确返回 thread-not-found 时自动创建会话并重试；全程不切换当前聊天。
+重复打开复用会话，以及明确返回 thread-not-found 时自动创建会话并重试。
+`test_conversation_app_browser.cjs` 验证新 App 结果自动展示、切换普通聊天后收起，
+返回历史聊天或刷新页面保持收起，手动打开仍显示原 App。
+`test_app_sidebar_browser.cjs` 验证 Apps 搜索与刷新、统一按钮底色、移除安装筛选，
+以及 iframe 保留、旧式激活、刷新后手动打开和移动端展示。
 可为构建与 fixture 同时设置 `CONSOLE_BUILD_DIR=/absolute/test-build`，隔离测试产物。
 
 `test_console.py` 覆盖静态 gzip 协商、ETag/304 更新、HEAD、摘要资源长期缓存与路径限制；
@@ -106,6 +110,11 @@ MCP Apps 验收覆盖消息/上下文桥、工具可见性和作用域、确认/
 `test_immediate_steer_browser.cjs` 在回答进行时挂起补充请求，验证 Enter 和发送按钮即时回显、
 输入框清空、原生 clientUserMessageId 去重、失败重试身份保持，以及跨聊天草稿隔离。
 `store.test.ts` 另验证首条消息不等待历史和目录加载、两种回执顺序、创建失败重试与切换时的模型归属。
+
+`test_html_preview_browser.cjs` 验证 HTML/HTM 在文件面板直接渲染、内联脚本与样式、
+源码切换、行号定位、重新读取、草稿保留及手机交互，并检查父页面与 Host API 隔离。
+`test_html_preview.py` 验证原生文件读取、路径限制、读取失败和 sandbox/CSP 响应头；
+自包含文档之外的资源不自动加载。
 首次加载性能使用浏览器新建上下文，在相同带宽和延迟下比较 FCP 与 JS 传输字节，
 再用同一上下文重开验证版本缓存。拆包后应回归终端、文件预览、公式及 MCP 交互视图。
 

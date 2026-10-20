@@ -300,6 +300,32 @@ body[data-sidebar-resizing="true"] * {
 .workbench-apps .native-card { min-width: 0; overflow-wrap: anywhere; }
 .workbench-apps > .mcp-app-view { padding: 8px; }
 .workbench-apps .mcp-app-surface[data-mode="inline"] { height: min(820px, calc(100dvh - 150px)); }
+.apps-catalog .app-catalog-controls:not([hidden]) { gap: 12px; }
+.apps-catalog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.apps-catalog-header h3 { margin: 0; }
+.apps-catalog .app-catalog-controls > p { margin: 0; font-size: 13px; line-height: 1.6; }
+.apps-search { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted-foreground); background: var(--background); }
+.apps-search:focus-within { border-color: var(--ring); outline: 2px solid color-mix(in srgb, var(--ring) 20%, transparent); }
+.apps-search input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: var(--foreground); font: inherit; font-size: 13px; }
+.apps-search input::placeholder { color: var(--muted-foreground); }
+.apps-catalog-group > h4 { color: var(--muted-foreground); font-size: 12px; }
+.apps-catalog .apps-card { padding: 16px 0; }
+.apps-catalog .apps-card:first-of-type { padding-top: 4px; }
+.apps-card .integration-heading { gap: 8px; }
+.apps-card .integration-heading strong { min-width: 0; overflow-wrap: anywhere; }
+.apps-card .apps-card-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.65; font-size: 13px; margin: 8px 0 12px; }
+.apps-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.apps-card-actions .integration-muted { font-size: 12px; }
+.apps-catalog [data-slot="button"][data-variant="secondary"], .app-launch-options > summary { background: var(--secondary); color: var(--secondary-foreground); border: 1px solid var(--border); box-shadow: none; }
+.apps-catalog [data-slot="button"][data-variant="secondary"]:hover, .app-launch-options > summary:hover { background: var(--accent); }
+.app-launch-options { margin-top: 12px; }
+.app-launch-options > summary { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 6px; font-size: 12px; cursor: pointer; list-style: none; }
+.app-launch-options > summary::-webkit-details-marker { display: none; }
+.app-launch-options > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.app-launch-options[open] > summary svg { transform: rotate(180deg); }
+.app-launch-options > p { font-size: 13px; line-height: 1.65; }
+.app-launch-options > small { display: block; margin-top: 8px; overflow-wrap: anywhere; color: var(--muted-foreground); }
+.apps-launch-fields { margin-top: 16px; }
 .workbench-resize:hover,
 .workbench-resize:focus-visible {
   background: var(--border);
@@ -367,6 +393,18 @@ body[data-sidebar-resizing="true"] * {
 }
 .workspace-file-page[hidden] {
   display: none;
+}
+.workspace-file-scroll[data-html="true"] {
+  display: flex;
+  overflow: hidden;
+}
+.workspace-html-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  background: white;
+  color-scheme: light;
 }
 .workspace-file-toolbar {
   display: flex;

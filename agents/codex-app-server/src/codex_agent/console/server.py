@@ -12,6 +12,7 @@ from .models import EventQuery, SnapshotQuery
 from .ports import ObservationError, InvalidCursor, UnknownEvent, UnknownSession
 from .service import CAPABILITIES
 from .static_files import CSP, StaticFiles
+from .html_preview import PREVIEW_CSP, read_html_preview
 
 from ..host import HostNotReady
 from ..state import identifier, payload_digest
@@ -250,6 +251,18 @@ class ConsoleApp:
         if method == 'POST' and self._stopping:
             return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
         try:
+            if path == '/api/workspace-preview' and method == 'GET':
+                query = parse_qs(scope.get('query_string', b'').decode(), keep_blank_values=True)
+                if set(query) - {'path', 'revision'} or len(query.get('path', [])) != 1:
+                    raise ValueError('one HTML preview path is required')
+                body = await read_html_preview(self.host.native, query['path'][0], 'preview-' + uuid.uuid4().hex)
+                await send({'type': 'http.response.start', 'status': 200, 'headers': [
+                    (b'content-type', b'text/html; charset=utf-8'), (b'cache-control', b'no-store'),
+                    (b'x-content-type-options', b'nosniff'), (b'referrer-policy', b'no-referrer'),
+                    (b'content-security-policy', PREVIEW_CSP.encode()),
+                    (b'permissions-policy', b'camera=(), microphone=(), geolocation=(), clipboard-write=()'),
+                ]})
+                return await send({'type': 'http.response.body', 'body': body})
             if path.startswith('/internal/v1/'):
                 if not self.integrations:
                     return await self._send(send, 503, {'error': 'integrations-disabled'})

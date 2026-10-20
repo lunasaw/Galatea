@@ -206,6 +206,77 @@ class DomainTests(unittest.TestCase):
         self.assertEqual(self.begin(key="begin"), first)
         self.assertEqual(self.snapshot()["last_event_seq"], seq)
 
+    def fail_inspection(self):
+        self.plan([spec()])
+        attempt = self.begin()
+        self.command("report_result", {
+            "stage_id": "inspect", **attempt, "result": {},
+            "artifact_candidates": [{
+                "path": "missing.json", "role": "report", "slot": "report",
+                "media_type": "application/json",
+            }],
+        })
+        self.service.verify_pending()
+        self.assertEqual(self.snapshot()["stages"][0]["status"], "failed")
+
+    def replacement(self, id="replacement"):
+        value = spec(id)
+        # Keep the original delivery contract, including rule IDs.
+        value["acceptance"] = spec()["acceptance"]
+        value["replaces_stage_id"] = "inspect"
+        return value
+
+    def test_failed_stage_replacement_requires_verified_delivery_and_preserves_history(self):
+        self.fail_inspection()
+        failed = copy.deepcopy(self.snapshot()["stages"][0])
+        self.plan([spec(), self.replacement()], revision=1)
+        completion = {
+            "summary": "delivered",
+            "artifact_refs": [],
+        }
+        self.assertCode("INVALID_TRANSITION", lambda: self.command(
+            "complete_task", completion, expected_plan_revision=2))
+        self.assertCode("INVALID_TRANSITION", lambda: self.command(
+            "retry_stage", {"stage_id": "inspect"}))
+        self.finish("replacement")
+        self.assertEqual(self.snapshot()["stages"][0], failed)
+        completion["artifact_refs"] = [a["id"] for a in self.snapshot()["artifacts"]]
+        self.command("complete_task", completion, expected_plan_revision=2)
+        self.assertEqual(self.snapshot()["task"]["status"], "completed")
+        replacement = self.snapshot()["stages"][1]
+        self.assertEqual(replacement["replaces_stage_id"], "inspect")
+
+    def test_replacement_cannot_weaken_or_branch_failed_work(self):
+        self.fail_inspection()
+        for field, value in (
+            ("required", False),
+            ("kind", "code.prepare"),
+            ("output_slots", []),
+            ("replaces_stage_id", "missing"),
+        ):
+            candidate = self.replacement()
+            candidate[field] = value
+            self.assertCode("PLAN_CONFLICT", lambda: self.plan(
+                [spec(), candidate], revision=1))
+        candidate = self.replacement()
+        candidate["acceptance"] = [{
+            "id": "weaker", "type": "artifact_exists",
+            "parameters": {"artifact_role": "*"},
+        }]
+        self.assertCode("PLAN_CONFLICT", lambda: self.plan(
+            [spec(), candidate], revision=1))
+        self.assertCode("PLAN_CONFLICT", lambda: self.plan(
+            [spec(), self.replacement(), self.replacement("branch")], revision=1))
+
+    def test_replacement_cannot_replace_running_or_completed_work(self):
+        self.plan([spec()])
+        attempt = self.begin()
+        self.assertCode("PLAN_CONFLICT", lambda: self.plan(
+            [spec(), self.replacement()], revision=1))
+        self.finish(attempt=attempt)
+        self.assertCode("PLAN_CONFLICT", lambda: self.plan(
+            [spec(), self.replacement()], revision=1))
+
     def test_B05_command_id_cannot_change_payload(self):
         self.plan()
         self.begin(key="begin")

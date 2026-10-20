@@ -240,3 +240,10 @@ cross-site、same-site、none 均拒绝，没有放宽 iframe 直接确认边界
   重启 18880 并通过原生 resume 恢复原有就绪会话，不发送模型消息。
   实际部署结果以本次 Task 的 `http-authorization-deployment.json` 为准，
   不能把代码测试通过当作活动 Host 已加载修复。
+
+后续主入口事实：重载执行后 HTTP Origin 检查进入业务校验，已不再返回 403；
+自动会话恢复首次返回 503，因此自动部署报告保留 verification_failed，
+其中的真实浏览器确认检查未运行。随后用户实际完成新方案授权与执行确认，
+Task Service 返回 authorized=true、request=accepted、smoke=ready（Task version 16），
+并成功触发同会话 Agent 接续。这个用户决定证明主入口确认链路可用，
+不追认早先未运行的自动浏览器检查。其后训练提交与指标另行记录。

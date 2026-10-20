@@ -244,6 +244,9 @@ class FixtureNative(NativeBridge):
         if method == 'fs/createDirectory':
             return {}
         if method == 'fs/readFile':
+            if params['path'] in ('/fixture/report.html', '/fixture/report.htm'):
+                body = (Path(__file__).parent / 'fixtures/workspace_preview.html').read_bytes()
+                return {'dataBase64': base64.b64encode(body).decode()}
             if params['path'] == '/fixture/README.md':
                 text = '# 会话界面\n\n文件可在右侧阅读，并保留输入草稿。\n\n[阅读源码](src/workbench.tsx#L84-L86)\n\n| 功能 | 状态 |\n| --- | --- |\n| 文件预览 | 可用 |\n\n```typescript\nconst desktop = true;\n```\n\n<img src=x onerror="window.injected=1">'
                 return {'dataBase64': base64.b64encode(text.encode()).decode()}
@@ -377,6 +380,8 @@ class BrowserHost(test_console.FakeHost):
             reply = '验收完成。\n\n[查看报告](/fixture/report.md) · [查看源码](/fixture/file.py:2)'
         if text == 'desktop-ui-fixture':
             reply = '会话交互已调整。点击文件后可在右侧阅读，对话与草稿会保留。\n\n[阅读说明](/fixture/README.md) · [定位源码](/fixture/src/workbench.tsx#L84-L86)\n\n[相对路径](src/workbench.tsx:12) · [中文文件](docs/%E7%95%8C%E9%9D%A2%20%E8%AF%B4%E6%98%8E.md) · [重试文件](/fixture/missing.md) · [慢速文件](/fixture/slow.txt) · [外部文档](https://developers.openai.com/codex/app/features)'
+        if text == 'html-preview-fixture':
+            reply = '[交互讲解图](/fixture/report.html) · [HTM 页面](/fixture/report.htm) · [查看第 3 行](/fixture/report.html#L3)'
         if text == 'copy-fixture':
             reply = '## 完整复制验收\n\n' + '\n\n'.join(
                 f'第 {index} 段：这段内容必须完整保留。**中文和标点**、`代码`、链接 [文档](https://example.test/docs)。'

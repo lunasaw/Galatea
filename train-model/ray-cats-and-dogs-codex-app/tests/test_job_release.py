@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from ray_cats_dogs.job_release import (  # noqa: E402
     BuiltRelease,
     build_release,
+    build_wheel,
     build_training_entrypoint,
     build_runtime_environment,
     ci_main,
@@ -63,7 +64,46 @@ class JobReleaseTest(unittest.TestCase):
         self.assertFalse(any(name.startswith("job/") for name in names))
         self.assertFalse(any(name.startswith("notebooks/") for name in names))
         self.assertFalse(any(name.startswith("tests/") for name in names))
+        self.assertFalse(any(name.startswith("outputs/") for name in names))
         self.assertFalse(any("__pycache__" in name for name in names))
+
+    def test_changed_source_wheels_use_distinct_ray_cache_directories(self) -> None:
+        from packaging.utils import parse_wheel_filename
+        from ray._private.runtime_env.packaging import get_local_dir_from_uri
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            (source / "pyproject.toml").write_text(
+                '[build-system]\nrequires = ["setuptools"]\n'
+                'build-backend = "setuptools.build_meta"\n'
+                '[project]\nname = "cache-fixture"\nversion = "0.1.0"\n',
+                encoding="utf-8",
+            )
+            module = source / "cache_fixture.py"
+            wheels = []
+            for attempt, value in enumerate(("original", "changed", "original")):
+                module.write_text(f"VALUE = {value!r}\n", encoding="utf-8")
+                build = root / f"build-{attempt}"
+                archive = build / "working-dir.zip"
+                create_working_dir_archive(source, archive)
+                wheel = build_wheel(archive, build / "wheel")
+                parse_wheel_filename(wheel.name)
+                wheels.append(wheel)
+                with zipfile.ZipFile(wheel) as packaged:
+                    self.assertEqual(
+                        module.read_bytes(), packaged.read("cache_fixture.py")
+                    )
+
+            self.assertEqual(wheels[0].name, wheels[2].name)
+            first_cache = get_local_dir_from_uri(
+                f"s3://runtime/release-one/{wheels[0].name}", root / "cache"
+            )
+            changed_cache = get_local_dir_from_uri(
+                f"s3://runtime/release-two/{wheels[1].name}", root / "cache"
+            )
+            self.assertNotEqual(first_cache, changed_cache)
 
     def test_release_uses_s3_zip_and_wheel_runtime_env(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

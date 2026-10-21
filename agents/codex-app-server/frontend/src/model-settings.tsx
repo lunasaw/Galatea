@@ -100,7 +100,7 @@ export function ModelSettings({ state }: { state: ConsoleState }) {
         {approval === "granular" && Object.entries({ sandbox_approval: "沙箱越界审批", rules: "命令规则审批", mcp_elicitations: "MCP 交互审批", request_permissions: "额外权限申请", skill_approval: "Skill 审批" }).map(([key, label]) => <SettingRow key={key} label={label}><input type="checkbox" role="switch" aria-label={label} checked={!!granular[key]} onChange={(e) => setGranular({ ...granular, [key]: e.target.checked })} /></SettingRow>)}
       </>}
     </div>
-    <div className="native-options"><Button disabled={action.busy || !model || !cwd} onClick={() => void action.run(() => save(), live ? "已应用到当前回复，后续回复设置保持不变" : "会话设置已应用")}>{live ? "应用到当前回复" : session ? "应用到当前会话" : "创建会话"}</Button>
+    <div className="native-options"><Button variant="primary" disabled={action.busy || !model || !cwd} onClick={() => void action.run(() => save(), live ? "已应用到当前回复，后续回复设置保持不变" : "会话设置已应用")}>{live ? "应用到当前回复" : session ? "应用到当前会话" : "创建会话"}</Button>
       {session && <Button variant="outline" disabled={action.busy} onClick={() => void action.run(() => save(true), "已新建会话")}>以此设置新建</Button>}</div>
     <details><summary>组织与运行环境要求</summary>{req ? <Facts value={req} /> : <p>未配置额外要求</p>}</details>
     <Feedback error={action.error || requirements.error || profiles.error || modes.error} status={action.status} />

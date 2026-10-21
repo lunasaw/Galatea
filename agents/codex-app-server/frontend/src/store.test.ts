@@ -1,6 +1,6 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { ConsoleStore } from "./store.ts";
+import { ApiError, ConsoleStore } from "./store.ts";
 import { parseProjectLayout, moveProject } from "./project-state.ts";
 import type { Snapshot } from "./types.ts";
 import { toConversationMessages } from "./messages.ts";
@@ -41,6 +41,68 @@ const deferred = <T,>() => {
 };
 const pendingStream = (init?: RequestInit) => new Promise<Response>((_, reject) => {
   init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+});
+
+test("recovery errors explain the cause and retain unknown server diagnostics", () => {
+  assert.match(new ApiError("session-extensions-changed", 409).message, /扩展已更新.*迁移/);
+  assert.equal(new ApiError("unexpected-failure", 503).message, "503 · unexpected-failure");
+});
+
+test("resume rejects duplicate clicks and allows a new request after a safe rejection", async () => {
+  const s = make();
+  s.patch({ active: "a" });
+  s.schedule = () => {};
+  const first = deferred<Response>();
+  const keys: string[] = [];
+  globalThis.fetch = async (path, init) => {
+    if (String(path) === "/api/sessions") return json([{ id: "a", status: "ready" }]);
+    keys.push(new Headers(init?.headers).get("idempotency-key")!);
+    return keys.length === 1 ? first.promise : json({ status: "ready" });
+  };
+  const pending = s.action("resume");
+  assert.deepEqual(s.state.sessionActions, ["a:resume"]);
+  await s.action("resume");
+  await s.action("close");
+  assert.equal(keys.length, 1);
+  first.resolve(new Response(JSON.stringify({ error: "session-extensions-changed", retry_safe: true }), { status: 409 }));
+  await pending;
+  assert.match(s.state.error, /扩展已更新/);
+  assert.deepEqual(s.state.sessionActions, []);
+  await s.action("resume");
+  assert.equal(keys.length, 2);
+  assert.notEqual(keys[0], keys[1]);
+  assert.equal(s.state.error, "");
+});
+
+test("resume preserves the idempotency key when the outcome is unknown", async () => {
+  const s = make();
+  s.patch({ active: "a" });
+  s.schedule = () => {};
+  const keys: string[] = [];
+  globalThis.fetch = async (path, init) => {
+    if (String(path) === "/api/sessions") return json([]);
+    keys.push(new Headers(init?.headers).get("idempotency-key")!);
+    return new Response(JSON.stringify({ error: "request-outcome-unknown" }), { status: 503 });
+  };
+  await s.action("resume");
+  await s.action("resume");
+  assert.equal(keys.length, 2);
+  assert.equal(keys[0], keys[1]);
+  assert.match(s.state.error, /结果尚未确认/);
+});
+
+test("late resume failure does not appear in another chat", async () => {
+  const s = make();
+  s.patch({ active: "a" });
+  s.schedule = () => {};
+  const pending = deferred<Response>();
+  globalThis.fetch = async (path) => String(path) === "/api/sessions" ? json([]) : pending.promise;
+  const action = s.action("resume");
+  s.patch({ active: "b", error: "" });
+  pending.resolve(new Response(JSON.stringify({ error: "runtime-unavailable", retry_safe: true }), { status: 409 }));
+  await action;
+  assert.equal(s.state.error, "");
+  assert.deepEqual(s.state.sessionActions, []);
 });
 
 test("startup renders the catalog, chat and defaults before optional requests finish", async () => {

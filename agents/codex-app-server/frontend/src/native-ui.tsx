@@ -336,7 +336,7 @@ function Interaction({ row }: { row: NativeRequest }) {
           ["accept", "decline", "cancel"].map((action) => (
             <Button
               key={action}
-              variant={action === "accept" ? "default" : "outline"}
+              variant={action === "accept" ? "primary" : "outline"}
               onClick={() =>
                 void send({
                   action,

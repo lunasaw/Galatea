@@ -610,7 +610,7 @@ const ComposerAction: FC = () => {
               tooltip="发送"
               side="bottom"
               type="button"
-              variant="default"
+              variant="primary"
               size="icon"
               className="aui-composer-send size-9 rounded-full"
               aria-label="发送"
@@ -630,7 +630,7 @@ const ComposerAction: FC = () => {
           <ComposerPrimitive.Cancel asChild>
             <Button
               type="button"
-              variant="default"
+              variant="primary"
               size="icon"
               className="aui-composer-cancel size-9 rounded-full"
               aria-label={isSending ? "取消发送" : "中断"}

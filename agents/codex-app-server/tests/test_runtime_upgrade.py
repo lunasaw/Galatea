@@ -128,3 +128,21 @@ class SourceExtensionUpgradeTests(RuntimeUpgradeTests):
             with self.assertRaises(RuntimeError): self.migrate()
         with patch('codex_agent.local.source_manifest', return_value={**self.bindings, 'extensions_sha256': 'not-reviewed'}):
             with self.assertRaises(ValueError): self.migrate()
+
+    def test_online_resume_checks_every_non_extension_binding_and_persisted_state(self):
+        from codex_agent.runtime_upgrade import resume_source_extensions
+        current = {**self.session, 'extensions_sha256': 'new-extensions'}
+        bindings = {key: current[key] for key in self.bindings}
+        for change in ({'effective_config_sha256': 'changed'}, {'principal_digest': 'changed'}):
+            with self.subTest(change=change):
+                with self.assertRaises(ValueError):
+                    resume_source_extensions(self.config, self.store, self.session,
+                                             {**bindings, **change}, measured=current)
+                self.assertEqual(self.store.read('sessions/s.json'), self.session)
+        self.store.write('sessions/s.json', {**self.session, 'active_turn_id': 'late-turn'})
+        with self.assertRaises(ValueError):
+            resume_source_extensions(self.config, self.store, self.session, bindings, measured=current)
+        self.store.write('sessions/s.json', self.session)
+        result = resume_source_extensions(self.config, self.store, self.session, bindings, measured=current)
+        self.assertEqual(result['extensions_sha256'], 'new-extensions')
+        self.assertEqual(self.store.read('source-upgrades/new-extensions/s.json')['previous_session'], self.session)

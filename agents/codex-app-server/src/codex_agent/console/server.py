@@ -14,7 +14,7 @@ from .service import CAPABILITIES
 from .static_files import CSP, StaticFiles
 from .html_preview import PREVIEW_CSP, read_html_preview
 
-from ..host import HostNotReady
+from ..host import HostNotReady, ResumeRejected
 from ..state import identifier, payload_digest
 from ..native import PROTOCOL
 from ..rpc import RpcError
@@ -196,11 +196,19 @@ class ConsoleApp:
                     raise ValueError('idempotency conflict')
                 if 'result' in previous:
                     return previous['result']
+                if 'resume_rejected' in previous:
+                    raise ResumeRejected('resume preflight rejected', code=previous['resume_rejected'])
                 # Message admission has its own durable intent and safe deduplication.
                 if not (path.startswith('/api/sessions/') and path.endswith('/messages')):
-                    raise HostNotReady('request outcome unknown')
+                    raise HostNotReady('request outcome unknown', code='request-outcome-unknown')
             self.host.store.write(record_path, {'digest': digest, 'status': 'intent_recorded'})
-            result = await action(key)
+            try:
+                result = await action(key)
+            except ResumeRejected as exc:
+                # A known preflight rejection is terminal for this request key.
+                # Native resume failures remain indeterminate and must not be replayed.
+                self.host.store.write(record_path, {'digest': digest, 'status': 'rejected', 'resume_rejected': exc.code})
+                raise
             self.host.store.write(record_path, {'digest': digest, 'status': 'receipt_saved', 'result': result})
             return result
 
@@ -477,8 +485,10 @@ class ConsoleApp:
             return await self._send(send, 413, {'error': 'body-too-large'})
         except RpcError as exc:
             return await self._send(send, 422, {'error': str(exc), 'native_error': redact(exc.error)[0]})
-        except HostNotReady:
-            return await self._send(send, 503, {'error': 'not-ready-or-recovery-required'})
+        except ResumeRejected as exc:
+            return await self._send(send, 409, {'error': exc.code, 'retry_safe': True})
+        except HostNotReady as exc:
+            return await self._send(send, 503, {'error': exc.code})
         except ValueError as exc:
             return await self._send(send, 409, {'error': str(exc) if path.startswith(('/api/native/', '/api/image-generation/')) else 'invalid-or-conflicting-request'})
         except (KeyError, TimeoutError):

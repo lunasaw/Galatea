@@ -16,7 +16,13 @@ from .mcp_app_context import with_app_context
 
 
 class HostNotReady(RuntimeError):
-    pass
+    def __init__(self, message, *, code='not-ready-or-recovery-required'):
+        super().__init__(message)
+        self.code = code
+
+
+class ResumeRejected(HostNotReady):
+    """Resume was rejected before calling the native resume operation."""
 
 
 class AgentHost:
@@ -25,7 +31,7 @@ class AgentHost:
     def __init__(self, *, registry: ToolRegistry, event_log, store: AtomicJsonStore,
                  client_factory, reconciler, principal_id: str, actions: set[str], max_active_turns: int = 4,
                  workspace_dir=None, bindings=None, tool_timeout=60.0, client_stop=None, admission_check=None, startup_check=None,
-                 configuration_changed=None, extensions_close=None):
+                 configuration_changed=None, extensions_close=None, extension_rebinder=None):
         self.registry, self.events, self.store = registry, event_log, store
         self.client_factory, self.reconciler, self.client_stop = client_factory, reconciler, client_stop
         self.principal_id, self.actions = principal_id, frozenset(actions)
@@ -43,6 +49,7 @@ class AgentHost:
         self._workers = set()
         self.configuration_changed = configuration_changed
         self.extensions_close = extensions_close
+        self.extension_rebinder = extension_rebinder
         self.native = NativeBridge(self)
 
     async def _reconcile(self):
@@ -447,29 +454,50 @@ class AgentHost:
         return {'status': 'pending' if session.get('active_turn_id') else session['status']}
 
     async def resume(self, session_id, *, options=None):
-        self.assert_ready()
+        try:
+            self.assert_ready()
+        except HostNotReady as exc:
+            raise ResumeRejected(str(exc), code='runtime-unavailable') from exc
         async with self._admission:
             session = self._session(session_id)
             if not session:
                 raise KeyError(session_id)
             persisted = self.store.read(f'sessions/{session_id}.json')
-            if persisted != session or any(session.get(k) != v for k, v in self.bindings.items()) or session['status'] == 'closed':
-                raise HostNotReady('session binding mismatch')
+            if persisted != session:
+                raise ResumeRejected('session state changed', code='session-state-changed')
+            if session['status'] == 'closed':
+                raise ResumeRejected('session closed', code='session-closed')
+            mismatches = {k for k, v in self.bindings.items() if session.get(k) != v}
+            extension_drift = mismatches == {'extensions_sha256'}
+            if mismatches and not (extension_drift and self.extension_rebinder):
+                code = 'session-extensions-changed' if mismatches == {'extensions_sha256'} else 'session-binding-mismatch'
+                raise ResumeRejected('session binding mismatch', code=code)
             if session['id'] in self._attached and session.get('active_turn_id'):
-                raise HostNotReady('turn still active')
+                raise ResumeRejected('turn still active', code='session-turn-active')
             for path in (self.store.root / 'tool-calls').glob('*.json'):
                 call = self.store.read(str(path.relative_to(self.store.root)))
                 if call['identity']['session_id'] == session_id and call['state'] != 'receipt_saved':
-                    raise HostNotReady('tool outcome unknown; reconcile operation before resume')
-            await self._check_admission()
+                    raise ResumeRejected('tool outcome unknown; reconcile operation before resume', code='session-operation-unresolved')
+            try:
+                await self._check_admission()
+            except HostNotReady as exc:
+                raise ResumeRejected(str(exc), code='runtime-unavailable') from exc
             observed = await self.client.read_thread(session['thread_id'])
             thread = observed['thread']
             if thread['id'] != session['thread_id'] or any(t.get('status') == 'inProgress' for t in thread.get('turns', [])):
-                raise HostNotReady('native thread still active')
+                raise ResumeRejected('native thread still active', code='session-turn-active')
+            if extension_drift:
+                try:
+                    session = await self.extension_rebinder(dict(session), dict(self.bindings))
+                except HostNotReady as exc:
+                    raise ResumeRejected(str(exc), code='runtime-unavailable') from exc
+                except ValueError as exc:
+                    raise ResumeRejected(str(exc), code='session-extensions-changed') from exc
+                self._sessions[session_id] = session
             if session.get('active_request_id'):
                 turn = next((t for t in thread.get('turns', []) if t['id'] == session.get('active_turn_id')), None)
                 if not turn or turn.get('status') not in {'completed', 'failed', 'interrupted'}:
-                    raise HostNotReady('turn outcome unknown')
+                    raise ResumeRejected('turn outcome unknown', code='session-turn-unresolved')
                 path = f"requests/{session['active_request_id']}.json"
                 record = self.store.read(path)
                 record.update(turn_id=turn['id'], status=turn['status'])

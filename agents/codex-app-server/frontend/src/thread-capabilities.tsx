@@ -55,7 +55,7 @@ export function GoalCard({ threadId, revision, expanded, onExpandedChange }: {
       }, "目标已保存"); }}>
         <Field label="要持续追求的目标"><textarea required rows={3} value={objective} onChange={(event) => { setEditing(true); setObjective(event.target.value); }} /></Field>
         <Field label="Token 预算（可选）"><input type="number" min="1" step="1" value={budget} onChange={(event) => { setEditing(true); setBudget(event.target.value); }} placeholder="不设预算" /></Field>
-        <div className="native-options"><Button size="sm" disabled={action.busy || !objective.trim()}>保存目标</Button>
+        <div className="native-options"><Button variant="primary" size="sm" disabled={action.busy || !objective.trim()}>保存目标</Button>
           {goal && <Button type="button" variant="ghost" size="sm" onClick={() => { setEditing(false); setObjective(goal.objective); setBudget(goal.tokenBudget == null ? "" : String(goal.tokenBudget)); onExpandedChange(false); }}>收起</Button>}</div>
       </form>
       {goal && <div className="native-options">
@@ -136,7 +136,7 @@ export function QueueCard({ threadId, revision, canStart }: {
         }}>
           <textarea aria-label="编辑待发送消息" autoFocus rows={2} value={draft} disabled={action.busy} onChange={(event) => setDraft(event.target.value)} />
           <div><Button type="button" size="sm" variant="ghost" onClick={() => setEditing(undefined)}>取消</Button>
-            <Button size="sm" disabled={action.busy || (!draft.trim() && !other.length)}>保存</Button></div>
+            <Button variant="primary" size="sm" disabled={action.busy || (!draft.trim() && !other.length)}>保存</Button></div>
         </form>}
       </li>;
     })}</ol>

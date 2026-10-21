@@ -131,13 +131,15 @@ cd /data/ai/chenzhangyue/galatea-model/galatea/train-model/ray-cats-and-dogs-cod
 
 ```text
 working-dir.zip
-ray_cats_and_dogs-0.1.0-py3-none-any.whl
+ray_cats_and_dogs_codex_app-0.1.0-1<source-sha256>-py3-none-any.whl
 runtime-env.yaml
 release.json
 ```
 
-`working-dir.zip` 不包含 `job/`、`notebooks/`、`tests/`、Notebook Checkpoint 或 Python Cache。
+`working-dir.zip` 不包含 `job/`、`notebooks/`、`outputs/`、`tests/`、Notebook Checkpoint 或 Python Cache。
 Wheel 作为 `py_modules` 使用，避免远程 Module ZIP 顶层目录解包语义导致导入路径错误。
+Ray 的远程 Wheel 缓存只使用文件名，不包含 Bucket 或 Release 路径，因此文件名中的构建标签
+绑定源归档 SHA-256，避免不同 Release 共用安装目录。相同源归档仍生成相同 Wheel 文件名。
 
 ## 2. CI 上传并自动执行 CD
 

@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from codex_agent.catalog import Catalog
 from codex_agent.events import EventLog
-from codex_agent.host import AgentHost, HostNotReady
+from codex_agent.host import AgentHost, HostNotReady, ResumeRejected
 from codex_agent.registry import ToolContext, ToolRegistry
 from codex_agent.state import AtomicJsonStore, OperationJournal
 from codex_agent.console.models import SnapshotQuery
@@ -215,6 +215,77 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         self.store.write("sessions/session-1.json", session)
         with self.assertRaises(HostNotReady):
             await self.host.resume("session-1")
+
+    async def test_resume_reports_extension_drift_without_loading_native_thread(self):
+        self.host.bindings['extensions_sha256'] = 'old'
+        await self.host.create_session('s')
+        self.host.bindings['extensions_sha256'] = 'new'
+        self.client.read_thread = AsyncMock()
+        with self.assertRaises(ResumeRejected) as rejected:
+            await self.host.resume('s')
+        self.assertEqual(rejected.exception.code, 'session-extensions-changed')
+        self.client.read_thread.assert_not_called()
+        self.assertEqual(self.client.resumes, [])
+        self.assertEqual(self.store.read('sessions/s.json')['extensions_sha256'], 'old')
+
+    async def test_resume_reports_unresolved_operation_without_resuming(self):
+        await self.host.create_session('s')
+        self.store.write('tool-calls/c.json', {'identity': {'session_id': 's'}, 'state': 'executing'})
+        with self.assertRaises(ResumeRejected) as rejected:
+            await self.host.resume('s')
+        self.assertEqual(rejected.exception.code, 'session-operation-unresolved')
+        self.assertEqual(self.client.resumes, [])
+
+    async def test_native_resume_failure_is_not_a_safe_preflight_rejection(self):
+        await self.host.create_session('s')
+        self.client.resume = AsyncMock(side_effect=HostNotReady('connection lost after resume'))
+        with self.assertRaises(HostNotReady) as failed:
+            await self.host.resume('s')
+        self.assertNotIsInstance(failed.exception, ResumeRejected)
+
+    async def test_source_resume_rebinds_only_extension_drift_after_native_idle_check(self):
+        self.host.bindings['extensions_sha256'] = 'old'
+        original = await self.host.create_session('s')
+        self.host.bindings['extensions_sha256'] = 'new'
+        def rebind(session, bindings):
+            updated = {**session, 'extensions_sha256': bindings['extensions_sha256']}
+            self.store.write('sessions/s.json', updated)
+            return updated
+        self.host.extension_rebinder = AsyncMock(side_effect=rebind)
+        result = await self.host.resume('s')
+        self.assertEqual(result['status'], 'ready')
+        self.assertEqual(result['extensions_sha256'], 'new')
+        self.assertEqual(result['thread_id'], original['thread_id'])
+        self.assertEqual(self.client.resumes, [original['thread_id']])
+        self.host.extension_rebinder.assert_awaited_once()
+
+    async def test_extension_migration_does_not_run_for_active_native_turn_or_other_drift(self):
+        self.host.bindings['extensions_sha256'] = 'old'
+        original = await self.host.create_session('s')
+        self.host.bindings['extensions_sha256'] = 'new'
+        self.host.extension_rebinder = AsyncMock()
+        self.client.read_thread = AsyncMock(return_value={'thread': {
+            'id': original['thread_id'], 'turns': [{'id': 'running', 'status': 'inProgress'}]}})
+        with self.assertRaises(ResumeRejected) as active:
+            await self.host.resume('s')
+        self.assertEqual(active.exception.code, 'session-turn-active')
+        self.host.bindings['agent_config_sha256'] = 'changed'
+        with self.assertRaises(ResumeRejected) as mismatch:
+            await self.host.resume('s')
+        self.assertEqual(mismatch.exception.code, 'session-binding-mismatch')
+        self.host.extension_rebinder.assert_not_awaited()
+        self.assertEqual(self.client.resumes, [])
+
+    async def test_failed_extension_preflight_does_not_resume_native_thread(self):
+        self.host.bindings['extensions_sha256'] = 'old'
+        await self.host.create_session('s')
+        self.host.bindings['extensions_sha256'] = 'new'
+        self.host.extension_rebinder = AsyncMock(side_effect=ValueError('files changed again'))
+        with self.assertRaises(ResumeRejected) as rejected:
+            await self.host.resume('s')
+        self.assertEqual(rejected.exception.code, 'session-extensions-changed')
+        self.assertEqual(self.client.resumes, [])
+        self.assertEqual(self.store.read('sessions/s.json')['extensions_sha256'], 'old')
 
 
 if __name__ == "__main__":

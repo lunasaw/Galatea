@@ -40,7 +40,7 @@ AWS_ENV_KEYS = {
     "AWS_ENDPOINT_URL",
     "AWS_ENDPOINT_URL_S3",
 }
-EXCLUDED_TOP_LEVEL = {"job", "notebooks", "tests"}
+EXCLUDED_TOP_LEVEL = {"job", "notebooks", "outputs", "tests"}
 EXCLUDED_PARTS = {
     ".git",
     ".ipynb_checkpoints",
@@ -188,8 +188,15 @@ def build_wheel(working_dir_archive: Path, destination: Path) -> Path:
     wheels = sorted(destination.glob("*.whl"))
     if len(wheels) != 1:
         raise RuntimeError(f"expected one wheel, found {len(wheels)} in {destination}")
-    normalize_zip_archive(wheels[0])
-    return wheels[0]
+    wheel = wheels[0]
+    normalize_zip_archive(wheel)
+    # Ray caches remote wheels by filename, ignoring the bucket and Release path.
+    # A content-bound build tag prevents different Releases sharing that directory.
+    name_parts = wheel.name.split("-")
+    name_parts.insert(2, f"1{_sha256(working_dir_archive)}")
+    tagged_wheel = wheel.with_name("-".join(name_parts))
+    wheel.rename(tagged_wheel)
+    return tagged_wheel
 
 
 def _git_identity(project_root: Path) -> dict[str, Any]:

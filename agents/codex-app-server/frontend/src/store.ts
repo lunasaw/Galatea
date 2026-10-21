@@ -39,12 +39,26 @@ declare global {
     compareCursor(a: string, b: string): number;
   };
 }
+const recoveryErrors: Record<string, string> = {
+  "session-extensions-changed": "技能或扩展已更新，此会话需要完成版本迁移后才能恢复。请联系服务维护人员处理，历史消息仍保留。",
+  "session-binding-mismatch": "此会话的运行配置与当前服务不一致，需要核对并迁移后恢复。",
+  "session-state-changed": "会话状态已变化，请刷新页面后重试。",
+  "session-closed": "此会话已关闭，无法恢复。",
+  "session-turn-active": "此会话仍有任务运行，请等待结束或中断后再恢复。",
+  "session-operation-unresolved": "上一次工具操作的结果尚未确认，需要核对操作记录后恢复，避免重复执行。",
+  "session-turn-unresolved": "上一轮任务的结果尚未确认，需要核对运行记录后恢复。",
+  "request-outcome-unknown": "上一次请求的结果尚未确认，请先核对会话状态，避免重复执行。",
+  "runtime-unavailable": "运行服务暂未就绪，请稍后重试恢复。",
+  "not-ready-or-recovery-required": "运行服务暂未就绪，或当前会话需要恢复。请查看会话状态后重试。",
+};
+
 export class ApiError extends Error {
   constructor(
     public code: string,
     public status: number,
+    public retrySafe = false,
   ) {
-    super(`${status} · ${code}`);
+    super(recoveryErrors[code] || `${status} · ${code}`);
   }
 }
 export async function api<T>(
@@ -64,7 +78,7 @@ export async function api<T>(
   });
   const data = await response.json();
   if (!response.ok)
-    throw new ApiError(data.error || "请求失败", response.status);
+    throw new ApiError(data.error || "请求失败", response.status, data.retry_safe === true);
   return data;
 }
 export const requestKey = () =>
@@ -113,6 +127,7 @@ export type ConsoleState = {
   creating: boolean;
   submitting: boolean;
   pendingMessages: PendingMessage[];
+  sessionActions: string[];
   error: string;
   streamError: string;
   nativeNotices: NativeNotice[];
@@ -182,6 +197,7 @@ export class ConsoleStore {
     creating: false,
     submitting: false,
     pendingMessages: [],
+    sessionActions: [],
     error: "",
     streamError: "",
     nativeNotices: [],
@@ -1127,19 +1143,23 @@ export class ConsoleStore {
   }
   async action(action: "interrupt" | "resume" | "close") {
     const id = this.state.active;
-    if (!id) return;
+    if (!id || this.state.sessionActions.some((name) => name.startsWith(`${id}:`))) return;
     const name = `${id}:${action}`,
       key = this.actions.get(name) || requestKey();
     this.actions.set(name, key);
+    this.patch({ sessionActions: [...this.state.sessionActions, name], error: "" });
     try {
       await api(`/api/sessions/${encodeURIComponent(id)}/${action}`, {}, key);
       this.actions.delete(name);
-      this.patch({ error: "" });
+      if (this.state.active === id) this.patch({ error: "" });
     } catch (error) {
-      this.fail(error);
+      if (error instanceof ApiError && error.retrySafe) this.actions.delete(name);
+      if (this.state.active === id) this.fail(error);
+    } finally {
+      await this.refreshSessions().catch((error) => { if (this.state.active === id) this.fail(error); });
+      this.patch({ sessionActions: this.state.sessionActions.filter((value) => value !== name) });
+      if (this.state.active === id) this.schedule();
     }
-    await this.refreshSessions().catch(this.fail);
-    this.schedule();
   }
   schedule() {
     this.refreshQueued = true;

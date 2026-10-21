@@ -80,12 +80,26 @@ def build_host(config, *, development=False):
     def reconcile():
         providers.reconcile(registry, config_digest=payload_digest(host.bindings))
 
+    async def rebind_extensions(session, bindings):
+        from .local import source_manifest
+        from .runtime_upgrade import resume_source_extensions
+        try:
+            measured = await asyncio.to_thread(source_manifest, config)
+        except GateError as exc:
+            raise ValueError('deployment files failed recovery validation') from exc
+        # Recheck and commit on the Host loop, without interleaved notifications.
+        host.assert_ready()
+        if bindings != host.bindings:
+            raise ValueError('runtime bindings changed during recovery')
+        return resume_source_extensions(config, store, session, bindings, measured=measured)
+
     host = AgentHost(registry=registry, event_log=events, store=store,
                      client_factory=start_process, reconciler=reconcile,
                      principal_id=config.principal_id, actions=set(config.actions),
                      max_active_turns=config.max_active_turns, workspace_dir=config.workspace_dir,
                      client_stop=process.stop, extensions_close=providers.close, admission_check=check_admission, startup_check=startup_check,
-                     configuration_changed=configuration_changed if development else None)
+                     configuration_changed=configuration_changed if development else None,
+                     extension_rebinder=rebind_extensions if development else None)
     host.skill_roots = [str(root) for root in config.skill_roots]
     from .image_generation import ImageGenerationSettings
     images = ImageGenerationSettings(config, editable=development)

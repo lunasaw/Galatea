@@ -15,43 +15,60 @@ def rebind_source_extensions(config, session_id, *, expected_previous, expected_
     """Explicit offline source deployment; never changes identity or grants."""
     from .local import source_manifest
 
+    store = AtomicJsonStore(config.state_dir)
+    with single_writer_lock(config.state_dir / '.host.lock'):
+        return _rebind_source_extensions(config, store, session_id,
+                                         measured=source_manifest(config),
+                                         expected_previous=expected_previous, expected_current=expected_current)
+
+
+def resume_source_extensions(config, store, session, bindings, *, measured):
+    """Called under Host admission after confirming the native thread is idle."""
+    unchanged = {k: v for k, v in bindings.items() if k != 'extensions_sha256'}
+    if (store.read(f"sessions/{identifier(session['id'])}.json") != session
+            or any(session.get(k) != v for k, v in unchanged.items())):
+        raise ValueError('session or runtime bindings changed')
+    return _rebind_source_extensions(config, store, session['id'],
+                                     measured=measured,
+                                     expected_previous=session['extensions_sha256'],
+                                     expected_current=bindings['extensions_sha256'])
+
+
+def _rebind_source_extensions(config, store, session_id, *, measured, expected_previous, expected_current):
     if config.raw.get('release'):
         raise ValueError('release deployments require their release migration')
     identifier(expected_previous)
     identifier(expected_current)
-    store = AtomicJsonStore(config.state_dir)
-    with single_writer_lock(config.state_dir / '.host.lock'):
-        measured = source_manifest(config)
-        if measured['extensions_sha256'] != expected_current:
-            raise ValueError('reviewed extension digest does not match deployed files')
-        path = f'sessions/{identifier(session_id)}.json'
-        session = store.read(path)
-        if not session or session.get('status') not in {'ready', 'recovery_required'} or session.get('active_turn_id') or session.get('active_request_id'):
-            raise ValueError('only an idle existing session can be rebound')
-        unchanged = {k: measured[k] for k in ('runtime_binary_sha256', 'runtime_compatibility_sha256', 'agent_config_sha256')}
-        unchanged.update(catalog_digest=config.catalog().digest,
-                         principal_digest=payload_digest([config.principal_id, sorted(config.actions)]))
-        if any(session.get(k) != v for k, v in unchanged.items()):
-            raise ValueError('runtime, catalog, principal or configuration changed')
-        evidence = f'source-upgrades/{expected_current}/{identifier(session_id)}.json'
-        previous = store.read(evidence)
-        if session.get('extensions_sha256') == expected_current and previous and previous['previous_session']['extensions_sha256'] == expected_previous:
-            return session
-        if session.get('extensions_sha256') != expected_previous:
-            raise ValueError('previous extension digest changed')
-        for folder, field, terminal in (
-            ('tool-calls', 'state', {'receipt_saved'}),
-            ('requests', 'status', {'completed', 'failed', 'interrupted'}),
-        ):
-            for file in (store.root / folder).glob('*.json'):
-                record = store.read(f'{folder}/{file.name}')
-                if record.get('identity', record).get('session_id') == session_id and record.get(field) not in terminal:
-                    raise ValueError('unresolved execution must be reconciled before migration')
-        if previous is None:
-            store.write(evidence, {'previous_session': session, 'extensions_sha256': expected_current})
-        updated = {**session, 'extensions_sha256': expected_current, 'status': 'recovery_required'}
-        store.write(path, updated)
-        return updated
+    if measured['extensions_sha256'] != expected_current:
+        raise ValueError('reviewed extension digest does not match deployed files')
+    path = f'sessions/{identifier(session_id)}.json'
+    session = store.read(path)
+    if not session or session.get('status') not in {'ready', 'recovery_required'} or session.get('active_turn_id') or session.get('active_request_id'):
+        raise ValueError('only an idle existing session can be rebound')
+    unchanged = {k: measured[k] for k in ('runtime_binary_sha256', 'runtime_compatibility_sha256', 'agent_config_sha256')}
+    unchanged.update(catalog_digest=config.catalog().digest,
+                     principal_digest=payload_digest([config.principal_id, sorted(config.actions)]))
+    if any(session.get(k) != v for k, v in unchanged.items()):
+        raise ValueError('runtime, catalog, principal or configuration changed')
+    evidence = f'source-upgrades/{expected_current}/{identifier(session_id)}.json'
+    previous = store.read(evidence)
+    if session.get('extensions_sha256') == expected_current and previous and previous['previous_session']['extensions_sha256'] == expected_previous:
+        return session
+    if session.get('extensions_sha256') != expected_previous:
+        raise ValueError('previous extension digest changed')
+    for folder, field, terminal in (
+        ('tool-calls', 'state', {'receipt_saved'}),
+        ('requests', 'status', {'completed', 'failed', 'interrupted'}),
+    ):
+        for file in (store.root / folder).glob('*.json'):
+            record = store.read(f'{folder}/{file.name}')
+            if record.get('identity', record).get('session_id') == session_id and record.get(field) not in terminal:
+                raise ValueError('unresolved execution must be reconciled before migration')
+    if previous is None:
+        store.write(evidence, {'previous_session': session, 'extensions_sha256': expected_current})
+    updated = {**session, 'extensions_sha256': expected_current, 'status': 'recovery_required'}
+    store.write(path, updated)
+    return updated
 
 
 def migrate_source_sessions(config, store, bindings):

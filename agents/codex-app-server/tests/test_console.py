@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import AsyncMock
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
@@ -13,6 +14,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 from codex_agent.console.server import ConsoleApp
 from codex_agent.events import EventLog
 from codex_agent.state import AtomicJsonStore
+from codex_agent.host import HostNotReady, ResumeRejected
 
 
 class FakeHost:
@@ -91,6 +93,32 @@ class ConsoleTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await call(self.app, 'POST', '/api/sessions', {}, headers={'idempotency-key': 'r', **headers}))[0]['status'], 403)
         sent = await call(self.app, 'POST', '/api/sessions', {}, headers={'origin': 'http://localhost', 'idempotency-key': 'r'})
         self.assertEqual(sent[0]['status'], 200)
+
+    async def test_resume_preflight_rejection_is_recorded_and_new_request_can_succeed(self):
+        self.host.interrupt = self.host.close_session = AsyncMock()
+        self.host.resume = AsyncMock(side_effect=ResumeRejected('private details', code='session-extensions-changed'))
+        path = '/api/sessions/s/resume'
+        rejected = await call(self.app, 'POST', path, {}, {'idempotency-key': 'first'})
+        self.assertEqual(rejected[0]['status'], 409)
+        self.assertEqual(payload(rejected), {'error': 'session-extensions-changed', 'retry_safe': True})
+        self.assertEqual(self.host.store.read('http-requests/first.json')['status'], 'rejected')
+        self.host.resume.side_effect = None
+        self.host.resume.return_value = {'status': 'ready'}
+        self.assertEqual(payload(await call(self.app, 'POST', path, {}, {'idempotency-key': 'first'})), payload(rejected))
+        self.assertEqual(self.host.resume.await_count, 1)
+        self.assertEqual(payload(await call(self.app, 'POST', path, {}, {'idempotency-key': 'second'})), {'status': 'ready'})
+
+    async def test_indeterminate_resume_retains_intent_and_cannot_reexecute(self):
+        self.host.interrupt = self.host.close_session = AsyncMock()
+        self.host.resume = AsyncMock(side_effect=HostNotReady('native response lost'))
+        path = '/api/sessions/s/resume'
+        first = await call(self.app, 'POST', path, {}, {'idempotency-key': 'unknown'})
+        self.assertEqual(first[0]['status'], 503)
+        self.assertNotIn('retry_safe', payload(first))
+        self.assertEqual(self.host.store.read('http-requests/unknown.json')['status'], 'intent_recorded')
+        replay = await call(self.app, 'POST', path, {}, {'idempotency-key': 'unknown'})
+        self.assertEqual(payload(replay), {'error': 'request-outcome-unknown'})
+        self.assertEqual(self.host.resume.await_count, 1)
 
     async def test_app_confirmation_accepts_http_origin_without_fetch_metadata(self):
         confirmed = []

@@ -624,7 +624,7 @@ function ToolFallbackApprovalQuestions({
                     <Button
                       key={option.id}
                       size="sm"
-                      variant={pressed ? "default" : "outline"}
+                      variant={pressed ? "primary" : "outline"}
                       className={cn(
                         pressable,
                         described &&
@@ -1106,7 +1106,7 @@ function ToolFallbackApprovalImpl({
               <Button
                 key={option.id}
                 size="sm"
-                variant={option === allowOptions[0] ? "default" : "outline"}
+                variant={option === allowOptions[0] ? "primary" : "outline"}
                 className={pressable}
                 onClick={() => handleOption(option)}
                 disabled={locked}

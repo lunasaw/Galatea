@@ -369,7 +369,7 @@ export function useComposerCommands() {
         event.preventDefault(); event.stopPropagation();
       }
     },
-    goalButton: goalMode ? <Button type="button" size="icon" className="rounded-full size-9" aria-label="发送目标"
+    goalButton: goalMode ? <Button variant="primary" type="button" size="icon" className="rounded-full size-9" aria-label="发送目标"
       disabled={!text.trim() || state.submitting || state.creating || state.settingsBusy} onClick={() => void sendGoal()}><ArrowUp className="size-4" /></Button> : null,
     queueButton: !goalMode && queueAvailable && (text.trim() || attachmentCount) ? <TooltipIconButton
       type="button" className="composer-queue-submit" aria-label="加入待发送队列"

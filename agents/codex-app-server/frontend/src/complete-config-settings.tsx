@@ -81,7 +81,7 @@ export function CompleteConfigSettings({ state, only }: { state: ConsoleState; o
       </fieldset>
       {!writable && <p className="muted">当前配置层只读；原生写入接口只支持可编辑的用户层。</p>}
       <label className="native-checkbox"><input type="checkbox" disabled={!writable || action.busy} checked={reload} onChange={(e) => setReload(e.target.checked)} />保存后请求原生重载</label>
-      <div className="native-options"><Button type="submit" disabled={!writable || !dirty || action.busy || config.loading}>{action.busy ? "保存中…" : "保存原生设置"}</Button><Button type="button" variant="outline" disabled={action.busy} onClick={() => { clearDraft(); setSaved(""); void config.refresh(); }}>放弃修改并刷新</Button></div>
+      <div className="native-options"><Button variant="primary" type="submit" disabled={!writable || !dirty || action.busy || config.loading}>{action.busy ? "保存中…" : "保存原生设置"}</Button><Button type="button" variant="outline" disabled={action.busy} onClick={() => { clearDraft(); setSaved(""); void config.refresh(); }}>放弃修改并刷新</Button></div>
     </form>
     <Feedback error={action.error || config.error || schema.error} status={saved} />
   </section>;

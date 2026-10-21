@@ -161,7 +161,7 @@ export function ConfigurationSettings({ state }: { state: ConsoleState }) {
       </fieldset>
       <label className="native-checkbox"><input type="checkbox" checked={reload} disabled={disabled} onChange={(e) => setReload(e.target.checked)} />同时请求原生重载</label>
       <p className="muted">默认设置用于新聊天。重载只更新运行时允许的配置（如 MCP、插件）；已有聊天的权限、模型和回复设置请在“模型与权限”中单独修改。</p>
-      <div className="native-options"><Button type="submit" disabled={disabled || !dirty}>{action.busy ? "保存中…" : "保存默认配置"}</Button>
+      <div className="native-options"><Button variant="primary" type="submit" disabled={disabled || !dirty}>{action.busy ? "保存中…" : "保存默认配置"}</Button>
         <Button type="button" variant="outline" disabled={action.busy || resource.loading} onClick={() => void action.run(reset, "")}>{dirty ? "放弃修改并重新读取" : "重新读取配置"}</Button></div>
     </form>
     <Feedback error={action.error || resource.error || requirements.error} status={notice || (resource.loading ? "读取配置中…" : "")} />

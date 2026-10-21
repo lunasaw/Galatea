@@ -3,11 +3,13 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from codex_agent.app import build_host
 from codex_agent.config import AgentConfig
+from codex_agent.stage0 import GateError
 
 
 class AppAssemblyTests(unittest.IsolatedAsyncioTestCase):
@@ -18,6 +20,11 @@ class AppAssemblyTests(unittest.IsolatedAsyncioTestCase):
             host, console = build_host(config)
             self.assertEqual(host.actions, frozenset({"galatea_get_capabilities"}))
             self.assertIsNotNone(console)
+            self.assertIsNone(host.extension_rebinder)
+            development_host, _ = build_host(config, development=True)
+            with patch('codex_agent.local.source_manifest', side_effect=GateError('files changed')):
+                with self.assertRaises(ValueError):
+                    await development_host.extension_rebinder({}, {})
 
 
 if __name__ == "__main__": unittest.main()

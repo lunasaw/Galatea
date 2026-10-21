@@ -613,19 +613,20 @@ function Workspace() {
                   {statusLabel(session?.status || "unknown")}
                 </DropdownMenuLabel>
                 <DropdownMenuItem
+                  disabled={state.sessionActions.some((name) => name.startsWith(`${state.active}:`))}
                   onSelect={() => void store.action("interrupt")}
                 >
                   中断
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={session?.status === "closed"}
+                  disabled={session?.status === "closed" || state.sessionActions.some((name) => name.startsWith(`${state.active}:`))}
                   onSelect={() => void store.action("resume")}
                 >
                   核对并恢复
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive"
-                  disabled={session?.status === "closed"}
+                  disabled={session?.status === "closed" || state.sessionActions.some((name) => name.startsWith(`${state.active}:`))}
                   onSelect={() => void store.action("close")}
                 >
                   关闭会话
@@ -717,10 +718,10 @@ function Workspace() {
                       id="resume"
                       size="sm"
                       variant="outline"
-                      disabled={session.status === "closed"}
+                      disabled={session.status === "closed" || state.sessionActions.some((name) => name.startsWith(`${state.active}:`))}
                       onClick={() => void store.action("resume")}
                     >
-                      核对并恢复
+                      {state.sessionActions.includes(`${state.active}:resume`) ? "正在核对…" : "核对并恢复"}
                     </Button>
                   </div>
                 )}

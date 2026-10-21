@@ -351,7 +351,7 @@ Controller 只把 Rank 0 指标写入既有 MLflow Run 的所有权规则。`tes
 [`galatea-governance`](../../packages/galatea-governance/README.md)；
 Web Agent 当前是通用 Host，不会自动把本项目 YAML 转为 MCP Campaign。接入 Campaign 时需在
 独立 [`Galatea MCP`](../../services/galatea-mcp/README.md) 登记对应契约，再按
-[`Codex Host 部署说明`](../../agents/codex-app-server/docs/06-config-deployment.md)配置 MCP 并验收。
+[`Codex Host 部署说明`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/06-config-deployment.md)配置 MCP 并验收。
 两条治理路径的授权、Plan 和状态分别维护，见 [架构说明](../../doc/agent-galatea.md)。
 
 ## 9. Runtime Env 排错

@@ -3,9 +3,9 @@
 > **历史 Console 方案（2026-10-16 标注）**：正文“本期/首版/当前”均指早期设计。
 > 当前工作台已支持 Skill、MCP、模型/权限、文件与终端，并可用 SQLite 持久化观察记录；
 > 旧文中的内置 Galatea Registry、仅内存存储和无前端构建链不再是当前架构。
-> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
-更新：2026-10-16。本目录保留早期 Console 设计及其需求背景；当前实现已完整重构为独立的 [Codex Agent Host](../../../agents/codex-app-server/README.md)，配置和架构以组件文档为准。
+更新：2026-10-16。本目录保留早期 Console 设计及其需求背景；当前实现已完整重构为独立的 [Codex Agent Host](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md)，配置和架构以组件文档为准。
 
 当前第一阶段通过配置接入 Skill、自定义 Tool 与外部 MCP，由 Agent 自主判断行动；Host 不再包含 Galatea Service、业务身份字段或固定训练流程。第二阶段再接入业务服务，增加业务阶段和产物可视化。下文“本期”指早期 Console 项目，不能作为当前业务耦合或功能限制的依据。
 
@@ -25,7 +25,7 @@
 
 ## 当前源码入口
 
-当前 Web Agent 位于 [agents/codex-app-server](../../../agents/codex-app-server/README.md)，
+当前 Web Agent 位于 [agents/codex-app-server](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md)，
 已包含 Host、原生 Codex app-server 子进程、工具 Registry 和 HTTP/SSE Console。
 本目录针对该现有实现展开，不以同级历史 Python Runner 文档作为当前运行入口。
 组件关系见 [Codex 与 Galatea 平台架构](../../agent-galatea.md)。
@@ -113,5 +113,5 @@ Console 提供对话、Agent Loop、原生事件详情和运行实例事件，�
 | [06 实施与验收](06-implementation-and-acceptance.md) | 文件级改造、配置迁移、实施次序、测试矩阵及交付标准 |
 
 本目录分章保留设计时的基线和要求；当前实现、测试结果、配置迁移及未完成的现场验收，以
-[当前验收边界](../../../agents/codex-app-server/docs/13-console-acceptance.md) 为准。
+[当前验收边界](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/13-console-acceptance.md) 为准。
 本次仅启动本机模拟测试服务，没有部署业务服务、配置网络或提交真实训练任务。

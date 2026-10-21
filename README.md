@@ -11,13 +11,13 @@ Ray Train 及其他能够接入 MLflow 的训练项目，覆盖分类、回归�
 README 分为两层：先沿着四张图理解平台如何运转，再进入可检索的部署与运维手册。
 
 Codex 是仓库唯一的 Agent Runtime。Web Agent 由
-[`agents/codex-app-server`](agents/codex-app-server/README.md) 托管原生 `codex app-server`，
+[`agents/codex-app-server`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md) 托管原生 `codex app-server`，
 复用其 Agent Loop、Thread、Turn、Skill、沙箱与审批。通用 Host 提供网页工作台、协议转发、
 会话恢复和可配置的 Tool Provider；业务能力通过外部 MCP 或独立 Provider 接入。
 Host 通过显式配置接入独立的 [Galatea 任务 App](agents/galatea-app/README.md)，
 展示业务阶段、进度和产物；普通 CSV 需求的真实聊天链路已验证，完整训练联动按业务契约另行验收。
 
-网页工作台的使用方式见 **[Codex Agent Host 产品界面图文导览](agents/codex-app-server/README.md#product-ui)**：
+网页工作台的使用方式见 **[Codex Agent Host 产品界面图文导览](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md#product-ui)**：
 包含当前界面截图，以及项目与聊天、任务输入、权限审批、文件与代码审查、终端、扩展、设置和多模态能力的详细介绍。
 
 仓库训练通过 [`.codex/skills/`](.codex/skills/) 和项目固定治理入口执行；
@@ -25,6 +25,24 @@ Host 通过显式配置接入独立的 [Galatea 任务 App](agents/galatea-app/R
 独立 [`galatea-mcp`](services/galatea-mcp/README.md) 提供 Campaign、预算与平台工具约束。
 Codex 审批不能替代训练授权，业务组件也不实现第二套 Agent Loop、会话或原生权限系统。
 完整职责、接入路径及迁移边界见 [`doc/agent-galatea.md`](doc/agent-galatea.md)。
+
+## 获取代码与更新 Web Host
+
+通用 Host 在独立仓库 [lunasaw/open-codex](https://github.com/lunasaw/open-codex) 维护。
+本仓库通过 Git submodule 将它固定到已验证提交，路径仍为 `agents/codex-app-server/`。
+
+```sh
+git clone --recurse-submodules https://github.com/lunasaw/Galatea.git
+cd Galatea
+# 已有克隆在拉取本次迁移后执行：
+git submodule update --init --recursive
+# 首次启动显式指定 Galatea 工作目录；已有配置会保留原值。
+CODEX_AGENT_WORKSPACE="$PWD" sh agents/codex-app-server/start.sh
+```
+
+后续拉取后同样运行 `git submodule update --init --recursive`，使用主仓库固定版本。
+Host 改动先在 open-codex 提交，再通过本仓库 PR 更新指针；维护与已有工作区迁移步骤见
+[Open Codex 子模块维护](doc/open-codex-submodule.md)。源码 ZIP 不包含子模块内容，CI 和部署需递归克隆。
 
 ## Galatea 任务 App
 
@@ -363,7 +381,7 @@ galatea/
 
 这些测试应使用前向检查或模拟后端。真实训练 smoke 仍通过项目固定治理入口执行，
 短时长或小数据集不构成本地训练例外。Notebook 的只读验证输出写入临时目录，不覆盖源文件。
-Host 自身的协议、前端与恢复验证见 [Host 测试验收](agents/codex-app-server/docs/09-test-acceptance.md)。
+Host 自身的协议、前端与恢复验证见 [Host 测试验收](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/09-test-acceptance.md)。
 
 ### 文档
 
@@ -380,8 +398,8 @@ Host 自身的协议、前端与恢复验证见 [Host 测试验收](agents/codex
 - [Codex 与 Galatea 架构](doc/agent-galatea.md)
 - [Galatea 任务 App 产品介绍](agents/galatea-app/docs/00-product-overview.md)
 - [Galatea 任务 App 接入与运行](agents/galatea-app/README.md)
-- [Codex app-server 安装与运行](agents/codex-app-server/README.md)
-- [Codex app-server 配置与部署](agents/codex-app-server/docs/06-config-deployment.md)
+- [Codex app-server 安装与运行](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md)
+- [Codex app-server 配置与部署](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/06-config-deployment.md)
 - [仓库开发规范](AGENTS.md)
 
 ### 安全与持久化

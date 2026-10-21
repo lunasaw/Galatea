@@ -3,9 +3,9 @@
 > **历史 Console 设计（2026-10-16 标注）**：下文“当前/本期/首版”指重构前版本，
 > 不作为现行功能或部署依据。当前为通用 Host，无内置 Galatea Adapter；
 > Skill/MCP、前端构建和 SQLite 观察存储以现行组件文档为准。
-> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
-2026-10-16 更新：下文保留 2026-10-15 Console 改造前的源码基线，不再描述当前实现。通用 Host 重构已移除进程内 GalateaAdapter、业务包依赖和固定工具目录，Skill、Tool Provider 与外部 MCP 改为独立配置。当前架构、启动方式及验证边界以 [Codex Agent Host](../../../agents/codex-app-server/README.md) 为准。
+2026-10-16 更新：下文保留 2026-10-15 Console 改造前的源码基线，不再描述当前实现。通用 Host 重构已移除进程内 GalateaAdapter、业务包依赖和固定工具目录，Skill、Tool Provider 与外部 MCP 改为独立配置。当前架构、启动方式及验证边界以 [Codex Agent Host](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md) 为准。
 
 历史核对日期：2026-10-15。本文正文记录当时 checkout 的事实；下文“当前”均指该历史版本。
 方案中的目标行为与当前代码能力必须分开描述，不能把旧设计文档中的计划视为已实现。
@@ -31,18 +31,18 @@ flowchart LR
     Host --> State[AtomicJsonStore / OperationJournal]
 ```
 
-关键装配入口为 [app.py](../../../agents/codex-app-server/src/codex_agent/app.py)。
+关键装配入口为 [app.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/app.py)。
 Console 与 Host 在同一应用内，使用既有 Host 执行会话动作；浏览器没有直接连接原生 Runtime。
 
 | 模块 | 当前行为 | 与本次需求的关系 |
 | --- | --- | --- |
-| [rpc.py](../../../agents/codex-app-server/src/codex_agent/rpc.py) | 单 reader 消费 JSON-RPC，区分 response、server request、notification；server request 独立分发 | 没有覆盖双向收发的统一 observer |
-| [process.py](../../../agents/codex-app-server/src/codex_agent/process.py) | 启动并托管 app-server，初始化 client；保存运行进程记录 | observer 必须在 initialize 前接入，才能覆盖启动事件 |
-| [host.py](../../../agents/codex-app-server/src/codex_agent/host.py) | 会话/轮次管理、工具路由、中断、恢复和生命周期投影 | 是现有控制入口；其业务处理范围不能充当完整事件采集范围 |
-| [events.py](../../../agents/codex-app-server/src/codex_agent/events.py) | 按 session 写 JSONL，分配 seq，回放并生成 loop | 当前是文件存储，公开字段严格裁剪，没有存储端口与内存实现 |
-| [state.py](../../../agents/codex-app-server/src/codex_agent/state.py) | 原子 JSON 文件、工具意图/回执、单写进程锁 | 承担执行和恢复正确性，不能未经确认归入展示缓存 |
-| [console/server.py](../../../agents/codex-app-server/src/codex_agent/console/server.py) | ASGI HTTP/SSE、Bearer/Origin 校验、HTTP 幂等记录 | 可以扩展既有服务；当前写请求记录依赖 Host 文件 store |
-| [console/static/app.js](../../../agents/codex-app-server/src/codex_agent/console/static/app.js) | 会话列表、消息发送、中断/关闭/恢复、步骤筛选、fetch SSE 重连 | 当前显示步骤状态，没有完整对话内容和原生事件检查视图 |
+| [rpc.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/rpc.py) | 单 reader 消费 JSON-RPC，区分 response、server request、notification；server request 独立分发 | 没有覆盖双向收发的统一 observer |
+| [process.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/process.py) | 启动并托管 app-server，初始化 client；保存运行进程记录 | observer 必须在 initialize 前接入，才能覆盖启动事件 |
+| [host.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/host.py) | 会话/轮次管理、工具路由、中断、恢复和生命周期投影 | 是现有控制入口；其业务处理范围不能充当完整事件采集范围 |
+| [events.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/events.py) | 按 session 写 JSONL，分配 seq，回放并生成 loop | 当前是文件存储，公开字段严格裁剪，没有存储端口与内存实现 |
+| [state.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/state.py) | 原子 JSON 文件、工具意图/回执、单写进程锁 | 承担执行和恢复正确性，不能未经确认归入展示缓存 |
+| [console/server.py](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/console/server.py) | ASGI HTTP/SSE、Bearer/Origin 校验、HTTP 幂等记录 | 可以扩展既有服务；当前写请求记录依赖 Host 文件 store |
+| [console/static/app.js](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/console/static/app.js) | 会话列表、消息发送、中断/关闭/恢复、步骤筛选、fetch SSE 重连 | 当前显示步骤状态，没有完整对话内容和原生事件检查视图 |
 
 当前带 Token 的 loopback Console 可以验证 Host 的基础会话控制链路，但不能作为本期“网页聊天与
 追踪台”已经完成的证据。完整 assistant 文本、全量双向协议观察、训练工具的可读调用轨迹和
@@ -146,10 +146,10 @@ Runtime/平台事实；该观察日志本次迁移到内存，不能与工具执
 
 ## 4. 证据边界
 
-- 当前仓库包含 Codex `0.153.4` 的 [fixture manifest](../../../agents/codex-app-server/tests/fixtures/codex-0.153.4/manifest.json)
+- 当前仓库包含 Codex `0.153.4` 的 [fixture manifest](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/tests/fixtures/codex-0.153.4/manifest.json)
   和部分 schema；这是版本化测试依据，不是此次已核实的在线服务版本。
 - manifest 自身标注 `unverified-development-fixture`，不能单凭它证明生产接纳。
-- [既有协议文档](../../../agents/codex-app-server/docs/02-app-server-protocol.md) 引用的外部 Codex
+- [既有协议文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/02-app-server-protocol.md) 引用的外部 Codex
   源码目录此次不可用；现有 fixture 也不是完整 server request/notification 清单。
 - 官方文档检索工具本次返回不可用，官方 App Server 页面直接访问返回 HTTP 403；没有把未读取的
   官方页面作为已验证依据。详细能力或新方法名须在实现阶段对目标 Runtime schema 补充核验。

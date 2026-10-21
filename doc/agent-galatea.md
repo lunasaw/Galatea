@@ -1,6 +1,6 @@
 # Galatea 与 Codex Agent 架构
 
-更新：2026-10-19。以当前工作区源码、配置与契约为准。
+更新：2026-10-20。以当前工作区源码、配置与契约为准。
 
 本文说明当前仓库可由代码和项目契约确认的架构。Codex 是唯一 Agent Runtime；仓库没有
 DeepSeek Harness、`dsh-galatea` 插件或第二套 Agent Loop。Web Host 托管原生 Codex Runtime，
@@ -35,6 +35,11 @@ flowchart LR
 ```
 
 ## Agent Runtime 与 Web Host
+
+通用 Host 独立维护于 [lunasaw/open-codex](https://github.com/lunasaw/open-codex)，
+本仓库的 `agents/codex-app-server/` 是固定提交的 Git submodule。组件路径、Python 包名、
+CLI 和配置版本保持兼容；Galatea App、治理组件与训练项目仍在本仓库维护。
+克隆、初始化、版本升级和现有状态保留见 [子模块维护](open-codex-submodule.md)。
 
 - 原生 `codex app-server` 持有 Agent Loop、模型调用、Thread、Turn、Skill 执行、内建工具、
   沙箱策略和审批交互。Host 通过 stdio JSON-RPC 管理子进程并实现 Web 工作台与事件投影。
@@ -121,18 +126,18 @@ Runner 已删除。该包不是当前通用 Host 的 Campaign 调度插件。需
 
 ## 当前实现文档
 
-源码核对入口：[Host 装配](../agents/codex-app-server/src/codex_agent/app.py)、
-[配置解析](../agents/codex-app-server/src/codex_agent/config.py)、
-[Provider 扩展](../agents/codex-app-server/src/codex_agent/providers.py)、
+源码核对入口：[Host 装配](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/app.py)、
+[配置解析](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/config.py)、
+[Provider 扩展](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/src/codex_agent/providers.py)、
 [MCP transport](../services/galatea-mcp/src/galatea_mcp/server.py) 和
 [项目治理控制器](../packages/galatea-governance/src/tools/controller.ts)。
 
-- [Codex Agent Host](../agents/codex-app-server/README.md)
+- [Codex Agent Host](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/README.md)
 - [Galatea 任务 App 产品介绍](../agents/galatea-app/docs/00-product-overview.md)
 - [Galatea 任务 App 技术方案](../agents/galatea-app/docs/README.md)
-- [Host 架构与集成边界](../agents/codex-app-server/docs/01-architecture.md)
-- [Host 配置与部署](../agents/codex-app-server/docs/06-config-deployment.md)
-- [Host 权限和扩展信任](../agents/codex-app-server/docs/07-security-boundaries.md)
+- [Host 架构与集成边界](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/01-architecture.md)
+- [Host 配置与部署](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/06-config-deployment.md)
+- [Host 权限和扩展信任](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/07-security-boundaries.md)
 - [Galatea MCP](../services/galatea-mcp/README.md)
 - [项目治理库](../packages/galatea-governance/README.md)
 - [当前机器平台运行记忆](platform-runtime-memory.md)

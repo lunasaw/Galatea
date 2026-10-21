@@ -3,10 +3,10 @@
 > **历史方案/证据（2026-10-16 标注）**：正文中的 Python Runner、SDK 配对、
 > 训练等待状态机、安装命令与通过数字只描述当时版本。独立 Runner 已删除；
 > 当前通用 Host 仅通过配置连接 Skill、外部 MCP 和可选 Provider，不内置 Galatea Service。
-> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](../../agents/codex-app-server/docs/README.md)。
+> 当前边界见 [总体架构](../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
 > 本手册依赖的 `agents/training-agent-runtime` 已于 2026-09-22 删除。它只保留历史验收记录；
-> 当前 Codex app-server 方案的协议、部署和验收以 [`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md)
+> 当前 Codex app-server 方案的协议、部署和验收以 [`agents/codex-app-server/docs`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)
 > 为准，本文中的 Runner 制品、unit 和命令不可执行。
 
 更新：2026-09-07。适用 Python MCP、独立 Runner/Skill 和已注册 Ray workload。
@@ -48,7 +48,7 @@ MCP、Runner 各有环境，训练节点按 workload 的环境文件安装；不
 ## 2. 历史独立包安装检查
 
 旧版本使用的双 wheel 安装脚本和 Runner 包已删除，下面的历史命令不再可执行。当前实现应按
-[`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md) 的阶段 0/1 验收，
+[`agents/codex-app-server/docs`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md) 的阶段 0/1 验收，
 并分别验证 Galatea MCP 制品、Codex runtime manifest、dynamicTools 协议和 Host 状态恢复。
 
 ## 3. 部署 MCP
@@ -130,7 +130,7 @@ manifest/split/holdout 身份、代码 revision、环境身份、MLflow Experime
 
 旧 Runner、systemd unit 和八步清单已删除。Codex app-server Host 的 runtime 复制、experimental
 API 握手、有效工具面、Console、恢复和故障注入以
-[`agents/codex-app-server/docs`](../../agents/codex-app-server/docs/README.md) 为唯一当前入口。
+[`agents/codex-app-server/docs`](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md) 为唯一当前入口。
 本历史手册中的 MCP/Release 数据准入章节仍可作为平台背景，但不能替代 Host 验收。
 
 ## 6. 故障恢复与回退

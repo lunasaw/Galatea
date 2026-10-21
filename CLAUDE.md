@@ -213,7 +213,10 @@ For remote MLflow servers, use the HTTPS tracking URI and authentication config.
 ## Codex Integration
 
 Codex is the sole Agent Runtime. Repository workflows use `.codex/skills/` and fixed project entrypoints.
-The Web Agent in `agents/codex-app-server/` hosts the native `codex app-server` over stdio JSON-RPC;
+The Web Agent in `agents/codex-app-server/` is a pinned submodule of `lunasaw/open-codex`.
+Run `git submodule update --init --recursive` before Host or integration checks; generic Host changes
+belong in the independent repository, followed by a verified pointer update here.
+It hosts the native `codex app-server` over stdio JSON-RPC;
 Codex owns Thread, Turn, Skill, sandbox, approval and the Agent Loop. The generic Host provides an
 HTTP/SSE Console, process/session recovery and an optional Dynamic Tool Registry backed by configured
 Python Providers. It has no Galatea service dependency, built-in business adapter or training state machine.
@@ -254,4 +257,4 @@ See `doc/agent-galatea.md` and `agents/codex-app-server/docs/06-config-deploymen
 - [Repository development conventions](AGENTS.md)
 - [Platform overview and architecture](README.md)
 - [Codex and Galatea architecture](doc/agent-galatea.md)
-- [Codex app-server deployment](agents/codex-app-server/docs/06-config-deployment.md)
+- [Codex app-server deployment](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/06-config-deployment.md)

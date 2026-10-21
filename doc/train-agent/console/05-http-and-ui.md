@@ -3,7 +3,7 @@
 > **历史 Console 设计（2026-10-16 标注）**：下文“当前/本期/首版”指重构前版本，
 > 不作为现行功能或部署依据。当前为通用 Host，无内置 Galatea Adapter；
 > Skill/MCP、前端构建和 SQLite 观察存储以现行组件文档为准。
-> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](../../../agents/codex-app-server/docs/README.md)。
+> 当前边界见 [总体架构](../../agent-galatea.md)、[Host 文档](https://github.com/lunasaw/open-codex/blob/b5d9a0d26b14a8d8c0c308b6229bba866ac4d70a/docs/README.md)。
 
 本期页面是现有训练 Agent 的浏览器入口：使用既有 Host 会话 API 聊天，并读取观察 API
 检查 Codex 协议事件和 Galatea 训练工具轨迹。它不直接连接 Runtime，也不提供新训练、

@@ -14,6 +14,7 @@ Python 3.11+，Node 24，Host 固定 Codex 0.163.0，MCP Apps SDK 2.0.3。
 在仓库根目录执行：
 
 ```bash
+git submodule update --init --recursive
 python -m pip install -e agents/galatea-app -e agents/codex-app-server
 npm --prefix agents/galatea-app/frontend ci
 npm --prefix agents/galatea-app/frontend run build

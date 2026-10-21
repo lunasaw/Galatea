@@ -162,6 +162,9 @@ for the project. The Skill must remain reusable across frameworks and experiment
 - Codex is the sole Agent Runtime. Repository workflows use Codex and `.codex/skills/`; the Web Agent uses
   `agents/codex-app-server/`, which hosts the native `codex app-server` process. Implement Agent features
   against its actual protocol and source-level tool, permission, event, and capability abstractions.
+- `agents/codex-app-server/` is a pinned Git submodule of `lunasaw/open-codex`. Initialize it with
+  `git submodule update --init --recursive` before Host or cross-project checks. Develop generic Host
+  changes in open-codex, then update the verified commit pointer here. See `doc/open-codex-submodule.md`.
 - `services/galatea-mcp/` owns Python platform governance and can serve Codex over external MCP. The generic
   app-server Host has no built-in Galatea adapter or platform dependency; optional Python tools are configured
   independently through its Provider contract. `packages/galatea-governance/` owns the independent

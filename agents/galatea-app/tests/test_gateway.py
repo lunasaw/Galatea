@@ -6,6 +6,7 @@ import unittest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from codex_agent.app_gateway import AppGateway, ProofSigner
 from codex_agent.state import AtomicJsonStore
+from galatea_app.trust import ProofVerifier
 
 
 class GatewayTests(unittest.IsolatedAsyncioTestCase):
@@ -73,6 +74,77 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             ],
             "alice",
         )
+
+    async def test_permission_profiles_control_app_confirmation(self):
+        for settings in (
+            {"approvalPolicy": "never", "sandboxPolicy": {"type": "dangerFullAccess"}},
+            {"approvalPolicy": "on-request", "approvalsReviewer": "auto_review",
+             "sandboxPolicy": {"type": "workspaceWrite"}},
+            {"approvalPolicy": "on-request", "approvalsReviewer": "guardian_subagent",
+             "sandbox": "workspace-write"},
+        ):
+            self.session["settings"] = settings
+            body = {**self.body, "arguments": {"profile": settings}}
+            challenge = self.gateway.challenge(body)
+            self.assertEqual(challenge["state"], "confirmed")
+            await self.gateway.call({"call_id": challenge["call_id"]})
+            await self.gateway.call({"call_id": challenge["call_id"]})
+            proof = self.calls[-1]["_meta"]["io.codex.host/call-proof"]
+            verifier = ProofVerifier({"key": {
+                "public_key": self.gateway.signer.private_key.public_key(),
+                "host_id": "host", "principal_id": "alice",
+            }}, "audience")
+            context = verifier.verify(proof, "write", body["arguments"], write=True)
+            self.assertTrue(context.confirmed)
+            self.assertTrue(context.interaction_id)
+            self.assertEqual(proof["claims"]["interaction"]["approval_source"], "permission_profile")
+        self.assertEqual(len(self.calls), 3)
+
+        self.session["settings"] = {"approvalPolicy": "on-request", "approvalsReviewer": "user"}
+        body = {**self.body, "arguments": {"profile": "ask"}}
+        challenge = self.gateway.challenge(body)
+        self.assertEqual(challenge["state"], "pending")
+        with self.assertRaises(ValueError):
+            await self.gateway.call({"call_id": challenge["call_id"]})
+
+    async def test_app_cannot_select_automatic_confirmation_and_custom_modes_still_ask(self):
+        for i, settings in enumerate((
+            {}, {"approvalPolicy": "never", "sandbox": "read-only"},
+            {"approvalPolicy": "on-request", "approvalsReviewer": "auto_review",
+             "sandboxPolicy": {"type": "workspaceWrite", "networkAccess": True}},
+            {"approvalPolicy": "never", "sandbox": "danger-full-access", "permissions": "custom"},
+        )):
+            self.session["settings"] = settings
+            challenge = self.gateway.challenge({**self.body,
+                "arguments": {"case": i},
+                "settings": {"approvalPolicy": "never", "sandbox": "danger-full-access"},
+                "approval_source": "permission_profile"})
+            self.assertEqual(challenge["state"], "pending")
+        self.assertEqual(self.calls, [])
+
+    async def test_permission_changes_recheck_pending_calls_without_overriding_denial(self):
+        challenge = self.gateway.challenge(self.body)
+        self.session["settings"] = {"approvalPolicy": "never", "sandbox": "danger-full-access"}
+        repeated = self.gateway.challenge(self.body)
+        self.assertEqual(repeated["call_id"], challenge["call_id"])
+        self.assertEqual(repeated["state"], "confirmed")
+        self.session["settings"] = {"approvalPolicy": "on-request", "sandbox": "workspace-write"}
+        with self.assertRaisesRegex(ValueError, "confirmation required"):
+            await self.gateway.call({"call_id": challenge["call_id"]})
+        self.assertEqual(self.calls, [])
+        self.gateway.confirm({**challenge, "decision": "denied"})
+        self.session["settings"] = {"approvalPolicy": "never", "sandbox": "danger-full-access"}
+        self.assertEqual(self.gateway.challenge(self.body)["state"], "denied")
+        with self.assertRaises(ValueError):
+            await self.gateway.call({"call_id": challenge["call_id"]})
+
+    async def test_active_turn_permissions_override_thread_defaults(self):
+        self.session["settings"] = {"approvalPolicy": "never", "sandboxPolicy": {"type": "dangerFullAccess"}}
+        self.session["turn_settings"] = {"approvalPolicy": "on-request",
+            "approvalsReviewer": "user", "sandboxPolicy": {"type": "workspaceWrite"}}
+        self.assertEqual(self.gateway.challenge(self.body)["state"], "pending")
+        self.session["turn_settings"]["approvalsReviewer"] = "auto_review"
+        self.assertEqual(self.gateway.challenge(self.body)["state"], "confirmed")
 
     async def test_read_refresh_does_not_replay_cached_business_snapshot(self):
         self.body["name"] = "read"

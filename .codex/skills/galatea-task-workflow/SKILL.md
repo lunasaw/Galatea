@@ -52,8 +52,11 @@ stage. A trusted training decision enables the existing background continuation 
    Use `propose_training` before starting a training Attempt. Wait for the exact proposal's trusted
    confirm decision. Adjustment is a new proposal; defer preserves work and pauses execution.
    Read `training_decisions` from the returned task context. Proactively tell the user the
-   specific next action: when `can_authorize` is true, click “授权本次方案” and approve the Host
-   interaction, then separately confirm execution. Authorization alone never starts training.
+   specific next action when Host policy requires manual App confirmation: if `can_authorize` is
+   true, authorize this exact proposal, then separately confirm execution. The Host may complete
+   these two decisions automatically in full-access or auto-review modes. Authorization alone never
+   starts training; only exact confirmation queues continuation, and all delegated governance,
+   budget and readiness checks still apply.
    If the button is unavailable, explain its returned `reason` and prepare the missing configuration
    or scope adjustment; do not send the user back to a disabled button. Request permission for any
    platform authorization configuration change not already authorized in this conversation.

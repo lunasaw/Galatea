@@ -36,11 +36,15 @@ def build(config):
     }
     governance = {}
     if config.get("project_governance"):
-        from .integrations.project_governance import ProjectGovernance
+        from .integrations.project_governance import ProjectGovernanceRegistry
 
-        governance["project_governance"] = ProjectGovernance(
-            **config["project_governance"]
-        )
+        settings = config["project_governance"]
+        projects = settings.get("projects")
+        if projects is None:
+            # Preserve compatibility with deployments that still have one
+            # project configured directly on project_governance.
+            projects = {settings["project_id"]: settings}
+        governance["project_governance"] = ProjectGovernanceRegistry(projects)
     if config.get("governance_mcp"):
         import time
         from .common import timestamp

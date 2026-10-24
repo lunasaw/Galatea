@@ -647,6 +647,11 @@
             "project_governance"
           ]
         },
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "campaign_id": {
           "type": "string",
           "minLength": 1,

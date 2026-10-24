@@ -70,22 +70,29 @@ App 只展示当前任务的动态阶段、进度、指标、产物、日志和�
 项目/会话导航或第二个聊天框。用户在原聊天补充要求；不会自动创建或跳转另一会话。
 桌面切换标签或收起面板保留视图；刷新从原会话工具记录和服务端快照恢复。
 `start_task` 允许在当前原生回合做已请求的准备工作，不排队第二个 Agent，也不授予训练权限。
-真实训练仍需精确方案确认和治理授权。具备管理员委派权限的用户可先点击
+真实训练仍需精确方案确认和治理授权。“请求批准”模式下，具备管理员委派权限的用户可先点击
 “授权本次方案”，通过 Host 确认后留下持久化授权收据；这一步不会启动训练。
 再点击“确认本次执行并训练”并通过 Host 确认，才启用后台观察与接续机制。
+App 的方案授权和执行确认遵循当前会话及回合权限：“请求批准”需在 App 中手动处理，
+“完全访问权限”和“帮我批准”由 Host 自动完成这两步并留下签名收据；未知或自定义权限继续询问。
+自动决定仍受管理员委派范围、预算、方案有效期和就绪检查约束，通过后才会接续任务。
 新会话只读取自身绑定的任务，不能将旧项目产物当作本次交付。
 旧 `launch_project` / activation 接口保留兼容历史任务，不作为主要交互入口。
 单个 Host 是单 owner 身份域；外网访问须经过认证代理。
 
-## cats-and-dogs 真实证据
+## 多项目真实证据与授权
 
-训练继续使用 `train-model/ray-cats-and-dogs/job/governed.mjs`。管理员配置
-`project_governance` 的 `project_id/profile/ray_api/tracking_uri/receipts_root/project_root/grants`。
-每个 grant 绑定完整 `immutable_inputs`、`hard_limits` 和 `expires_at`。
-也可配置 `project_governance.user_authorization`，把有限的授权权限委派给指定
-Host principal。字段为 `principal_ids`、`roles`、`allow_final_test`、
-`resources`（CPU/GPU 上限）、`hard_limits`（次数/重试/秒数/内存字节上限）、
-`expires_at`；参见 [委派配置示例](deploy/user-authorization.example.json)。
+训练项目继续使用各自固定的 `job/governed.mjs` 入口。管理员配置
+`project_governance.projects`，键必须与每个项目配置中的 `project_id` 相同；每个项目独立配置
+`profile/ray_api/tracking_uri/receipts_root/project_root/grants`，运行回执、API 目标和授权策略不会
+跨项目复用。服务根据方案或外部意图中的不可变 `project_id` 选择适配器；未知项目直接拒绝，
+不会回退到其他项目。旧版直接放置单个项目对象的配置仍兼容，但新部署应使用 `projects` 映射。
+
+每个 grant 绑定完整 `immutable_inputs`、`hard_limits` 和 `expires_at`。也可在每个项目下配置
+`user_authorization`，把有限的授权权限委派给指定 Host principal。字段为 `principal_ids`、
+`roles`、`allow_final_test`、`resources`（CPU/GPU 上限）、`hard_limits`（次数/重试/秒数/内存字节
+上限）、`expires_at`；参见 [委派配置示例](deploy/user-authorization.example.json)。注册项目不会
+自动授予训练权限；每个项目仍需自己的精确授权和确认。
 该配置不授予任何训练方案。用户的签名点击才产生 Task 内持久化授权，绑定精确
 proposal digest、计划版本、任务/会话、用户与过期时间；修改方案必须重新授权。
 Agent Provider 不暴露授权命令，普通聊天回答不伪装为 Host 签名收据。

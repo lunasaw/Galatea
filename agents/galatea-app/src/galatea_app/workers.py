@@ -5,6 +5,7 @@ import json
 import time
 from .common import TaskError, digest, utc
 from .projections import Workbench
+from .service import Context
 
 
 class HostClient:
@@ -65,6 +66,11 @@ class Worker:
             ]
         for a in aggregates:
             t = a["snapshot"]["task"]
+            if t["status"] in {"waiting_approval", "waiting_input"}:
+                try:
+                    await self.approve_training(t["id"], a["binding"], a["owner_id"])
+                except Exception as exc:
+                    self.last_error = "automatic_training_approval:" + type(exc).__name__
             reconciled_intents = set()
             for intent in a["intents"].values():
                 if intent["state"] not in {"prepared", "unknown"}:
@@ -146,6 +152,55 @@ class Worker:
                 self.service.storage.ack(
                     job["id"], job["fencing_token"], error=type(exc).__name__
                 )
+
+    async def approve_training(self, task_id, binding, principal_id):
+        """Request exact decisions; only the Host can approve them automatically."""
+        ctx = Context(principal_id=principal_id, **{k: binding[k] for k in (
+            "host_id", "session_id", "thread_id", "workspace_ref"
+        )})
+        context = await asyncio.to_thread(self.service.get_context, ctx, task_id)
+        for request in context["pending_requests"]:
+            if request["status"] != "open" or request["kind"] != "training_proposal":
+                continue
+            # Authorization changes the version and availability. Reload before
+            # confirmation and never resume a deferred or explicitly paused task.
+            for _ in range(2):
+                current = await asyncio.to_thread(self.service.get_context, ctx, task_id)
+                task = current["snapshot"]["task"]
+                if task["status"] not in {"waiting_approval", "waiting_input"}:
+                    break
+                latest_request = next(r for r in current["pending_requests"]
+                                      if r["request_id"] == request["request_id"])
+                if latest_request["status"] != "open":
+                    break
+                availability = current["training_decisions"][request["proposal_id"]]
+                decision = ("authorize" if availability["can_authorize"] else
+                            "confirm" if availability["can_confirm"] else None)
+                if not decision:
+                    break
+                result = await self.host.request(
+                    "POST", "/internal/v1/app-tool-calls",
+                    json={
+                        "host_session_id": ctx.session_id,
+                        "server": "galatea_app",
+                        "uri": "ui://galatea/workbench/v1",
+                        "name": "submit_input",
+                        "arguments": {
+                            "task_id": task_id,
+                            "command_id": "auto-training-" + digest([
+                                task_id, request["request_id"], decision, task["version"]
+                            ]),
+                            "expected_version": task["version"],
+                            "request_id": request["request_id"],
+                            "values": {"proposal_digest": request["subject_digest"],
+                                       "decision": decision},
+                        },
+                    },
+                )
+                if result.get("state") != "completed":
+                    return
+                if result.get("result", {}).get("isError"):
+                    raise TaskError("AUTHORIZATION_REQUIRED", "Automatic decision rejected")
 
     async def deliver(self, job):
         with self.service.storage.lock:

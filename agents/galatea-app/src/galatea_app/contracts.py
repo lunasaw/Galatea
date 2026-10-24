@@ -274,7 +274,7 @@ AGENT_TOOLS = {"create_task", "start_task", "get_task", "get_current_task"} | (
 )
 DESCRIPTIONS = {
     "open_workbench": "在当前聊天展示 Galatea 任务的动态阶段、训练进度、指标与结果。当用户要求训练、微调、评估或数据处理时，由 Agent 主动调用；使用 galatea_task.start_task 返回的 task_id。用户继续在聊天里沟通，无须进入 App 填表或创建另一会话。",
-    "start_task": "用户在当前聊天提出训练、微调或数据处理需求时，建立并开始当前会话的任务。返回 app_view 后 Host 自动展示进度面板，无需另调打开工具。只授权当前 Agent 回合的准备工作；训练仍须方案确认与治理授权。不创建新会话，不启动后台 Agent。",
+    "start_task": "用户在当前聊天提出训练、微调或数据处理需求时，建立并开始当前会话的任务。返回 app_view 后 Host 自动展示进度面板，无需另调打开工具。只授权当前 Agent 回合的准备工作；训练仍须精确方案确认与治理授权，Host 可按当前权限自动确认。不创建新会话，不启动后台 Agent。",
     "get_current_task": "读取当前可信会话的任务；无任务时返回 null。新会话不得复用其他会话或项目的产物。",
     "create_task": "在当前可信会话建立任务草稿；Agent 不可自行授权后台启动。",
     "replace_plan": "提交完整动态阶段 DAG 和修订原因；冻结已执行阶段，保留历史。",

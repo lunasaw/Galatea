@@ -158,6 +158,9 @@ class TrainingTests(DomainTests):
         started = time.time()
         self.adapter.execution_started_at = lambda operation: started
         self.bind(intent)
+        self.assertEqual(
+            self.snapshot()["external_operations"][0]["project_id"], "fixture"
+        )
         with self.service.storage.lock:
             a = self.service._load(self.service.storage.db, self.agent, self.task)
             self.assertEqual(a["external_deadlines"]["operation"], started + 600)

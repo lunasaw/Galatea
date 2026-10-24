@@ -82,6 +82,10 @@ class TaskService:
         )
 
     def close(self):
+        for adapter in self.governance.values():
+            close = getattr(adapter, "close", None)
+            if close:
+                close()
         self.storage.close()
 
     def resolve_path(self, workspace, path):
@@ -1784,7 +1788,7 @@ class TaskService:
                 reason = "尚未配置此项目的治理入口；请在聊天中要求配置，重复点击不会启动训练。"
             elif can_authorize:
                 reason = (
-                    "请先点击“授权本次方案”，再在 Host 弹窗选择“允许本次”。"
+                    "本次方案可授权。需要手动审批时，请点击“授权本次方案”并允许 Host 授权请求。"
                     "此操作不会启动训练。"
                 )
             else:
@@ -2072,6 +2076,9 @@ class TaskService:
             "status": "accepted",
             "last_observed_at": utc(),
         }
+        project_id = intent["immutable_inputs"].get("project_id")
+        if isinstance(project_id, str) and project_id:
+            o["project_id"] = project_id
         for k in ("job_id", "run_id", "campaign_id"):
             if operation.get(k):
                 o[k] = operation[k]

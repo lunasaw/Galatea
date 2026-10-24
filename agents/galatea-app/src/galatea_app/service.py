@@ -82,6 +82,10 @@ class TaskService:
         )
 
     def close(self):
+        for adapter in self.governance.values():
+            close = getattr(adapter, "close", None)
+            if close:
+                close()
         self.storage.close()
 
     def resolve_path(self, workspace, path):
@@ -2072,6 +2076,9 @@ class TaskService:
             "status": "accepted",
             "last_observed_at": utc(),
         }
+        project_id = intent["immutable_inputs"].get("project_id")
+        if isinstance(project_id, str) and project_id:
+            o["project_id"] = project_id
         for k in ("job_id", "run_id", "campaign_id"):
             if operation.get(k):
                 o[k] = operation[k]

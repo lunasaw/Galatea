@@ -14,6 +14,8 @@ import httpx
 from galatea_app.common import require, utc, digest, timestamp, TaskError
 from galatea_app.budgets import within_limits
 
+_CONFLICTING_PROJECT_ID = object()
+
 
 class ProjectGovernance:
     def __init__(
@@ -372,3 +374,145 @@ class ProjectGovernance:
         response = json.loads(result.stdout)
         require(response.get("ok"), "UNAVAILABLE", "Controller rejected stop request")
         return response
+
+
+class ProjectGovernanceRegistry:
+    """Route project-governed work to isolated per-project adapters.
+
+    A project adapter owns its receipts, API endpoints, authorization policy and
+    operation index.  The registry is the single service-facing capability and
+    selects an adapter from the immutable project identity carried by an intent,
+    proposal, operation or artifact reference.  The legacy one-project config is
+    still supported by :func:`galatea_app.cli.build`, but new deployments should
+    use the ``projects`` mapping.
+    """
+
+    def __init__(self, projects):
+        require(isinstance(projects, dict) and projects, "INVALID_COMMAND",
+                "At least one project governance adapter is required")
+        self.adapters = {}
+        for project_id, settings in projects.items():
+            require(
+                isinstance(project_id, str) and project_id and isinstance(settings, dict),
+                "INVALID_COMMAND",
+                "Project governance entries must be named objects",
+            )
+            settings = dict(settings)
+            require(
+                settings.get("project_id") == project_id,
+                "INVALID_COMMAND",
+                "Project registry key must match project_id",
+            )
+            require(project_id not in self.adapters, "INVALID_COMMAND")
+            self.adapters[project_id] = ProjectGovernance(**settings)
+
+    @property
+    def project_ids(self):
+        return tuple(self.adapters)
+
+    def _project_id(self, value):
+        if not isinstance(value, dict):
+            return None
+        inputs = value.get("immutable_inputs")
+        immutable_project = (
+            inputs.get("project_id")
+            if isinstance(inputs, dict)
+            and isinstance(inputs.get("project_id"), str)
+            else None
+        )
+        direct_project = (
+            value.get("project_id")
+            if isinstance(value.get("project_id"), str)
+            else None
+        )
+        if immutable_project and direct_project and immutable_project != direct_project:
+            return _CONFLICTING_PROJECT_ID
+        if immutable_project:
+            return immutable_project
+        if direct_project:
+            return direct_project
+        target = value.get("target")
+        if isinstance(target, dict) and isinstance(target.get("project_id"), str):
+            return target["project_id"]
+        return None
+
+    def _adapter_for(self, value, *, required=True):
+        project_id = self._project_id(value)
+        if project_id is _CONFLICTING_PROJECT_ID:
+            if required:
+                require(False, "FORBIDDEN", "Project identity fields do not match")
+            return None
+        if project_id in self.adapters:
+            return self.adapters[project_id]
+
+        # Historical operation records did not persist project_id.  Resolve
+        # those records by the adapter's receipt index, but never guess between
+        # projects when an identity is present and unknown.
+        operation_id = value.get("operation_id") if isinstance(value, dict) else None
+        if operation_id is None and isinstance(value, dict):
+            operation_id = value.get("id")
+        if not project_id and operation_id:
+            matches = [
+                adapter for adapter in self.adapters.values()
+                if operation_id in adapter.operations
+            ]
+            if len(matches) == 1:
+                return matches[0]
+        if required:
+            require(
+                False,
+                "CAPABILITY_UNAVAILABLE",
+                "No project governance adapter is registered for this project",
+            )
+        return None
+
+    def authorized(self, proposal):
+        adapter = self._adapter_for(proposal, required=False)
+        return bool(adapter and adapter.authorized(proposal))
+
+    def can_authorize(self, principal_id, proposal):
+        adapter = self._adapter_for(proposal, required=False)
+        return bool(adapter and adapter.can_authorize(principal_id, proposal))
+
+    def reconcile(self, intent):
+        return self._adapter_for(intent).reconcile(intent)
+
+    def owns(self, intent, operation):
+        intent_project = self._project_id(intent)
+        operation_project = self._project_id(operation)
+        if (
+            intent_project is _CONFLICTING_PROJECT_ID
+            or operation_project is _CONFLICTING_PROJECT_ID
+            or (
+                intent_project
+                and operation_project
+                and intent_project != operation_project
+            )
+        ):
+            return False
+        if isinstance(intent_project, str) and intent_project not in self.adapters:
+            return False
+        adapter = self._adapter_for(intent, required=False)
+        if adapter:
+            return adapter.owns(intent, operation)
+        # Keep reconciliation fail-closed for unknown projects, while allowing
+        # old records whose adapter identity was not persisted to be checked.
+        return any(
+            candidate.owns(intent, operation) for candidate in self.adapters.values()
+        )
+
+    def observe(self, operation):
+        return self._adapter_for(operation).observe(operation)
+
+    def execution_started_at(self, operation):
+        return self._adapter_for(operation).execution_started_at(operation)
+
+    def read_artifact(self, ref, max_bytes):
+        return self._adapter_for(ref).read_artifact(ref, max_bytes)
+
+    def stop(self, operation):
+        return self._adapter_for(operation).stop(operation)
+
+    def close(self):
+        for adapter in self.adapters.values():
+            adapter.http.close()
